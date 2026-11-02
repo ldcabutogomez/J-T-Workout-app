@@ -40,14 +40,14 @@ export function VerificationTab() {
   const checks = smokeChecks();
   return (
     <div className="space-y-4">
-      <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5">
-        <div className="flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-emerald-400" /><h1 className="text-xl font-black">Workbook mapping</h1></div>
-        <p className="text-xs text-slate-400 mt-2">These are non-destructive runtime smoke checks. They never touch workout storage. Passing them is not presented as proof of workbook fidelity; the repository test suite compares all 48 combinations with an independently transcribed workbook fixture.</p>
+      <section className="card p-5">
+        <div className="flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-ok" /><h1 className="text-xl font-black">Workbook mapping</h1></div>
+        <p className="text-xs text-muted mt-2">These are non-destructive runtime smoke checks. They never touch workout storage. Passing them is not presented as proof of workbook fidelity; the repository test suite compares all 48 combinations with an independently transcribed workbook fixture.</p>
       </section>
-      <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 space-y-2">
-        {checks.map((check) => <div key={check.name} className="bg-slate-950 border border-slate-800 rounded-2xl p-3 flex gap-3">{check.passed ? <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" /> : <XCircle className="w-5 h-5 text-rose-400 shrink-0" />}<div><strong className="text-sm">{check.name}</strong><p className="text-xs text-slate-400 mt-0.5">{check.detail}</p></div></div>)}
+      <section className="card p-4 space-y-2">
+        {checks.map((check) => <div key={check.name} className="bg-paper border border-line rounded-2xl p-3 flex gap-3">{check.passed ? <CheckCircle2 className="w-5 h-5 text-ok shrink-0" /> : <XCircle className="w-5 h-5 text-bad shrink-0" />}<div><strong className="text-sm">{check.name}</strong><p className="text-xs text-muted mt-0.5">{check.detail}</p></div></div>)}
       </section>
-      <section className="bg-amber-950/30 border border-amber-800 rounded-3xl p-4 text-xs text-amber-200"><strong>Source files inspected:</strong> <code>J&amp;T2.0!D2:BQ104</code> and <code>J&amp;T2.0 KGS!D2:BQ104</code>, including formula references for T1 and T2a loads.</section>
+      <section className="bg-accent/10 border border-accent/40 rounded-3xl p-4 text-xs text-accent-ink"><strong>Source files inspected:</strong> <code>J&amp;T2.0!D2:BQ104</code> and <code>J&amp;T2.0 KGS!D2:BQ104</code>, including formula references for T1 and T2a loads.</section>
     </div>
   );
 }

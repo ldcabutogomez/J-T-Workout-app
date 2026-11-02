@@ -103,6 +103,14 @@ try {
   await page.getByText('completed', { exact: true }).waitFor();
   await assertNoHorizontalClipping(page, 'Progress screen');
 
+  // Together tab: both local lifters render, the leaderboard lays out, and with no backend configured the pairing panel says so.
+  await page.getByRole('button', { name: 'Together' }).click();
+  await page.getByRole('heading', { name: 'Leaderboard' }).waitFor();
+  await page.getByText('Partner sync is not set up').waitFor();
+  assert.ok(await page.getByText('Lauren').count() >= 1 && await page.getByText('Luis').count() >= 1, 'Together shows both partners');
+  await assertNoHorizontalClipping(page, 'Together screen');
+  await page.getByRole('button', { name: 'Progress' }).click();
+
   const manifest = await context.request.get(`${origin}/manifest.webmanifest`);
   assert.equal(manifest.ok(), true);
   const manifestData = await manifest.json();
@@ -135,6 +143,38 @@ try {
   await page.getByText('10 reps @ 160 lb').waitFor();
   await assertNoHorizontalClipping(page, 'offline active workout');
   await context.setOffline(false);
+
+  // Profile picture: upload a generated image, see it in the header, keep it across a reload, then remove it.
+  const avatarContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const avatarPage = await avatarContext.newPage();
+  await avatarPage.goto(origin, { waitUntil: 'networkidle' });
+  await avatarPage.getByRole('button', { name: 'Settings' }).click();
+  assert.equal(await avatarPage.locator('header img').count(), 0, 'initials show before a photo is added');
+  await avatarPage.getByLabel('Choose a profile photo').evaluate(async (input) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 300;
+    canvas.height = 200;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#336699';
+    context.fillRect(0, 0, 300, 200);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([blob], 'me.png', { type: 'image/png' }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await avatarPage.getByText('Photo saved on this device.').waitFor();
+  await avatarPage.locator('header img').first().waitFor();
+  const stored = await avatarPage.locator('img[alt="Lauren\'s profile photo"]').first().getAttribute('src');
+  assert.match(stored, /^data:image\/jpeg;base64,/, 'photo is stored as a small JPEG data URL');
+  assert.ok(stored.length < 80_000, 'stored photo is small');
+  await avatarPage.reload({ waitUntil: 'networkidle' });
+  await avatarPage.locator('header img').first().waitFor();
+  await avatarPage.getByRole('button', { name: 'Settings' }).click();
+  await avatarPage.getByRole('button', { name: 'Remove photo' }).click();
+  await avatarPage.getByText('Photo removed.').waitFor();
+  assert.equal(await avatarPage.locator('header img').count(), 0, 'initials return after removing the photo');
+  await avatarContext.close();
 
   // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).
   const iosContext = await browser.newContext({

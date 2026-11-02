@@ -67,7 +67,6 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(rootDir, '.'),
-        'lucide-react': path.resolve(rootDir, 'src/components/icons.tsx'),
       },
     },
     server: {

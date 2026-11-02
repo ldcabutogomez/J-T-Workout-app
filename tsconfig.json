@@ -17,9 +17,6 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
-      "lucide-react": [
-        "./src/components/icons.tsx"
-      ],
       "@/*": [
         "./*"
       ]

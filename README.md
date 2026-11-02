@@ -2,7 +2,7 @@
 
 A local-first workout tracker for the original Jacked & Tan 2.0 template in `GZCL Free Compendium November 27th Update.xlsx`. The prescription dataset was reconstructed from the workbook's `J&T2.0` and `J&T2.0 KGS` sheets—not from the former app engine, its verification screen, or the General Gainz hybrid.
 
-The app keeps the existing two-partner, mobile-first workflow while correcting prescriptions, load bases, session persistence, history, progress claims, and production offline behavior. It does not use AI APIs, cloud sync, example workbook weights, or automatically increased training maxes.
+The app keeps the existing two-partner, mobile-first workflow while correcting prescriptions, load bases, session persistence, history, progress claims, and production offline behavior. It does not use AI APIs, example workbook weights, or automatically increased training maxes.
 
 ## Personal setup
 
@@ -37,7 +37,22 @@ A session stores a snapshot of its prescription, source ranges, unit, equipment 
 
 Backup format version 2 validates profiles, sessions, exercises, sets, stable IDs, cell references, and nested values before writing. Duplicate profile/session IDs and duplicate active-profile records are rejected by default. The UI offers replace-all only after explicit confirmation; import is one IndexedDB transaction (or a rollback-protected localStorage fallback).
 
-All records stay in the browser. Export backups regularly, especially before clearing browser storage.
+All workout records stay in the browser. Export backups regularly, especially before clearing browser storage.
+
+## Together tab and partner sync
+
+The Together tab ranks both lifters on 4-week compliance, week streak, lifetime volume and all-time PRs, with this-week progress and days-since-last-session for accountability.
+
+With two phones, each phone pushes a **stats-only snapshot** (sessions per week, streak inputs, volume, PR count, badge count, program position, last session time) and pulls its partner's. Set-by-set logs never leave the phone. Partners are linked with a shared 10-character code (Create a code on one phone, Join on the other). Stats are recomputed on the receiving phone against its own clock, so a partner who stops training shows as inactive even if their phone never syncs again. The sync is optional: without a backend configured the tab only compares profiles on the same phone, and the rest of the app works offline as before.
+
+### One-time backend setup (Supabase, free tier)
+1. Create a project at supabase.com.
+2. In the SQL editor, run `supabase/schema.sql`. It locks the table down so the public key can only call `push_snapshot` and `pull_snapshots`, and stores codes as SHA-256 hashes. A code accepts at most two phones.
+3. Copy the project URL and anon key (Project Settings, API). Locally, put them in `.env.local` (see `.env.example`). For the deployed app, add them as repository **Variables** named `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` and redeploy.
+4. On each phone, open Together, pick who you are, then Create a code on one and Join with it on the other.
+
+Anyone holding the code can read the two snapshots, so treat it like a password and Unlink to stop sharing. Only a pairing code is needed, so there are no accounts.
+
 
 ## Install and run
 

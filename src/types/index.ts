@@ -84,6 +84,16 @@ export interface UserProfile {
   soundEnabled?: boolean;
   autoStartRest?: boolean;
   unlockedBadges?: UnlockedBadge[];
+  avatar?: ProfileAvatar;
+}
+
+export type AvatarColor = 'accent' | 'ok' | 'gold' | 'ink' | 'clay' | 'teal';
+
+export interface ProfileAvatar {
+  /** Small square JPEG data URL, stored on this device only. */
+  photo?: string;
+  /** Tile color for the initial shown when there is no photo. */
+  color?: AvatarColor;
 }
 
 export interface UnlockedBadge {

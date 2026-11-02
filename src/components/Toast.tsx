@@ -5,9 +5,9 @@ export interface ToastItem {
 }
 
 const TONE_CLASS: Record<NonNullable<ToastItem['tone']>, string> = {
-  default: 'border-slate-700 bg-slate-900 text-slate-100',
-  pr: 'border-amber-400/60 bg-amber-400/10 text-amber-200',
-  badge: 'border-emerald-400/60 bg-emerald-400/10 text-emerald-200',
+  default: 'border-line bg-surface text-ink',
+  pr: 'border-accent/60 bg-accent/10 text-accent-ink',
+  badge: 'border-ok/60 bg-ok/10 text-ok',
 };
 
 export function ToastStack({ toasts }: { toasts: ToastItem[] }) {

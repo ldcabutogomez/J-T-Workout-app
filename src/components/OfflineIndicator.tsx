@@ -22,7 +22,7 @@ export const OfflineIndicator: React.FC = () => {
   if (isOnline) return null;
 
   return (
-    <div className="fixed top-14 left-4 right-4 z-40 bg-amber-500 text-slate-950 font-bold text-xs py-2 px-3 rounded-2xl shadow-xl flex items-center justify-center gap-2 animate-pulse">
+    <div className="fixed top-14 left-4 right-4 z-40 bg-accent text-on-accent font-bold text-xs py-2 px-3 rounded-2xl  flex items-center justify-center gap-2 animate-pulse">
       <WifiOff className="w-4 h-4 shrink-0" />
       <span>Offline mode — local workout logging remains available.</span>
     </div>

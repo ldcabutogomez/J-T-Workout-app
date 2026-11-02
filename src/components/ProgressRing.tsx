@@ -10,7 +10,7 @@ interface ProgressRingProps {
   label?: string;
 }
 
-export function ProgressRing({ value, max, size = 72, stroke = 7, color = '#fbbf24', children, label }: ProgressRingProps) {
+export function ProgressRing({ value, max, size = 72, stroke = 7, color = 'var(--color-accent)', children, label }: ProgressRingProps) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const ratio = max > 0 ? Math.min(1, value / max) : 0;
@@ -22,13 +22,13 @@ export function ProgressRing({ value, max, size = 72, stroke = 7, color = '#fbbf
       aria-label={label ?? `${value} of ${max}`}
     >
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#1e293b" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--color-line)" strokeWidth={stroke} />
         <circle
           cx={size / 2}
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={ratio >= 1 ? '#10b981' : color}
+          stroke={ratio >= 1 ? 'var(--color-ok)' : color}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={circumference}

@@ -26,6 +26,11 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+        env:
+          # Public values by design (the anon key is only allowed to call the two sync functions). Set under
+          # Settings > Secrets and variables > Actions > Variables. Leave unset to build without partner sync.
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

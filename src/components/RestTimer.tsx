@@ -120,20 +120,20 @@ export const RestTimer: React.FC<RestTimerProps> = ({
     <div className="fixed bottom-20 right-4 z-40">
       <div role="status" aria-live="polite" className="sr-only">{restDone ? 'Rest complete. Ready for the next set.' : ''}</div>
       {restDone && !isRunning && !isOpen && (
-        <div className="mb-2 rounded-2xl bg-emerald-500 px-3 py-2 text-right text-xs font-black text-slate-950 shadow-lg animate-pop">Rest complete · ready for the next set</div>
+        <div className="mb-2 rounded-2xl bg-ok px-3 py-2 text-right text-xs font-black text-on-accent shadow-lg animate-pop">Rest complete · ready for the next set</div>
       )}
       {isOpen ? (
-        <div ref={panelRef} tabIndex={-1} role="dialog" aria-label="Rest timer" className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl rounded-3xl p-4 w-72 text-slate-100 animate-pop">
-          <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+        <div ref={panelRef} tabIndex={-1} role="dialog" aria-label="Rest timer" className="bg-surface border border-line/80 shadow-sm rounded-3xl p-4 w-72 text-ink animate-pop">
+          <div className="flex justify-between items-center pb-2 border-b border-line">
             <div className="flex items-center gap-1.5">
-              <Timer className="w-4 h-4 text-amber-400" />
-              <span className="text-xs uppercase font-extrabold tracking-wider text-amber-400">
+              <Timer className="w-4 h-4 text-accent-ink" />
+              <span className="text-xs uppercase font-extrabold tracking-wider text-accent-ink">
                 Rest Timer
               </span>
             </div>
             <button
               onClick={() => setIsOpen(false)}
-              className="min-h-11 min-w-11 flex items-center justify-center text-slate-400 hover:text-slate-100 rounded-lg hover:bg-slate-800 transition"
+              className="min-h-11 min-w-11 flex items-center justify-center text-muted hover:text-ink rounded-lg hover:bg-sunk transition"
               aria-label="Close rest timer dialog"
             >
               <X className="w-4 h-4" />
@@ -143,12 +143,12 @@ export const RestTimer: React.FC<RestTimerProps> = ({
           <div className="text-center my-3">
             <span
               className={`text-5xl font-mono font-black tracking-tight ${
-                isRunning ? 'text-amber-400' : 'text-slate-400'
+                isRunning ? 'text-accent-ink' : 'text-muted'
               }`}
             >
               {formatTime(secondsRemaining)}
             </span>
-            <span className="text-[11px] block text-slate-400 mt-1">
+            <span className="text-xs block text-muted mt-1">
               {isRunning ? 'Resting between sets' : restDone ? 'Rest complete · ready for the next set' : 'Select target rest'}
             </span>
           </div>
@@ -157,23 +157,23 @@ export const RestTimer: React.FC<RestTimerProps> = ({
           <div className="grid grid-cols-3 gap-1.5 mb-3">
             <button
               onClick={() => startTimer(defaultT3Sec)}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 rounded-xl text-xs font-bold transition active:scale-95 border border-slate-700"
+              className="bg-sunk hover:bg-line text-ink py-2 rounded-xl text-xs font-bold transition active:scale-95 border border-line"
             >
-              <span className="block text-[10px] text-amber-400 font-mono">T3</span>
+              <span className="block text-xs text-accent-ink font-mono">T3</span>
               {formatTime(defaultT3Sec)}
             </button>
             <button
               onClick={() => startTimer(defaultT2Sec)}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 rounded-xl text-xs font-bold transition active:scale-95 border border-slate-700"
+              className="bg-sunk hover:bg-line text-ink py-2 rounded-xl text-xs font-bold transition active:scale-95 border border-line"
             >
-              <span className="block text-[10px] text-amber-400 font-mono">T2</span>
+              <span className="block text-xs text-accent-ink font-mono">T2</span>
               {formatTime(defaultT2Sec)}
             </button>
             <button
               onClick={() => startTimer(defaultT1Sec)}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 rounded-xl text-xs font-bold transition active:scale-95 border border-slate-700"
+              className="bg-sunk hover:bg-line text-ink py-2 rounded-xl text-xs font-bold transition active:scale-95 border border-line"
             >
-              <span className="block text-[10px] text-amber-400 font-mono">T1</span>
+              <span className="block text-xs text-accent-ink font-mono">T1</span>
               {formatTime(defaultT1Sec)}
             </button>
           </div>
@@ -182,19 +182,19 @@ export const RestTimer: React.FC<RestTimerProps> = ({
           <div className="flex gap-1.5 mb-3">
             <button
               onClick={() => adjustTimer(-15)}
-              className="flex-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 py-1.5 rounded-xl text-xs font-mono font-bold transition active:scale-95 border border-slate-800"
+              className="flex-1 bg-sunk/80 hover:bg-sunk text-ink-2 py-1.5 rounded-xl text-xs font-mono font-bold transition active:scale-95 border border-line"
             >
               -15s
             </button>
             <button
               onClick={() => adjustTimer(15)}
-              className="flex-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 py-1.5 rounded-xl text-xs font-mono font-bold transition active:scale-95 border border-slate-800"
+              className="flex-1 bg-sunk/80 hover:bg-sunk text-ink-2 py-1.5 rounded-xl text-xs font-mono font-bold transition active:scale-95 border border-line"
             >
               +15s
             </button>
             <button
               onClick={() => adjustTimer(30)}
-              className="flex-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 py-1.5 rounded-xl text-xs font-mono font-bold transition active:scale-95 border border-slate-800"
+              className="flex-1 bg-sunk/80 hover:bg-sunk text-ink-2 py-1.5 rounded-xl text-xs font-mono font-bold transition active:scale-95 border border-line"
             >
               +30s
             </button>
@@ -203,7 +203,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({
           {isRunning && (
             <button
               onClick={cancelTimer}
-              className="w-full bg-rose-950/70 hover:bg-rose-900 border border-rose-800/70 text-rose-300 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition active:scale-95"
+              className="w-full bg-bad/10 hover:bg-bad/10 border border-bad/40 text-bad py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition active:scale-95"
             >
               Skip Rest
             </button>
@@ -212,21 +212,21 @@ export const RestTimer: React.FC<RestTimerProps> = ({
       ) : (
         <button
           onClick={() => setIsOpen(true)}
-          className={`flex items-center gap-2.5 px-4 py-3 rounded-full font-bold shadow-2xl transition-all border active:scale-95 ${
+          className={`flex items-center gap-2.5 px-4 py-3 rounded-full font-bold shadow-sm transition-all border active:scale-95 ${
             isRunning
-              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-amber-500/20 animate-pulse-ring'
+              ? 'bg-accent text-on-accent border-accent shadow-accent/20 animate-pulse-ring'
               : restDone
-                ? 'bg-emerald-500 text-slate-950 border-emerald-300'
-                : 'bg-slate-900 text-slate-200 border-slate-700 hover:bg-slate-800 hover:border-slate-600'
+                ? 'bg-ok text-on-accent border-ok'
+                : 'bg-surface text-ink border-line hover:bg-sunk hover:border-line'
           }`}
           aria-label="Open rest timer"
         >
           <span
             className="relative inline-flex h-6 w-6 items-center justify-center rounded-full"
-            style={isRunning ? { background: `conic-gradient(#0f172a ${progress * 360}deg, rgb(15 23 42 / 0.2) 0)` } : undefined}
+            style={isRunning ? { background: `conic-gradient(var(--color-on-accent) ${progress * 360}deg, color-mix(in srgb, var(--color-on-accent) 30%, transparent) 0)` } : undefined}
           >
-            <span className={`inline-flex h-4 w-4 items-center justify-center rounded-full ${isRunning ? 'bg-amber-500' : ''}`}>
-              <Timer className={`w-4 h-4 ${isRunning ? 'text-slate-950' : 'text-amber-400'}`} />
+            <span className={`inline-flex h-4 w-4 items-center justify-center rounded-full ${isRunning ? 'bg-accent' : ''}`}>
+              <Timer className={`w-4 h-4 ${isRunning ? 'text-on-accent' : 'text-accent-ink'}`} />
             </span>
           </span>
           <span className="font-mono text-sm tracking-tight">

@@ -17,6 +17,9 @@ import { BADGES, computeHighlights, computeStreak, evaluateBadges, newlyUnlocked
 import { haptic, setFeedbackPrefs } from './lib/feedback';
 import { feedback } from './lib/feedback';
 import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, prRewardKey } from './lib/rewards';
+import { TogetherTab, type SyncStatus } from './components/TogetherTab';
+import { buildLeaderboard, computePartnerStats, rankStats, snapshotFromHistory, statsFromSnapshot, type PartnerSnapshot } from './engine/leaderboard';
+import { clearPairing, generatePairCode, getDeviceId, loadPairing, normalizePairCode, pullSnapshots, pushSnapshot, readCloudConfig, savePairing } from './sync/cloud';
 import { TodayTab } from './components/TodayTab';
 import { ProgramTab } from './components/ProgramTab';
 import { ProgressTab } from './components/ProgressTab';
@@ -26,10 +29,11 @@ import { RestTimer, type RestRequest } from './components/RestTimer';
 import { ToastStack, type ToastItem } from './components/Toast';
 import { WorkoutSummary, type WorkoutSummaryData } from './components/WorkoutSummary';
 import { PWAInstallButton } from './components/PWAInstallButton';
+import { Avatar } from './components/Avatar';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp } from 'lucide-react';
+import { CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp, Users } from 'lucide-react';
 
-type Tab = 'today' | 'program' | 'progress' | 'settings' | 'verify';
+type Tab = 'today' | 'program' | 'progress' | 'together' | 'settings' | 'verify';
 
 function blankProfile(id: string, name: string): UserProfile {
   return {
@@ -54,6 +58,13 @@ export default function App() {
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const activeSessionRef = useRef<WorkoutSession | null>(null);
   const [history, setHistory] = useState<WorkoutSession[]>([]);
+  const cloudConfig = useMemo(() => readCloudConfig(), []);
+  const deviceId = useMemo(() => getDeviceId(), []);
+  const [pairing, setPairing] = useState(() => loadPairing());
+  const [remote, setRemote] = useState<PartnerSnapshot[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: 'idle' });
+  const syncing = useRef(false);
+  const [partnerHistory, setPartnerHistory] = useState<Record<string, WorkoutSession[]> | null>(null);
   const [banner, setBanner] = useState<{ text: string; error?: boolean } | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [summary, setSummary] = useState<WorkoutSummaryData | null>(null);
@@ -72,7 +83,7 @@ export default function App() {
 
   const showToast = (text: string, tone: ToastItem['tone'] = 'default') => {
     const id = ++toastId.current;
-    setToasts((items) => [...items, { id, text, tone }]);
+    setToasts((items) => [...items, { id, text, tone }].slice(-2));
     window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), 3200);
   };
 
@@ -131,6 +142,108 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [profile?.id]);
+
+  // Partner stats are read-only and rebuilt whenever the Together tab opens or the active history changes.
+  useEffect(() => {
+    if (tab !== 'together' || !profiles.length) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const entries = await Promise.all(profiles.map(async (item) => [item.id, await dbService.getSessionHistory(item.id, false)] as const));
+        if (!cancelled) setPartnerHistory(Object.fromEntries(entries));
+      } catch (error) {
+        if (!cancelled) showBanner((error as Error).message, true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tab, profiles, history]);
+
+  const meId = profiles.find((item) => item.id === pairing.profileId)?.id ?? null;
+  const paired = Boolean(cloudConfig && pairing.code && meId);
+  const latest = useRef({ profiles, code: pairing.code, meId });
+  latest.current = { profiles, code: pairing.code, meId };
+
+  /** Pushes this phone's stats-only snapshot, then pulls the partner's. Safe to call any time; failures just show a status. */
+  const syncNow = async () => {
+    const { profiles: current, code, meId: me } = latest.current;
+    const mine = current.find((item) => item.id === me);
+    if (!cloudConfig || !code || !mine || syncing.current) return;
+    syncing.current = true;
+    setSyncStatus((prev) => ({ ...prev, state: 'syncing' }));
+    try {
+      const myHistory = await dbService.getSessionHistory(mine.id, false);
+      await pushSnapshot(cloudConfig, code, snapshotFromHistory(mine, myHistory, Date.now(), deviceId));
+      const all = await pullSnapshots(cloudConfig, code);
+      setRemote(all.filter((item) => item.deviceId !== deviceId));
+      setSyncStatus({ state: 'ok', at: Date.now() });
+    } catch (error) {
+      const message = typeof navigator !== 'undefined' && navigator.onLine === false ? 'Offline. Will retry when you are back online.' : (error as Error).message;
+      setSyncStatus((prev) => ({ state: 'error', error: message, at: prev.at }));
+    } finally {
+      syncing.current = false;
+    }
+  };
+
+  // Push after anything that changes this phone's stats (workout finished, badge earned, profile edited).
+  useEffect(() => {
+    if (!paired) return;
+    const timer = window.setTimeout(() => void syncNow(), 1500);
+    return () => window.clearTimeout(timer);
+  }, [paired, pairing.code, meId, history, profiles]);
+
+  // Refresh when the app returns to the foreground or the network comes back, and poll while the Together tab is open.
+  useEffect(() => {
+    if (!paired) return;
+    const refresh = () => { if (document.visibilityState === 'visible') void syncNow(); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('online', refresh);
+    const timer = tab === 'together' ? window.setInterval(refresh, 60_000) : undefined;
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+      if (timer !== undefined) window.clearInterval(timer);
+    };
+  }, [paired, tab]);
+
+  const leaderboard = useMemo(() => {
+    if (!partnerHistory) return null;
+    const now = Date.now();
+    const mine = paired ? profiles.find((item) => item.id === meId) : undefined;
+    if (!mine) return buildLeaderboard(profiles, partnerHistory, now);
+    // Paired: this phone's lifter from local history, the partner from their synced snapshot.
+    return rankStats([
+      computePartnerStats(mine, partnerHistory[mine.id] ?? [], now),
+      ...remote.map((item) => ({ ...statsFromSnapshot(item, now), profileId: `remote:${item.deviceId}` })),
+    ]);
+  }, [profiles, partnerHistory, paired, meId, remote]);
+
+  const pairingUi = {
+    configured: Boolean(cloudConfig),
+    code: paired ? pairing.code : null,
+    profiles: profiles.map((item) => ({ id: item.id, name: item.name })),
+    status: syncStatus,
+    onCreate: (me: string) => {
+      const code = generatePairCode();
+      savePairing(code, me);
+      setPairing({ code, profileId: me });
+      setRemote([]);
+    },
+    onJoin: (input: string, me: string) => {
+      const code = normalizePairCode(input);
+      if (!code) return 'That code does not look right. It is 10 letters and numbers.';
+      savePairing(code, me);
+      setPairing({ code, profileId: me });
+      setRemote([]);
+      return null;
+    },
+    onUnlink: () => {
+      clearPairing();
+      setPairing({ code: null, profileId: null });
+      setRemote([]);
+      setSyncStatus({ state: 'idle' });
+    },
+    onSyncNow: () => void syncNow(),
+  };
 
   const persistActive = async (session: WorkoutSession) => {
     activeSessionRef.current = session;
@@ -371,14 +484,15 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
+    <div className="min-h-screen bg-paper text-ink flex flex-col font-sans selection:bg-accent selection:text-on-accent">
       <OfflineIndicator />
-      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-3 py-3 flex items-center justify-between gap-2">
+      <header className="sticky top-0 z-30 bg-surface border-b border-line px-3 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-display font-black text-lg text-amber-400 whitespace-nowrap">J&amp;T 2.0</span>
-          <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl p-0.5 overflow-x-auto max-w-[48vw]">
+          <span className="font-display font-black text-lg text-accent-ink whitespace-nowrap">J&amp;T 2.0</span>
+          <div className="flex items-center bg-paper border border-line rounded-xl p-0.5 overflow-x-auto max-w-[62vw]">
             {profiles.map((item) => (
-              <button key={item.id} onClick={() => setActiveProfileId(item.id)} className={`px-2.5 py-1 text-xs font-bold rounded-lg whitespace-nowrap ${item.id === profile?.id ? 'bg-amber-500 text-slate-950' : 'text-slate-400'}`}>
+              <button key={item.id} onClick={() => setActiveProfileId(item.id)} className={`flex items-center gap-1.5 py-1 pl-1 pr-2.5 text-xs font-bold rounded-lg whitespace-nowrap ${item.id === profile?.id ? 'bg-accent text-on-accent' : 'text-muted'}`}>
+                <Avatar profile={item} size={22} decorative />
                 {item.name}
               </button>
             ))}
@@ -386,13 +500,13 @@ export default function App() {
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <PWAInstallButton activeWorkout={Boolean(activeSession)} />
-          <button onClick={() => setTab('verify')} className="p-2 rounded-xl bg-emerald-950 border border-emerald-800 text-emerald-300" aria-label="Workbook mapping and engine checks" title="Workbook mapping and engine checks">
+          <button onClick={() => setTab('verify')} className="p-2 rounded-xl bg-ok/10 border border-ok/40 text-ok" aria-label="Workbook mapping and engine checks" title="Workbook mapping and engine checks">
             <ShieldCheck className="w-4 h-4" />
           </button>
         </div>
       </header>
 
-      {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-rose-500 text-white' : 'bg-amber-500 text-slate-950'}`}>{banner.text}</div>}
+      {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
       <main key={tab} className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full animate-fade-in">
         {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
@@ -405,6 +519,7 @@ export default function App() {
             showBanner('Session deleted.');
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
+        {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} />}
         {tab === 'settings' && <SettingsTab profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSelectProfile={setActiveProfileId} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
             const blob = new Blob([await dbService.exportBackup()], { type: 'application/json' });
@@ -426,10 +541,11 @@ export default function App() {
       <RestTimer restRequest={restRequest} setsLogged={activeSession ? activeSession.exercises.reduce((sum, item) => sum + item.sets.filter((set) => set.completed).length, 0) : 0} />
       <ToastStack toasts={toasts} />
       {summary && <WorkoutSummary data={summary} onDone={() => { setSummary(null); setTab('today'); }} />}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-slate-900/95 border-t border-slate-800 py-2 px-3 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">
+      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-surface border-t border-line py-2 px-3 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">
         <NavButton active={tab === 'today'} label="Today" icon={<Dumbbell className="w-5 h-5" />} onClick={() => setTab('today')} />
         <NavButton active={tab === 'program'} label="Program" icon={<CalendarDays className="w-5 h-5" />} onClick={() => setTab('program')} />
         <NavButton active={tab === 'progress'} label="Progress" icon={<TrendingUp className="w-5 h-5" />} onClick={() => setTab('progress')} />
+        <NavButton active={tab === 'together'} label="Together" icon={<Users className="w-5 h-5" />} onClick={() => setTab('together')} />
         <NavButton active={tab === 'settings'} label="Settings" icon={<Settings className="w-5 h-5" />} onClick={() => setTab('settings')} />
       </nav>
     </div>
@@ -437,5 +553,5 @@ export default function App() {
 }
 
 function NavButton({ active, label, icon, onClick }: { active: boolean; label: string; icon: React.ReactNode; onClick: () => void }) {
-  return <button onClick={onClick} className={`flex flex-col items-center justify-center min-w-16 min-h-12 text-[11px] ${active ? 'text-amber-400 font-bold' : 'text-slate-400'}`}>{icon}<span className="mt-1">{label}</span></button>;
+  return <button onClick={onClick} aria-current={active ? 'page' : undefined} className={`relative flex flex-col items-center justify-center min-w-16 min-h-14 text-xs ${active ? 'text-accent-ink font-bold' : 'text-muted'}`}>{active && <span aria-hidden className="absolute top-0 h-[3px] w-9 rounded-full bg-accent" />}{icon}<span className="mt-1">{label}</span></button>;
 }

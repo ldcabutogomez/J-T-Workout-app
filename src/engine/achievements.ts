@@ -5,25 +5,27 @@ import { validCompleted, weekStart, weeklyCounts } from './sessionValidity';
 export { weekStart };
 import { normalizeWeight } from './jnt2Engine';
 
+export type BadgeIconKey = 'rocket' | 'flame' | 'dumbbell' | 'medal' | 'trophy' | 'star' | 'party' | 'calendar' | 'calendar-check' | 'zap' | 'crown';
+
 export interface BadgeDefinition {
   id: string;
   name: string;
   description: string;
-  icon: string;
+  icon: BadgeIconKey;
 }
 
 export const BADGES: BadgeDefinition[] = [
-  { id: 'first_workout', name: 'First Rep', description: 'Complete your first workout', icon: '🚀' },
-  { id: 'sessions_5', name: 'Getting Rolling', description: 'Complete 5 workouts', icon: '🔥' },
-  { id: 'sessions_10', name: 'Double Digits', description: 'Complete 10 workouts', icon: '💪' },
-  { id: 'sessions_25', name: 'Quarter Century', description: 'Complete 25 workouts', icon: '🏅' },
-  { id: 'sessions_40', name: 'Forty Strong', description: 'Complete 40 workouts', icon: '🏆' },
-  { id: 'first_pr', name: 'New Best', description: 'Set your first all-time PR', icon: '⭐' },
-  { id: 'triple_pr', name: 'PR Party', description: 'Set 3 all-time PRs in one workout', icon: '🎉' },
-  { id: 'streak_2', name: 'Two-Week Streak', description: 'Hit your weekly goal 2 weeks in a row', icon: '📅' },
-  { id: 'streak_4', name: 'Month of Consistency', description: 'Hit your weekly goal 4 weeks in a row', icon: '🗓️' },
-  { id: 'streak_8', name: 'Unstoppable', description: 'Hit your weekly goal 8 weeks in a row', icon: '⚡' },
-  { id: 'cycle_complete', name: 'Cycle Complete', description: 'Finish all 48 sessions', icon: '👑' },
+  { id: 'first_workout', name: 'First Rep', description: 'Complete your first workout', icon: 'rocket' },
+  { id: 'sessions_5', name: 'Getting Rolling', description: 'Complete 5 workouts', icon: 'flame' },
+  { id: 'sessions_10', name: 'Double Digits', description: 'Complete 10 workouts', icon: 'dumbbell' },
+  { id: 'sessions_25', name: 'Quarter Century', description: 'Complete 25 workouts', icon: 'medal' },
+  { id: 'sessions_40', name: 'Forty Strong', description: 'Complete 40 workouts', icon: 'trophy' },
+  { id: 'first_pr', name: 'New Best', description: 'Set your first all-time PR', icon: 'star' },
+  { id: 'triple_pr', name: 'PR Party', description: 'Set 3 all-time PRs in one workout', icon: 'party' },
+  { id: 'streak_2', name: 'Two-Week Streak', description: 'Hit your weekly goal 2 weeks in a row', icon: 'calendar' },
+  { id: 'streak_4', name: 'Month of Consistency', description: 'Hit your weekly goal 4 weeks in a row', icon: 'calendar-check' },
+  { id: 'streak_8', name: 'Unstoppable', description: 'Hit your weekly goal 8 weeks in a row', icon: 'zap' },
+  { id: 'cycle_complete', name: 'Cycle Complete', description: 'Finish all 48 sessions', icon: 'crown' },
 ];
 
 export function computeTotalVolume(session: WorkoutSession): number {
@@ -98,8 +100,16 @@ export function computeStreak(
   weeklyGoal = 4,
   now = Date.now(),
 ): StreakInfo {
+  return streakFromCounts(weeklyCounts(sessions), weeklyGoal, now);
+}
+
+/** Same streak rule as `computeStreak`, from per-week counts keyed by week start. Used for partner snapshots too. */
+export function streakFromCounts(
+  counts: Map<number, number>,
+  weeklyGoal = 4,
+  now = Date.now(),
+): StreakInfo {
   const goal = Math.max(1, weeklyGoal);
-  const counts = weeklyCounts(sessions);
   const thisWeek = weekStart(now);
   const weeklyCount = counts.get(thisWeek) ?? 0;
   const goalMet = weeklyCount >= goal;
