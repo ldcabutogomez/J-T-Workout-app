@@ -65,7 +65,8 @@ function validateSettingsSnapshot(value: unknown): boolean {
     && finiteNonNegative(value.equipmentIncrement) && Number(value.equipmentIncrement) > 0
     && finiteNonNegative(value.barbellWeight)
     && validateTmRecord(value.trainingMaxes)
-    && (value.block2ConfirmedTMs === undefined || validateTmRecord(value.block2ConfirmedTMs));
+    && (value.block2ConfirmedTMs === undefined || validateTmRecord(value.block2ConfirmedTMs))
+    && (value.exerciseSwaps === undefined || validateStringRecord(value.exerciseSwaps));
 }
 
 function validateLoadBasis(value: unknown): boolean {
@@ -134,6 +135,10 @@ function validateSession(value: unknown, profileIds: Set<string>): value is Work
     && uniqueIds(value.exercises as LoggedExercise[], (item) => item.slotId);
 }
 
+function validateStringRecord(value: unknown): boolean {
+  return isObject(value) && Object.values(value).every((item) => typeof item === 'string' && item.length > 0);
+}
+
 function validateProfile(value: unknown): value is UserProfile {
   if (!isObject(value)) return false;
   return typeof value.id === 'string' && value.id.length > 0
@@ -145,7 +150,8 @@ function validateProfile(value: unknown): value is UserProfile {
     && Number.isInteger(value.currentWeek) && Number(value.currentWeek) >= 1 && Number(value.currentWeek) <= 12
     && Number.isInteger(value.currentDay) && Number(value.currentDay) >= 1 && Number(value.currentDay) <= 4
     && validateTmRecord(value.trainingMaxes)
-    && (value.block2ConfirmedTMs === undefined || validateTmRecord(value.block2ConfirmedTMs));
+    && (value.block2ConfirmedTMs === undefined || validateTmRecord(value.block2ConfirmedTMs))
+    && (value.exerciseSwaps === undefined || validateStringRecord(value.exerciseSwaps));
 }
 
 function uniqueIds<T>(items: T[], getId: (item: T) => string): boolean {

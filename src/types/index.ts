@@ -27,6 +27,11 @@ export interface ProgramSetPrescription {
   sourceRefs: SourceReference[];
 }
 
+export interface SwappedFrom {
+  exerciseId: string;
+  exerciseName: string;
+}
+
 export interface ExerciseSlotPrescription {
   slotId: string;
   exerciseId: string;
@@ -46,6 +51,7 @@ export interface ExerciseSlotPrescription {
   sourceRefs: SourceReference[];
   notes?: string;
   ambiguity?: string;
+  swappedFrom?: SwappedFrom;
 }
 
 export interface DayPrescription {
@@ -70,6 +76,8 @@ export interface UserProfile {
   block2ConfirmedTMs?: Partial<Record<TrainingMaxKey, number>>;
   block2ConfirmedAt?: number;
   exerciseCustomizations?: Record<string, string>;
+  /** Remembered accessory swaps: `${slotId}::${programExerciseId}` -> alternative exercise id. */
+  exerciseSwaps?: Record<string, string>;
   theme?: 'dark' | 'light';
   weeklyGoalSessions?: number;
   hapticsEnabled?: boolean;
@@ -107,6 +115,7 @@ export interface SessionSettingsSnapshot {
   trainingMaxes: Partial<Record<TrainingMaxKey, number>>;
   block2ConfirmedTMs?: Partial<Record<TrainingMaxKey, number>>;
   exerciseCustomizations?: Record<string, string>;
+  exerciseSwaps?: Record<string, string>;
 }
 
 export interface LoggedSet {
@@ -140,6 +149,7 @@ export interface LoggedExercise {
   notes?: string;
   sourceRefs: SourceReference[];
   loadBasis?: LoadBasis;
+  swappedFrom?: SwappedFrom;
 }
 
 export interface WorkoutSession {

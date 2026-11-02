@@ -8,9 +8,11 @@ import {
   finalizeSession,
   logSet,
   makeSkippedSession,
+  swapExercise,
   undoSet,
 } from './engine/sessionEngine';
 import { findAllComparableResults, generateSessionEncouragement } from './engine/encouragement';
+import { findAlternative, swapKey } from './program/swapOptions';
 import { BADGES, computeHighlights, computeStreak, evaluateBadges, newlyUnlocked } from './engine/achievements';
 import { feedback, haptic, setFeedbackPrefs } from './lib/feedback';
 import { TodayTab } from './components/TodayTab';
@@ -194,6 +196,24 @@ export default function App() {
     }
   };
 
+  const handleSwapExercise = async (slotId: string, originalExerciseId: string, alternativeId: string) => {
+    if (!profile) return;
+    const swaps = { ...(profile.exerciseSwaps ?? {}) };
+    const key = swapKey(slotId, originalExerciseId);
+    if (alternativeId) swaps[key] = alternativeId; else delete swaps[key];
+    const updatedProfile = { ...profile, exerciseSwaps: swaps };
+    try {
+      const current = activeSessionRef.current;
+      if (current) await persistActive(swapExercise(current, slotId, updatedProfile));
+      await updateProfile(updatedProfile);
+      haptic('setLogged');
+      const name = alternativeId ? findAlternative(alternativeId)?.alternative.name : undefined;
+      showToast(name ? `Swapped to ${name}` : 'Back to the program exercise');
+    } catch (error) {
+      showBanner((error as Error).message, true);
+    }
+  };
+
   const handleBackoffDecision = async (slotId: string, load: number) => {
     const current = activeSessionRef.current;
     if (!current) return;
@@ -340,7 +360,7 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-rose-500 text-white' : 'bg-amber-500 text-slate-950'}`}>{banner.text}</div>}
 
       <main key={tab} className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full animate-fade-in">
-        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && <ProgramTab profile={profile} onUpdateProfile={updateProfile} />}
         {tab === 'progress' && <ProgressTab profile={profile} history={history} onEditSession={editCompletedSession} onDeleteSession={async (id, demo) => {
           if (!profile || !window.confirm('Delete this session record? This cannot be undone.')) return;

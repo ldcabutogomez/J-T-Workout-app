@@ -5,7 +5,7 @@ import type {
   UserProfile,
   WorkoutSession,
 } from '../types';
-import { calculateSetLoad, roundLoad } from './jnt2Engine';
+import { calculateSetLoad, getDayPrescription, roundLoad } from './jnt2Engine';
 
 function copy<T>(value: T): T {
   return typeof structuredClone === 'function'
@@ -47,6 +47,7 @@ export function createWorkoutSession(
     notes: slot.notes,
     sourceRefs: copy(slot.sourceRefs),
     loadBasis: slot.loadBasis ? copy(slot.loadBasis) : undefined,
+    swappedFrom: slot.swappedFrom ? { ...slot.swappedFrom } : undefined,
     sets: slot.prescribedSets.map((set) => ({
       setId: `${slot.slotId}-s${set.setNumber}`,
       type: set.type,
@@ -78,9 +79,40 @@ export function createWorkoutSession(
       trainingMaxes: copy(profile.trainingMaxes),
       block2ConfirmedTMs: copy(profile.block2ConfirmedTMs),
       exerciseCustomizations: copy(profile.exerciseCustomizations),
+      exerciseSwaps: copy(profile.exerciseSwaps),
     },
     exercises,
   };
+}
+
+/**
+ * Re-applies the profile's current swap for one slot. Swapped slots share the original's set
+ * structure (they are all user-selected MRS accessories), so only the identity fields change.
+ * Refuses once a set is logged so achieved-RM data is never left pointing at a different lift.
+ */
+export function swapExercise(session: WorkoutSession, slotId: string, profile: UserProfile): WorkoutSession {
+  if (session.isEditingCompleted) throw new Error('Exercises cannot be swapped while editing a completed session.');
+  const exercise = findExercise(session, slotId);
+  if (exercise.sets.some((set) => set.completed)) throw new Error("Undo this exercise's logged sets before swapping it.");
+  const slot = getDayPrescription(session.week, session.day, profile).exercises.find((item) => item.slotId === slotId);
+  if (!slot) throw new Error(`Unknown exercise slot: ${slotId}`);
+
+  const next = copy(session);
+  const logged = findExercise(next, slotId);
+  logged.exerciseId = slot.exerciseId;
+  logged.exerciseName = slot.exerciseName;
+  logged.notes = slot.notes;
+  logged.swappedFrom = slot.swappedFrom ? { ...slot.swappedFrom } : undefined;
+  const snapshot = next.prescriptionSnapshot.exercises.find((item) => item.slotId === slotId);
+  if (snapshot) {
+    snapshot.exerciseId = slot.exerciseId;
+    snapshot.exerciseName = slot.exerciseName;
+    snapshot.notes = slot.notes;
+    snapshot.swappedFrom = slot.swappedFrom ? { ...slot.swappedFrom } : undefined;
+  }
+  next.settingsSnapshot.exerciseSwaps = copy(profile.exerciseSwaps);
+  next.updatedTime = Date.now();
+  return next;
 }
 
 function findExercise(session: WorkoutSession, slotId: string): LoggedExercise {

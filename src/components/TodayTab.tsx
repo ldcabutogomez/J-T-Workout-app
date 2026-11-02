@@ -4,6 +4,7 @@ import { getDayPrescription } from '../engine/jnt2Engine';
 import { missingTrainingMaxes } from '../engine/sessionEngine';
 import { AlertTriangle, Check, HelpCircle, Minus, Plus, RotateCcw } from 'lucide-react';
 import type { StreakInfo } from '../engine/achievements';
+import { getSwapOptions, SWAP_GROUP_LABELS, type SwappableSlot } from '../program/swapOptions';
 import { ProgressRing } from './ProgressRing';
 
 interface TodayTabProps {
@@ -16,6 +17,7 @@ interface TodayTabProps {
   onCompleteWorkout: () => void;
   onDiscardActiveWorkout: () => void;
   onSkipSession: () => void;
+  onSwapExercise: (slotId: string, originalExerciseId: string, alternativeId: string) => void;
   streak?: StreakInfo;
 }
 
@@ -33,6 +35,7 @@ export function TodayTab({
   onCompleteWorkout,
   onDiscardActiveWorkout,
   onSkipSession,
+  onSwapExercise,
   streak,
 }: TodayTabProps) {
   const [showHelp, setShowHelp] = useState(false);
@@ -80,6 +83,7 @@ export function TodayTab({
                     <strong className="text-sm text-white">{slot.exerciseName}</strong>
                     {slot.status !== 'work' && <span className="text-[10px] uppercase text-slate-400">{slot.status}</span>}
                   </div>
+                  <ExerciseSwap slot={slot} onSwap={onSwapExercise} />
                   <p className="text-xs text-slate-400 mt-1">
                     {slot.status === 'work' || slot.status === 'test'
                       ? slot.setType === 'mrs'
@@ -122,6 +126,7 @@ export function TodayTab({
               <h2 className="font-black text-white">{exercise.exerciseName}</h2>
               {exercise.status !== 'work' && <span className="text-[10px] uppercase text-slate-400">{exercise.status}</span>}
             </div>
+            <ExerciseSwap slot={exercise} locked={activeSession.isEditingCompleted || exercise.sets.some((set) => set.completed)} lockedReason={activeSession.isEditingCompleted ? 'Swaps are disabled while editing history.' : 'Undo logged sets to swap this exercise.'} onSwap={onSwapExercise} />
             {exercise.notes && <p className="text-xs text-slate-400 mt-1">{exercise.notes}</p>}
           </div>
 
@@ -144,6 +149,35 @@ export function TodayTab({
         <button onClick={onCompleteWorkout} className="min-h-12 bg-emerald-500 text-slate-950 rounded-2xl text-xs font-black uppercase">{activeSession.isEditingCompleted ? 'Save edits' : 'Finish'}</button>
       </section>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+    </div>
+  );
+}
+
+function ExerciseSwap({ slot, locked = false, lockedReason, onSwap }: {
+  slot: SwappableSlot;
+  locked?: boolean;
+  lockedReason?: string;
+  onSwap: (slotId: string, originalExerciseId: string, alternativeId: string) => void;
+}) {
+  const options = getSwapOptions(slot);
+  if (!options) return null;
+  return (
+    <div className="mt-2">
+      <label className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-slate-500">
+        <span className="shrink-0">Swap · {SWAP_GROUP_LABELS[options.group]}</span>
+        <select
+          aria-label={`Swap ${options.original.exerciseName}`}
+          value={options.selectedId}
+          disabled={locked}
+          onChange={(event) => onSwap(slot.slotId, options.original.exerciseId, event.target.value)}
+          className="min-w-0 flex-1 min-h-9 bg-slate-950 disabled:opacity-50 border border-slate-700 rounded-xl px-2 text-xs normal-case font-bold text-amber-300"
+        >
+          <option value="">Program: {options.original.exerciseName}</option>
+          {options.alternatives.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </label>
+      {locked && lockedReason && <p className="mt-1 text-[10px] text-slate-500">{lockedReason}</p>}
+      {slot.swappedFrom && !locked && <p className="mt-1 text-[10px] text-slate-500">Swapped from {slot.swappedFrom.exerciseName}. Remembered for this slot while it is the same program exercise.</p>}
     </div>
   );
 }

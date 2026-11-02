@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { LoadBasis, SourceReference, TrainingMaxKey, UserProfile } from '../types';
 import { getDayPrescription, REQUIRED_TRAINING_MAXES } from '../engine/jnt2Engine';
 import { WORKBOOK_AMBIGUITIES } from '../program/prescriptions';
+import { findAlternative } from '../program/swapOptions';
 import { AlertCircle, Check, Sliders } from 'lucide-react';
 
 interface ProgramTabProps {
@@ -103,6 +104,16 @@ export function ProgramTab({ profile, onUpdateProfile }: ProgramTabProps) {
           })}
         </div>
       </section>
+
+      {Object.keys(profile.exerciseSwaps ?? {}).length > 0 && (
+        <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-2">
+          <div className="flex items-center justify-between gap-3"><h2 className="font-black">Swapped accessories</h2><button onClick={() => onUpdateProfile({ ...profile, exerciseSwaps: {} })} className="px-3 py-2 rounded-xl bg-slate-800 text-xs font-bold">Reset all</button></div>
+          {Object.entries(profile.exerciseSwaps ?? {}).map(([key, alternativeId]) => {
+            const [slotId, original] = key.split('::');
+            return <div key={key} className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs"><span className="min-w-0"><strong className="text-white">{findAlternative(alternativeId)?.alternative.name ?? alternativeId}</strong><span className="block text-slate-500">replaces {original} · {slotId}</span></span><button onClick={() => { const next = { ...profile.exerciseSwaps }; delete next[key]; onUpdateProfile({ ...profile, exerciseSwaps: next }); }} className="px-3 py-2 rounded-xl text-amber-300 font-bold">Reset</button></div>;
+          })}
+        </section>
+      )}
 
       <section className="bg-slate-900 border border-amber-900/60 rounded-3xl p-5"><h2 className="font-black text-amber-300">Workbook ambiguity log</h2>{WORKBOOK_AMBIGUITIES.map((item) => <div key={item.id} className="mt-3 text-xs"><strong>{item.id}</strong><p className="text-slate-400 mt-1">{item.decision}</p><p className="font-mono text-[9px] text-slate-600 mt-1 break-all">{item.cells.join(' · ')}</p></div>)}</section>
     </div>

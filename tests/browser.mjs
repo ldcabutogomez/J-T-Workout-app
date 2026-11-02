@@ -59,6 +59,9 @@ try {
   await page.getByRole('button', { name: 'Today' }).click();
   await page.getByRole('button', { name: 'Start workout' }).click();
   await page.getByText('Workout in progress').waitFor();
+  await page.getByLabel('Swap Single Leg Press').selectOption('hip-thrust');
+  await page.getByRole('heading', { name: 'Hip Thrust' }).waitFor();
+  await page.getByText('Swapped from Single Leg Press').waitFor();
   const squat = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Back Squat' }) });
   const firstLog = squat.getByRole('button', { name: 'Log set' }).first();
   const firstRow = firstLog.locator('..').locator('..');

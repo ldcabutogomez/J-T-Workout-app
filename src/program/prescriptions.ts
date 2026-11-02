@@ -8,6 +8,8 @@ import type {
   TrainingMaxKey,
   UserProfile,
 } from '../types';
+import { slug } from '../lib/slug';
+import { applySwap } from './swapOptions';
 
 type WeekColumns = { exercise: string; weight: string; reps: string; sets: string };
 
@@ -165,10 +167,6 @@ function sourceRefs(...ranges: string[]): SourceReference[] {
     { sheet: 'J&T2.0', ranges: uniqueRanges },
     { sheet: 'J&T2.0 KGS', ranges: uniqueRanges },
   ];
-}
-
-function slug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
 function scheduleRange(week: number, firstRow: number, lastRow = firstRow): string {
@@ -545,13 +543,15 @@ export function getOriginalDayPrescription(week: number, day: number): DayPrescr
 
 export function getDayPrescription(week: number, day: number, profile?: UserProfile): DayPrescription {
   const original = getOriginalDayPrescription(week, day);
-  if (!profile?.exerciseCustomizations) return original;
+  if (!profile?.exerciseCustomizations && !profile?.exerciseSwaps) return original;
   return {
     ...original,
     exercises: original.exercises.map((slot) => {
       const customName = profile.exerciseCustomizations?.[slot.slotId]?.trim();
-      if (!customName || slot.loadBasis?.kind !== 'user_selected' || slot.tier === 'T1') return slot;
-      return { ...slot, exerciseName: customName, exerciseId: `custom-${slug(customName)}` };
+      if (customName && slot.loadBasis?.kind === 'user_selected' && slot.tier !== 'T1') {
+        return { ...slot, exerciseName: customName, exerciseId: `custom-${slug(customName)}` };
+      }
+      return applySwap(slot, profile.exerciseSwaps);
     }),
   };
 }
