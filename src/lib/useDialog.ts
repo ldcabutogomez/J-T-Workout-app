@@ -29,7 +29,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>({ onClose, act
     const inerted: HTMLElement[] = [];
     if (modal) {
       let el: HTMLElement | null = node;
-      while (el?.parentElement && el.id !== 'root') {
+      while (el?.parentElement && el.id !== 'root' && el.parentElement !== document.documentElement) {
         for (const sibling of Array.from(el.parentElement.children) as HTMLElement[]) {
           if (sibling !== el && !sibling.hasAttribute('data-keep-active') && !sibling.inert) {
             sibling.inert = true;

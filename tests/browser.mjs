@@ -136,6 +136,24 @@ try {
   await assertNoHorizontalClipping(page, 'offline active workout');
   await context.setOffline(false);
 
+  // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).
+  const iosContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  });
+  const iosPage = await iosContext.newPage();
+  await iosPage.goto(origin, { waitUntil: 'networkidle' });
+  await iosPage.getByRole('button', { name: 'Install' }).click();
+  const iosDialog = iosPage.getByRole('dialog', { name: 'Install on iPhone or iPad' });
+  await iosDialog.waitFor();
+  for (const text of ['Open this page in', 'Tap the', 'Scroll down and choose', 'Open the app from your Home Screen']) {
+    const box = await iosDialog.getByText(text).boundingBox();
+    assert.ok(box && box.y >= 0 && box.y + box.height <= 844, `iOS install step "${text}" is cut off: ${JSON.stringify(box)}`);
+  }
+  await iosPage.keyboard.press('Escape');
+  await iosDialog.waitFor({ state: 'detached' });
+  await iosContext.close();
+
   assert.deepEqual(browserErrors, [], `browser console/page errors: ${browserErrors.join('\n')}`);
   console.log('PASS: production mobile-width workflow, refresh/resume, completion/history, and offline logging/reload.');
 } finally {

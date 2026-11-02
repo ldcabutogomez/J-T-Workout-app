@@ -89,9 +89,18 @@ export default function App() {
         await dbService.init();
         let stored = await dbService.getProfiles();
         if (!stored.length) {
-          stored = [blankProfile('partner-1', 'Partner 1'), blankProfile('partner-2', 'Partner 2')];
+          stored = [blankProfile('partner-1', 'Lauren'), blankProfile('partner-2', 'Luis')];
           await Promise.all(stored.map((item) => dbService.saveProfile(item)));
         }
+        // One-time rename of the old placeholder names; any name the user chose is left alone.
+        const renames: Record<string, [string, string]> = { 'partner-1': ['Partner 1', 'Lauren'], 'partner-2': ['Partner 2', 'Luis'] };
+        stored = await Promise.all(stored.map(async (item) => {
+          const [oldName, newName] = renames[item.id] ?? [];
+          if (!oldName || item.name !== oldName) return item;
+          const renamed = { ...item, name: newName };
+          await dbService.saveProfile(renamed);
+          return renamed;
+        }));
         setProfiles(stored);
         setActiveProfileId(stored[0].id);
       } catch (error) {
