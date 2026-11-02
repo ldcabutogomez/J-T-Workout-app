@@ -5,6 +5,7 @@ import { Download, Upload, Users } from 'lucide-react';
 import { canVibrate, feedback, haptic } from '../lib/feedback';
 import { AVATAR_COLORS, defaultAvatarColor, fileToAvatarPhoto } from '../lib/avatar';
 import { COLOR_THEMES, THEMES, themeForProfile } from '../lib/theme';
+import { WEEKDAY_LABELS, defaultSchedule, normalizeDays, withTrainingDays } from '../engine/schedule';
 import { Avatar, AVATAR_TILE } from './Avatar';
 
 interface SettingsTabProps {
@@ -60,6 +61,7 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSelect
         <h2 className="text-lg font-black">Profile preferences</h2>
         <AvatarEditor profile={profile} onUpdateProfile={onUpdateProfile} />
         <ThemePicker profile={profile} onUpdateProfile={onUpdateProfile} />
+        <TrainingDays profile={profile} onUpdateProfile={onUpdateProfile} />
         <label className="block text-xs uppercase font-bold text-muted">Lifter name<input value={profile.name} onChange={(event) => onUpdateProfile({ ...profile, name: event.target.value })} className="block w-full mt-1 min-h-11 bg-paper border border-line rounded-xl px-3 text-sm normal-case text-ink" /></label>
         <div className="grid grid-cols-2 gap-3">
           <label className="text-xs uppercase font-bold text-muted">Weight unit<select disabled={Boolean(activeSession)} value={profile.unit} onChange={(event) => setUnit(event.target.value as WeightUnit)} className="block w-full mt-1 min-h-11 bg-paper disabled:opacity-50 border border-line rounded-xl px-3 text-sm normal-case text-ink"><option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option></select></label>
@@ -196,6 +198,36 @@ function ThemePicker({ profile, onUpdateProfile }: { profile: UserProfile; onUpd
             />
             {THEMES[theme].label}
           </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const DAY_NAMES = ['Day 1 · Squat', 'Day 2 · Bench', 'Day 3 · Front Squat / Deadlift', 'Day 4 · Military Press'];
+
+function TrainingDays({ profile, onUpdateProfile }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void }) {
+  const schedule = profile.schedule ?? defaultSchedule(profile);
+  const days = normalizeDays(schedule.days);
+  const choose = (index: number, weekday: number) => {
+    const next = [...days];
+    const clash = next.indexOf(weekday);
+    if (clash >= 0 && clash !== index) next[clash] = next[index]; // keep the four days distinct by swapping
+    next[index] = weekday;
+    onUpdateProfile({ ...profile, schedule: withTrainingDays(schedule, next) });
+  };
+  return (
+    <div>
+      <p className="eyebrow">Training days</p>
+      <p className="mt-1 text-xs text-muted">Which weekday each workout lands on by default. You can still drag any workout to another day on the Program tab.</p>
+      <div className="mt-2 grid grid-cols-1 gap-2">
+        {DAY_NAMES.map((name, index) => (
+          <label key={name} className="flex items-center justify-between gap-3 text-sm font-bold text-ink">
+            <span>{name}</span>
+            <select value={days[index]} onChange={(event) => choose(index, Number(event.target.value))} className="field w-32 shrink-0 text-sm" aria-label={`${name} weekday`}>
+              {WEEKDAY_LABELS.map((label, weekday) => <option key={label} value={weekday}>{label}</option>)}
+            </select>
+          </label>
         ))}
       </div>
     </div>

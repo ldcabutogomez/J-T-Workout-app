@@ -13,6 +13,7 @@ import { StreakLabel } from './StreakLabel';
 import { fmtCount } from '../engine/sessionValidity';
 import { Avatar } from './Avatar';
 import { CoachCard } from './CoachCard';
+import { fromDateKey, type NextWorkout } from '../engine/schedule';
 import type { CoachMessage } from '../engine/coach';
 
 interface TodayTabProps {
@@ -29,6 +30,12 @@ interface TodayTabProps {
   onToggleWarmup: (slotId: string, stepId: string) => void;
   coach?: CoachMessage | null;
   onDismissCoach?: (id: string) => void;
+  /** The workout to do next, from the calendar. Falls back to the saved program position. */
+  next?: NextWorkout | null;
+  /** Unfinished workouts whose day has passed. */
+  missed?: number;
+  onMoveNext?: () => void;
+  weekStrip?: React.ReactNode;
   streak?: StreakInfo;
   history: WorkoutSession[];
 }
@@ -51,6 +58,10 @@ export function TodayTab({
   onToggleWarmup,
   coach,
   onDismissCoach,
+  next,
+  missed = 0,
+  onMoveNext,
+  weekStrip,
   streak,
   history,
 }: TodayTabProps) {
@@ -61,23 +72,28 @@ export function TodayTab({
   if (!profile) return <div className="p-6 text-center text-muted">Loading local profiles…</div>;
 
   if (!activeSession) {
-    const prescription = getDayPrescription(profile.currentWeek, profile.currentDay, profile);
+    const slot = next ?? { week: profile.currentWeek, day: profile.currentDay, date: '', reason: 'upcoming' as const };
+    const prescription = getDayPrescription(slot.week, slot.day, profile);
     const missing = missingTrainingMaxes(prescription, profile);
+    const done = !next && Boolean(profile.cycleCompleted);
+    const whenText = !slot.date ? '' : slot.reason === 'today' ? 'Today' : slot.reason === 'missed' ? `Missed · was ${fromDateKey(slot.date).toLocaleDateString(undefined, { weekday: 'long' })}` : fromDateKey(slot.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
     return (
       <div className="space-y-4">
         {streak && <WeekCard profile={profile} streak={streak} />}
+        {weekStrip}
         {coach && onDismissCoach && <CoachCard message={coach} onDismiss={onDismissCoach} />}
         <section className="card p-5  animate-slide-up">
           <div className="flex justify-between items-start gap-3">
             <div>
-              <span className="text-xs uppercase font-extrabold tracking-widest text-accent-ink">Next scheduled session</span>
+              <span className="block text-xs uppercase font-extrabold tracking-widest text-accent-ink">Next scheduled session</span>
+              {whenText && <span className={`mt-0.5 block text-sm font-bold ${slot.reason === 'missed' ? 'text-bad' : 'text-ink-2'}`}>{whenText}</span>}
               <h1 className="text-2xl sm:text-3xl font-black text-ink mt-1">{prescription.title}</h1>
-              <p className="text-xs text-muted font-mono mt-1">Week {profile.currentWeek} of 12 · Day {profile.currentDay} of 4</p>
+              <p className="text-xs text-muted font-mono mt-1">Week {slot.week} of 12 · Day {slot.day} of 4</p>
             </div>
             <button onClick={() => setShowHelp(true)} className="shrink-0 self-start min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-sunk text-ink-2" aria-label="Set notation help"><HelpCircle className="w-5 h-5" /></button>
           </div>
 
-          {profile.cycleCompleted ? (
+          {done ? (
             <div className="mt-4 p-3 rounded-2xl border border-ok/40 bg-ok/10 text-sm text-ok">This profile is at the end of Week 12. The app will not silently restart or duplicate cycle completion.</div>
           ) : missing.length > 0 ? (
             <div role="alert" className="mt-4 p-3 rounded-2xl border border-bad/40 bg-bad/10 text-sm text-bad">
@@ -87,9 +103,15 @@ export function TodayTab({
           ) : null}
 
           <div className="mt-5 flex gap-2">
-            <button disabled={profile.cycleCompleted || missing.length > 0} onClick={onStartWorkout} className="flex-1 min-h-14 bg-accent disabled:bg-sunk disabled:text-muted text-on-accent font-black rounded-2xl uppercase tracking-wider active:scale-[0.98] transition">Start workout</button>
-            <button disabled={profile.cycleCompleted} onClick={onSkipSession} className="min-h-14 px-4 bg-sunk disabled:opacity-50 border border-line rounded-2xl text-xs font-bold">Skip</button>
+            <button disabled={done || missing.length > 0} onClick={() => onStartWorkout()} className="flex-1 min-h-14 bg-accent disabled:bg-sunk disabled:text-muted text-on-accent font-black rounded-2xl uppercase tracking-wider active:scale-[0.98] transition">Start workout</button>
+            <button disabled={done} onClick={() => onSkipSession()} className="min-h-14 px-4 bg-sunk disabled:opacity-50 border border-line rounded-2xl text-xs font-bold">Skip</button>
           </div>
+          {!done && onMoveNext && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <button type="button" onClick={onMoveNext} className="min-h-11 rounded-xl px-1 text-sm font-bold text-accent-ink underline underline-offset-2">Not today? Move this workout</button>
+              {missed > 0 && <span className="text-xs font-semibold text-bad">{missed} missed workout{missed === 1 ? '' : 's'}</span>}
+            </div>
+          )}
         </section>
 
         <section className="space-y-2">

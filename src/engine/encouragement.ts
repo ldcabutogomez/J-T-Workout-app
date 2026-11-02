@@ -110,16 +110,18 @@ export function priorContext(
   return { last: loads[0] ?? null, best: loads.length ? Math.max(...loads) : null };
 }
 
+/**
+ * True when `current` is the finished workout that supplies the 48th distinct week/day of the cycle.
+ * Order does not matter: workouts can be done in any order, so the cycle can end on any of them.
+ */
 export function isVerifiedCycleComplete(current: WorkoutSession, history: WorkoutSession[]): boolean {
-  if (!validCompleted(current) || current.week !== 12 || current.day !== 4) return false;
-  const unique = new Set(
-    [...history, current]
-      .filter(validCompleted)
-      .map((item) => `${item.week}:${item.day}`),
-  );
-  return unique.size === 48
+  if (!validCompleted(current)) return false;
+  const pairs = (sessions: WorkoutSession[]) => new Set(sessions.filter(validCompleted).map((item) => `${item.week}:${item.day}`));
+  const before = pairs(history.filter((item) => item.sessionId !== current.sessionId));
+  const after = pairs([...history.filter((item) => item.sessionId !== current.sessionId), current]);
+  return after.size === 48 && before.size < 48
     && Array.from({ length: 12 }, (_, week) =>
-      Array.from({ length: 4 }, (_, day) => unique.has(`${week + 1}:${day + 1}`)),
+      Array.from({ length: 4 }, (_, day) => after.has(`${week + 1}:${day + 1}`)),
     ).flat().every(Boolean);
 }
 

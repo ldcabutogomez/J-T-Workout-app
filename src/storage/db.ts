@@ -1,6 +1,7 @@
 import type { BackupExportData, LoggedExercise, LoggedSet, UserProfile, WorkoutSession } from '../types';
 import { isValidAvatar } from '../lib/avatar';
 import { isColorTheme } from '../lib/theme';
+import { isValidSchedule } from '../engine/schedule';
 import { nextProgramPosition } from '../engine/sessionEngine';
 
 const DEFAULT_DB_NAME = 'JackedAndTan2_LocalDB';
@@ -155,7 +156,8 @@ function validateProfile(value: unknown): value is UserProfile {
     && (value.block2ConfirmedTMs === undefined || validateTmRecord(value.block2ConfirmedTMs))
     && (value.exerciseSwaps === undefined || validateStringRecord(value.exerciseSwaps))
     && (value.avatar === undefined || isValidAvatar(value.avatar))
-    && (value.colorTheme === undefined || isColorTheme(value.colorTheme));
+    && (value.colorTheme === undefined || isColorTheme(value.colorTheme))
+    && (value.schedule === undefined || isValidSchedule(value.schedule));
 }
 
 function uniqueIds<T>(items: T[], getId: (item: T) => string): boolean {
@@ -344,9 +346,14 @@ export class StorageService {
     });
   }
 
+  /**
+   * Saves a finished session and moves the program pointer. By default the pointer steps forward one workout;
+   * pass `position` (the first workout nobody has done yet) when workouts can be done out of order.
+   */
   async completeAndAdvance(
     inputSession: WorkoutSession,
     inputProfile: UserProfile,
+    position?: Pick<UserProfile, 'currentWeek' | 'currentDay' | 'cycleCompleted'>,
   ): Promise<{ session: WorkoutSession; profile: UserProfile; advanced: boolean }> {
     if (!validateProfile(inputProfile)
       || inputSession.status === 'active'
@@ -364,7 +371,7 @@ export class StorageService {
         if (profileIndex < 0) throw new Error('The session profile no longer exists.');
         const shouldAdvance = !existing?.advancedAt && !inputSession.advancedAt && !inputSession.isEditingCompleted;
         const session = { ...inputSession, advancedAt: shouldAdvance ? now : (existing?.advancedAt ?? inputSession.advancedAt) };
-        const profile = shouldAdvance ? { ...profiles[profileIndex], ...nextProgramPosition(profiles[profileIndex]) } : profiles[profileIndex];
+        const profile = shouldAdvance ? { ...profiles[profileIndex], ...(position ?? nextProgramPosition(profiles[profileIndex])) } : profiles[profileIndex];
         const sessionIndex = completed.findIndex((item) => item.sessionId === session.sessionId);
         if (sessionIndex >= 0) completed[sessionIndex] = session; else completed.push(session);
         profiles[profileIndex] = profile;
@@ -406,7 +413,7 @@ export class StorageService {
           }
           const shouldAdvance = !existing?.advancedAt && !inputSession.advancedAt && !inputSession.isEditingCompleted;
           const session = { ...inputSession, advancedAt: shouldAdvance ? now : (existing?.advancedAt ?? inputSession.advancedAt) };
-          const profile = shouldAdvance ? { ...storedProfile, ...nextProgramPosition(storedProfile) } : storedProfile;
+          const profile = shouldAdvance ? { ...storedProfile, ...(position ?? nextProgramPosition(storedProfile)) } : storedProfile;
           sessions.put(session);
           profiles.put(profile);
           transaction.objectStore('activeSessions').delete(session.profileId);

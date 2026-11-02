@@ -81,12 +81,23 @@ export interface UserProfile {
   /** Remembered accessory swaps: `${slotId}::${programExerciseId}` -> alternative exercise id. */
   exerciseSwaps?: Record<string, string>;
   colorTheme?: ColorTheme;
+  /** Where each program workout sits on the calendar. Optional; created on first load. */
+  schedule?: ProfileSchedule;
   weeklyGoalSessions?: number;
   hapticsEnabled?: boolean;
   soundEnabled?: boolean;
   autoStartRest?: boolean;
   unlockedBadges?: UnlockedBadge[];
   avatar?: ProfileAvatar;
+}
+
+export interface ProfileSchedule {
+  /** Local date (YYYY-MM-DD) of the Monday that starts calendar week 1 of the program. */
+  anchor: string;
+  /** Weekday offsets from Monday (0 to 6) for program Day 1 to Day 4. */
+  days: number[];
+  /** Dates the lifter dragged a workout to, keyed like 'W3D2'. Everything else follows anchor + days. */
+  moves: Record<string, string>;
 }
 
 export type ColorTheme = 'lavender' | 'blue' | 'vermilion';

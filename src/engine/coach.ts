@@ -189,6 +189,8 @@ export interface CoachContext {
   history: WorkoutSession[];
   week: number;
   day: number;
+  /** True when no workout of this program week has been done yet. Falls back to `day === 1`. */
+  firstOfWeek?: boolean;
   /** The day's main lift, e.g. "Back Squat". */
   mainLift: string;
 }
@@ -213,7 +215,7 @@ export function todayCandidates(ctx: CoachContext): CoachMessage[] {
     if (days >= 5) push(`welcome_back:${last.sessionId}`, 'welcome_back', { days });
   }
 
-  if (ctx.day === 1) {
+  if (ctx.firstOfWeek ?? ctx.day === 1) {
     const phase = phaseOf(ctx.week);
     if (ctx.week === 1) push('phase:1', 'phase_block1', {});
     else if (ctx.week === 6) push('phase:6', 'phase_test6', {});

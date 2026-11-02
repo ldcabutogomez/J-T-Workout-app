@@ -73,6 +73,13 @@ test('priority: welcome back, then phase milestone, then weekly recap, then the 
   assert.equal(recap[recap.length - 1].situation, 'pre_workout');
 });
 
+test('phase milestones fire on the first workout of a week, even when Day 1 is not first', () => {
+  assert.equal(todayCandidates(ctx({ week: 7, day: 3, firstOfWeek: true }))[0].situation, 'phase_block2', 'Day 3 done first still gets the Block 2 welcome');
+  assert.equal(todayCandidates(ctx({ week: 7, day: 3, firstOfWeek: false }))[0].situation, 'pre_workout', 'later workouts of the week do not repeat it');
+  assert.equal(todayCandidates(ctx({ week: 7, day: 1, firstOfWeek: false }))[0].situation, 'pre_workout');
+  assert.equal(todayCandidates(ctx({ week: 6, day: 2, firstOfWeek: true }))[0].situation, 'phase_test6');
+});
+
 test('test weeks get their own pre-workout line, and tone off says nothing', () => {
   assert.equal(todayCandidates(ctx({ week: 6, day: 3 }))[0].situation, 'pre_workout_test');
   assert.deepEqual(todayCandidates(ctx({ tone: 'off', week: 7, day: 1, history: [finished('old', at(5, 1))] })), []);

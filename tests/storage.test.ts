@@ -145,3 +145,46 @@ test('storage rejects malformed direct writes', async () => {
   malformed.exercises[0].sets[0].actualReps = -1;
   await assert.rejects(() => storage.saveActiveSession(malformed), /malformed/);
 });
+
+test('an explicit position replaces the one-step advance, once, so workouts can finish out of order', async () => {
+  const storage = service('position');
+  const p = profile();
+  await storage.saveProfile(p);
+  // Day 3 is done first; the first workout nobody has done is still Day 1.
+  const day3 = finalizeSession(createWorkoutSession(p, getDayPrescription(1, 3, p), 10), 11);
+  const first = await storage.completeAndAdvance(day3, p, { currentWeek: 1, currentDay: 1, cycleCompleted: false });
+  assert.equal(first.advanced, true);
+  assert.deepEqual([first.profile.currentWeek, first.profile.currentDay], [1, 1], 'pointer stays on the earliest undone workout');
+  // Completing the same session again changes nothing, even with a different position.
+  const again = await storage.completeAndAdvance(day3, first.profile, { currentWeek: 9, currentDay: 4, cycleCompleted: false });
+  assert.equal(again.advanced, false);
+  assert.deepEqual([again.profile.currentWeek, again.profile.currentDay], [1, 1]);
+  // Editing a finished session never moves the pointer.
+  const edited = await storage.completeAndAdvance({ ...first.session, isEditingCompleted: true }, first.profile, { currentWeek: 5, currentDay: 2, cycleCompleted: false });
+  assert.equal(edited.advanced, false);
+  assert.deepEqual([edited.profile.currentWeek, edited.profile.currentDay], [1, 1]);
+});
+
+test('profile schedules save, restore, and round-trip through backup; malformed ones are rejected', async () => {
+  const source = service('schedule-src');
+  const schedule = { anchor: '2024-05-13', days: [0, 1, 3, 4], moves: { W1D3: '2024-05-18' } };
+  const p = profile({ schedule });
+  await source.saveProfile(p);
+  assert.deepEqual((await source.getProfiles())[0].schedule, schedule);
+
+  await assert.rejects(source.saveProfile(profile({ schedule: { ...schedule, anchor: '2024-05-15' } })), /malformed profile/);
+  await assert.rejects(source.saveProfile(profile({ schedule: { ...schedule, days: [0, 1, 1, 4] } })), /malformed profile/);
+  await assert.rejects(source.saveProfile(profile({ schedule: { ...schedule, moves: { W9D9: '2024-05-18' } } })), /malformed profile/);
+
+  const backup = await source.exportBackup();
+  const target = service('schedule-dst');
+  assert.equal((await target.importBackup(backup, 'replace-all')).success, true);
+  assert.deepEqual((await target.getProfiles())[0].schedule, schedule);
+  const bad = JSON.parse(backup);
+  bad.profiles[0].schedule.days = [0, 1];
+  assert.equal((await target.importBackup(JSON.stringify(bad), 'replace-all')).success, false);
+
+  const legacy = service('schedule-legacy');
+  await legacy.saveProfile(profile());
+  assert.equal((await legacy.getProfiles())[0].schedule, undefined, 'profiles saved before the calendar still validate');
+});

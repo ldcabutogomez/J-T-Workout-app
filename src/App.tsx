@@ -20,6 +20,10 @@ import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, p
 import { TogetherTab, type SyncStatus } from './components/TogetherTab';
 import { composeBoard, snapshotFromHistory, weekKey, type PartnerSnapshot } from './engine/leaderboard';
 import { fmtCount, meetsGoal, sessionCredit, validCompleted, weekStart } from './engine/sessionValidity';
+import { catchUp, defaultSchedule, doneSlots, missedCount, mondayOf, moveWorkout, nextWorkout, positionAfter, slotDate, todayKey, weekAgenda, weeksBehind, withTrainingDays, type NextWorkout, type Slot } from './engine/schedule';
+import { WeekCalendar } from './components/WeekCalendar';
+import { WeekStrip } from './components/WeekStrip';
+import { MoveSheet } from './components/MoveSheet';
 import { clearPairing, describeKey, generatePairCode, getDeviceId, loadPairing, normalizePairCode, pullSnapshots, pushSnapshot, readCloudConfig, savePairing, saveSyncProfile, testConnection } from './sync/cloud';
 import { TodayTab } from './components/TodayTab';
 import { ProgramTab } from './components/ProgramTab';
@@ -72,6 +76,9 @@ export default function App() {
   const syncing = useRef(false);
   const syncPending = useRef(false);
   const [coachTick, setCoachTick] = useState(0);
+  const [today, setToday] = useState(() => todayKey());
+  const [moveSlot, setMoveSlot] = useState<Slot | null>(null);
+  const [historyReady, setHistoryReady] = useState(false);
   const [connection, setConnection] = useState<{ state: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ state: 'idle' });
   const [partnerHistory, setPartnerHistory] = useState<Record<string, WorkoutSession[]> | null>(null);
   const [banner, setBanner] = useState<{ text: string; error?: boolean } | null>(null);
@@ -130,6 +137,14 @@ export default function App() {
           await dbService.saveProfile(renamed);
           return renamed;
         }));
+        // One-time: give every profile a calendar, placed so its current training week is this calendar week.
+        stored = await Promise.all(stored.map(async (item) => {
+          if (item.schedule) return item;
+          const past = await dbService.getSessionHistory(item.id, false);
+          const withSchedule = { ...item, schedule: defaultSchedule(item, Date.now(), past) };
+          await dbService.saveProfile(withSchedule);
+          return withSchedule;
+        }));
         setProfiles(stored);
         // Reopen on whoever used the app last, so each person's theme and data come back as they left them.
         let initialId = stored[0].id;
@@ -150,6 +165,7 @@ export default function App() {
     activeSessionRef.current = null;
     setActiveSession(null);
     setHistory([]);
+    setHistoryReady(false);
     void (async () => {
       try {
         const [active, records] = await Promise.all([
@@ -160,6 +176,7 @@ export default function App() {
         activeSessionRef.current = active;
         setActiveSession(active);
         setHistory(records);
+        setHistoryReady(true);
       } catch (error) {
         if (!cancelled) showBanner((error as Error).message, true);
       }
@@ -296,11 +313,34 @@ export default function App() {
     },
   };
 
+  // The calendar: where each workout sits, and which one to do next.
+  useEffect(() => {
+    const refresh = () => setToday(todayKey());
+    document.addEventListener('visibilitychange', refresh);
+    const timer = window.setInterval(refresh, 60_000);
+    return () => { document.removeEventListener('visibilitychange', refresh); window.clearInterval(timer); };
+  }, []);
+  const schedule = useMemo(() => (profile ? profile.schedule ?? defaultSchedule(profile) : null), [profile]);
+  const nextSlot: NextWorkout | null = useMemo(() => {
+    if (!profile || !schedule) return null;
+    // Until history has loaded, trust the saved pointer so the screen never flashes Week 1.
+    if (!historyReady) return profile.cycleCompleted ? null : { week: profile.currentWeek, day: profile.currentDay, date: today, reason: 'upcoming' };
+    return nextWorkout(schedule, history, today);
+  }, [profile, schedule, history, historyReady, today]);
+  const missed = useMemo(() => (schedule && historyReady ? missedCount(schedule, history, today) : 0), [schedule, history, historyReady, today]);
+  const sheetData = useMemo(() => {
+    if (!moveSlot || !schedule) return null;
+    const days = weekAgenda(schedule, history, mondayOf(slotDate(schedule, moveSlot.week, moveSlot.day)), today);
+    const item = days.flatMap((day) => day.items).find((entry) => entry.week === moveSlot.week && entry.day === moveSlot.day);
+    return item ? { item, days } : null;
+  }, [moveSlot, schedule, history, today]);
+
   // The Today coach card: welcome back, phase milestone, weekly recap, or the day's pre-workout line.
   const coachQueue = useMemo(() => {
-    if (!profile || activeSession || profile.cycleCompleted) return [];
-    const prescription = getDayPrescription(profile.currentWeek, profile.currentDay, profile);
+    if (!profile || activeSession || profile.cycleCompleted || !nextSlot) return [];
+    const prescription = getDayPrescription(nextSlot.week, nextSlot.day, profile);
     const seen = loadSeen(profile.id);
+    const finishedInWeek = [...doneSlots(history).keys()].some((key) => key.startsWith(`W${nextSlot.week}D`));
     return todayCandidates({
       now: Date.now(),
       tone: profile.tone,
@@ -309,11 +349,12 @@ export default function App() {
       unit: profile.unit,
       weeklyGoal: profile.weeklyGoalSessions ?? 4,
       history,
-      week: profile.currentWeek,
-      day: profile.currentDay,
+      week: nextSlot.week,
+      day: nextSlot.day,
+      firstOfWeek: !finishedInWeek,
       mainLift: prescription.exercises[0]?.exerciseName ?? 'your main lift',
     }).filter((message) => !seen.has(message.id));
-  }, [profile, activeSession, history, coachTick]);
+  }, [profile, activeSession, history, coachTick, nextSlot]);
   const coachMessage = coachQueue[0] ?? null;
   // Dismissing clears everything queued for now, so one tap makes the card go away instead of showing the next message.
   const dismissCoach = () => {
@@ -332,17 +373,23 @@ export default function App() {
     }
   };
 
-  const startWorkout = async () => {
+  /** Starts the next workout, or a specific one picked from the calendar. */
+  const startWorkout = async (week?: unknown, day?: unknown) => {
     if (!profile) return;
-    if (profile.cycleCompleted) {
+    if (activeSessionRef.current) {
+      showBanner('Finish or discard your current workout before starting another.', true);
+      return;
+    }
+    const slot = typeof week === 'number' && typeof day === 'number' ? { week, day } : nextSlot;
+    if (!slot) {
       showBanner('This profile has reached the end of Week 12. Export a backup before starting another cycle.', true);
       return;
     }
     try {
-      const prescription = getDayPrescription(profile.currentWeek, profile.currentDay, profile);
+      const prescription = getDayPrescription(slot.week, slot.day, profile);
       const session = createWorkoutSession(profile, prescription, Date.now(), false, history);
       await persistActive(session);
-      showBanner(`Started Week ${profile.currentWeek}, Day ${profile.currentDay}.`);
+      showBanner(`Started Week ${slot.week}, Day ${slot.day}.`);
     } catch (error) {
       showBanner((error as Error).message, true);
       setTab('program');
@@ -511,7 +558,7 @@ export default function App() {
       if (note) completed.encouragementMessage = note;
     }
     try {
-      const result = await dbService.completeAndAdvance(completed, profile);
+      const result = await dbService.completeAndAdvance(completed, profile, positionAfter(history, completed));
       let savedProfile = result.profile;
       activeSessionRef.current = null;
       setActiveSession(null);
@@ -563,16 +610,18 @@ export default function App() {
     }
   };
 
-  const skipSession = async () => {
-    if (!profile || profile.cycleCompleted) return;
-    if (!window.confirm(`Record Week ${profile.currentWeek}, Day ${profile.currentDay} as skipped and advance once?`)) return;
+  const skipSession = async (week?: unknown, day?: unknown) => {
+    if (!profile) return;
+    const slot = typeof week === 'number' && typeof day === 'number' ? { week, day } : nextSlot;
+    if (!slot) return;
+    if (!window.confirm(`Record Week ${slot.week}, Day ${slot.day} as skipped? It will be marked done in the program.`)) return;
     try {
-      const skipped = makeSkippedSession(profile, getDayPrescription(profile.currentWeek, profile.currentDay, profile));
+      const skipped = makeSkippedSession(profile, getDayPrescription(slot.week, slot.day, profile));
       skipped.encouragementMessage = generateSessionEncouragement({ tone: profile.tone, history, currentSession: skipped });
-      const result = await dbService.completeAndAdvance(skipped, profile);
+      const result = await dbService.completeAndAdvance(skipped, profile, positionAfter(history, skipped));
       setProfiles((items) => items.map((item) => item.id === result.profile.id ? result.profile : item));
       setHistory(await dbService.getSessionHistory(profile.id, true));
-      showBanner('Skipped session recorded; program position advanced once.');
+      showBanner('Skipped workout recorded.');
     } catch (error) {
       showBanner((error as Error).message, true);
     }
@@ -613,6 +662,24 @@ export default function App() {
     }
   };
 
+  const handleMoveWorkout = async (slot: Slot, date: string) => {
+    if (!profile || !schedule) return;
+    const result = moveWorkout(schedule, history, slot, date, today);
+    if (!result.ok) {
+      showBanner(result.reason, true);
+      return;
+    }
+    if (result.schedule !== schedule) await updateProfile({ ...profile, schedule: result.schedule });
+    haptic('select');
+    showToast(result.message);
+  };
+
+  const handleCatchUp = async () => {
+    if (!profile || !schedule) return;
+    await updateProfile({ ...profile, schedule: catchUp(schedule, history, today) });
+    showToast('Plan moved to this week.');
+  };
+
   const refreshAfterImport = async () => {
     const refreshed = await dbService.getProfiles();
     setProfiles(refreshed);
@@ -645,8 +712,13 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
       <main key={tab} className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full animate-fade-in">
-        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onToggleWarmup={handleToggleWarmup} coach={coachMessage} onDismissCoach={dismissCoach} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
-        {tab === 'program' && <ProgramTab profile={profile} onUpdateProfile={updateProfile} />}
+        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} history={history} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'program' && (
+          <div className="space-y-4">
+            {schedule && <WeekCalendar schedule={schedule} history={history} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
+            <ProgramTab profile={profile} onUpdateProfile={updateProfile} />
+          </div>
+        )}
         {tab === 'progress' && <ProgressTab profile={profile} history={history} onEditSession={editCompletedSession} onDeleteSession={async (id, demo) => {
           if (!profile || !window.confirm('Delete this session record? This cannot be undone.')) return;
           try {
@@ -677,6 +749,18 @@ export default function App() {
       <RestTimer restRequest={restRequest} setsLogged={activeSession ? activeSession.exercises.reduce((sum, item) => sum + item.sets.filter((set) => set.completed).length, 0) : 0} />
       <ToastStack toasts={toasts} />
       {summary && <WorkoutSummary data={summary} onDone={() => { setSummary(null); setTab('today'); }} />}
+      {moveSlot && sheetData && (
+        <MoveSheet
+          item={sheetData.item}
+          days={sheetData.days}
+          today={today}
+          hasActiveWorkout={Boolean(activeSession)}
+          onChoose={(date) => { const slot = moveSlot; setMoveSlot(null); void handleMoveWorkout(slot, date); }}
+          onStart={() => { const slot = moveSlot; setMoveSlot(null); void startWorkout(slot.week, slot.day).then(() => setTab('today')); }}
+          onSkip={() => { const slot = moveSlot; setMoveSlot(null); void skipSession(slot.week, slot.day); }}
+          onClose={() => setMoveSlot(null)}
+        />
+      )}
       <nav className="fixed bottom-0 left-0 right-0 z-30 bg-surface border-t border-line py-2 px-3 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">
         <NavButton active={tab === 'today'} label="Today" icon={<Dumbbell className="w-5 h-5" />} onClick={() => setTab('today')} />
         <NavButton active={tab === 'program'} label="Program" icon={<CalendarDays className="w-5 h-5" />} onClick={() => setTab('program')} />

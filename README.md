@@ -38,6 +38,15 @@ The workbook has no warm-up sets and leaves some weights to the lifter (`Find nR
 - **Coach messages.** A coach card on Today (welcome back, phase milestones, weekly recap, the day's lift), short nudges mid-workout, and a personal note after a finished workout, in the lifter's chosen tone. Messages are deterministic: the same situation gives the same words.
 - **Partner leaderboard.** Partial workouts count toward pounds lifted, PRs and session totals, and toward the weekly goal, 4-week compliance and streak in proportion to the sets logged (18 of 32 sets is 0.56 of a session). Badges, the 48-session cycle check and "workout complete" claims still require a finished workout. Your own stats appear immediately after a workout without waiting for a partner.
 
+## Calendar
+
+The Program tab opens with a week-by-week schedule. Each of the four program days has a date: by default Day 1 to Day 4 sit on Mon, Tue, Thu and Fri (change the weekdays in Settings).
+
+- **Reschedule by dragging.** Press and hold a workout, then drag it to another day in the same Monday-to-Sunday week. Dropping on a day that already has a workout swaps the two. The **Move** button does the same thing without dragging (a day picker, plus Start now and Skip). Finished workouts stay where they were done, and nothing can be moved onto a day that has passed.
+- **Missed days stay put.** A workout whose day passes unfinished is flagged Missed; nothing moves on its own. If you fall a week or more behind, **Move plan to this week** re-dates the unfinished workouts, starting from today.
+- **Order does not matter to the program.** Whether a workout is done comes from your history, not its date. The Today tab picks today's workout, else the next one coming up, else the earliest missed one. The saved position (`currentWeek` / `currentDay`) is kept as the first workout you have not done, so the leaderboard, backups and partner sync are unchanged. The 48-session cycle completes on whichever workout finishes it.
+- Moves are only allowed inside a week, so the weekly progression and the Week 6 and Week 12 test weeks stay in order.
+
 ## Local state and backups
 
 Each logged set is serialized through a write queue and saved immediately. Refreshing or reopening restores the profile's unfinished session. Profiles have independent positions, drafts, units, TMs, and history.

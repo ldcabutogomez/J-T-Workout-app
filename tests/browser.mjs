@@ -257,6 +257,133 @@ try {
   assert.equal(await pp.getByRole('row').filter({ hasText: 'Luis' }).count(), 1, 'the other local profile is listed too');
   await partialContext.close();
 
+  // Calendar: drag-and-drop rescheduling with a fixed clock. The plan is created on a Monday (2024-05-13),
+  // then two days pass without training, so Day 1 and Day 2 are genuinely missed on Wednesday.
+  const calContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await calContext.clock.setFixedTime(new Date(2024, 4, 13, 12));
+  const cal = await calContext.newPage();
+  cal.on('dialog', (dialog) => dialog.accept());
+  const rowOf = (date) => cal.locator(`li[data-date="${date}"]`);
+  const dayOnRow = async (date) => (await rowOf(date).locator('[data-slot]').evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-slot'))));
+  const dragSlot = async (slot, date) => {
+    const card = cal.locator(`[data-slot="${slot}"]`);
+    await card.scrollIntoViewIfNeeded();
+    const from = await card.boundingBox();
+    const target = rowOf(date);
+    await target.scrollIntoViewIfNeeded();
+    const to = await target.boundingBox();
+    const fromBox = await card.boundingBox();
+    await cal.mouse.move(fromBox.x + 40, fromBox.y + fromBox.height / 2);
+    await cal.mouse.down();
+    await cal.mouse.move(fromBox.x + 46, fromBox.y + fromBox.height / 2 + 6, { steps: 2 });
+    await cal.mouse.move(to.x + 60, to.y + to.height / 2, { steps: 8 });
+    await cal.mouse.up();
+    void from;
+  };
+
+  await cal.goto(origin, { waitUntil: 'networkidle' });
+  await cal.getByText('Next scheduled session').waitFor();
+  assert.equal(await cal.getByText(/missed workout/).count(), 0, 'a brand-new plan has nothing missed');
+  await calContext.clock.setFixedTime(new Date(2024, 4, 15, 12));
+  await cal.reload({ waitUntil: 'networkidle' });
+  await cal.getByRole('button', { name: 'Program' }).click();
+  await cal.getByRole('heading', { name: 'Schedule' }).waitFor();
+  await assertNoHorizontalClipping(cal, 'Program calendar');
+  assert.deepEqual(await dayOnRow('2024-05-13'), ['W1D1'], 'Day 1 on Monday');
+  assert.deepEqual(await dayOnRow('2024-05-14'), ['W1D2'], 'Day 2 on Tuesday');
+  assert.deepEqual(await dayOnRow('2024-05-16'), ['W1D3'], 'Day 3 on Thursday');
+  assert.deepEqual(await dayOnRow('2024-05-17'), ['W1D4'], 'Day 4 on Friday');
+  assert.match(await cal.locator('[data-slot="W1D1"]').innerText(), /Missed/, 'a past workout is flagged missed');
+  assert.match(await cal.locator('[data-slot="W1D3"]').innerText(), /Legs/);
+
+  // Drag Day 3 from Thursday to Saturday with the mouse; it persists across a reload.
+  await dragSlot('W1D3', '2024-05-18');
+  await cal.getByText('Moved Day 3 to Saturday.').waitFor();
+  assert.deepEqual(await dayOnRow('2024-05-18'), ['W1D3']);
+  assert.deepEqual(await dayOnRow('2024-05-16'), []);
+  await cal.reload({ waitUntil: 'networkidle' });
+  await cal.getByRole('button', { name: 'Program' }).click();
+  assert.deepEqual(await dayOnRow('2024-05-18'), ['W1D3'], 'the move survives a reload');
+
+  // Dropping on an occupied day swaps the two workouts.
+  await dragSlot('W1D4', '2024-05-18');
+  await cal.getByText('Swapped Day 4 with Day 3.').waitFor();
+  assert.deepEqual(await dayOnRow('2024-05-18'), ['W1D4']);
+  assert.deepEqual(await dayOnRow('2024-05-17'), ['W1D3']);
+
+  // A past day is not a drop target.
+  await dragSlot('W1D3', '2024-05-14');
+  assert.deepEqual(await dayOnRow('2024-05-17'), ['W1D3'], 'nothing moves onto a day that has passed');
+
+  // The Move sheet does the same thing without dragging, and works from the keyboard.
+  await cal.getByRole('button', { name: 'Move Week 1 Day 1' }).click();
+  const sheet = cal.getByRole('dialog', { name: 'Move workout' });
+  await sheet.waitFor();
+  assert.equal(await sheet.getByRole('radio', { name: /Mon May 13/ }).isDisabled(), true, 'past days cannot be chosen');
+  await sheet.getByRole('radio', { name: /Wed May 15/ }).click();
+  await sheet.waitFor({ state: 'detached' });
+  assert.deepEqual(await dayOnRow('2024-05-15'), ['W1D1'], 'a missed workout can move to today');
+  await cal.getByRole('button', { name: 'Move Week 1 Day 2' }).focus();
+  await cal.keyboard.press('Enter');
+  await cal.getByRole('dialog', { name: 'Move workout' }).waitFor();
+  await cal.keyboard.press('Escape');
+  await cal.getByRole('dialog', { name: 'Move workout' }).waitFor({ state: 'detached' });
+
+  // Today shows the scheduled workout and offers to move it.
+  await cal.getByRole('button', { name: 'Today' }).click();
+  await cal.getByText('Day 1 — Back Squat').first().waitFor();
+  await cal.getByRole('button', { name: /Move this workout/ }).waitFor();
+  await cal.getByRole('button', { name: "This week's schedule. Open the calendar." }).waitFor();
+
+  // Two weeks later the plan is behind; one tap re-dates it to this week.
+  await calContext.clock.setFixedTime(new Date(2024, 4, 29, 12));
+  await cal.reload({ waitUntil: 'networkidle' });
+  await cal.getByRole('button', { name: 'Program' }).click();
+  await cal.getByText(/You're 2 weeks behind/).waitFor();
+  await cal.getByRole('button', { name: 'Move plan to this week' }).click();
+  await cal.getByText('Plan moved to this week.').waitFor();
+  await cal.getByText(/weeks? behind/).waitFor({ state: 'detached' });
+  assert.deepEqual(await dayOnRow('2024-05-29'), ['W1D1'], 'Day 1 lands today, not in the past');
+  assert.equal(await cal.locator('[data-slot]').filter({ hasText: 'Missed' }).count(), 0, 'nothing is missed after catching up');
+  await calContext.close();
+
+  // Out of order: do Day 3 first from the Move sheet; Day 1 stays the program's next workout.
+  const oooContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await oooContext.clock.setFixedTime(new Date(2024, 4, 13, 12)); // Monday
+  const ooo = await oooContext.newPage();
+  ooo.on('dialog', (dialog) => dialog.accept());
+  await ooo.goto(origin, { waitUntil: 'networkidle' });
+  await ooo.getByRole('button', { name: 'Program' }).click();
+  const oooBlock1 = ooo.locator('section').filter({ has: ooo.getByRole('heading', { name: 'Block 1 training maxes' }) });
+  await oooBlock1.getByRole('button', { name: /Edit/ }).click();
+  for (const [index, value] of ['200', '180', '300', '120', '160'].entries()) await oooBlock1.locator('input[type="number"]').nth(index).fill(value);
+  await oooBlock1.getByRole('button', { name: /Save/ }).click();
+  await ooo.getByText('Block 1 TMs confirmed').waitFor();
+  await ooo.getByRole('button', { name: 'Move Week 1 Day 3' }).click();
+  await ooo.getByRole('dialog', { name: 'Move workout' }).getByRole('button', { name: 'Start now' }).click();
+  await ooo.getByText('Workout in progress').waitFor();
+  await ooo.getByRole('heading', { name: 'Week 1 · Day 3' }).waitFor();
+  for (let guard = 0; guard < 80; guard += 1) {
+    const logButtons = ooo.getByRole('button', { name: 'Log set' });
+    if (await logButtons.count() === 0) break;
+    const button = logButtons.first();
+    const inputs = button.locator('..').locator('..').locator('input');
+    if (!(await inputs.nth(0).inputValue())) await inputs.nth(0).fill('100');
+    if (!(await inputs.nth(1).inputValue())) await inputs.nth(1).fill('5');
+    await button.click();
+  }
+  await ooo.getByRole('button', { name: 'Finish' }).click();
+  const oooSummary = ooo.getByRole('dialog', { name: 'Workout summary' });
+  await oooSummary.waitFor();
+  await ooo.keyboard.press('Escape');
+  await ooo.getByRole('button', { name: 'Settings' }).click();
+  await ooo.getByText('W1:D1').first().waitFor();
+  await ooo.getByRole('button', { name: 'Program' }).click();
+  assert.match(await ooo.locator('[data-slot="W1D3"]').innerText(), /Done/, 'Day 3 shows as done');
+  assert.equal(await ooo.getByRole('button', { name: 'Move Week 1 Day 3' }).count(), 0, 'finished workouts cannot be moved');
+  assert.equal(await ooo.locator('[data-slot="W1D1"]').count(), 1, 'Day 1 is still planned');
+  await oooContext.close();
+
   // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).
   const iosContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
