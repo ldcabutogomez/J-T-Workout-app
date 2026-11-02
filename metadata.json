@@ -1,0 +1,6 @@
+{
+  "name": "Jacked & Tan 2.0 Partner Training Engine",
+  "description": "A mobile-first training app for partners built on the original GZCL Jacked & Tan 2.0 12-week powerbuilding curriculum.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
