@@ -1,5 +1,6 @@
 import type { BackupExportData, LoggedExercise, LoggedSet, UserProfile, WorkoutSession } from '../types';
 import { isValidAvatar } from '../lib/avatar';
+import { isColorTheme } from '../lib/theme';
 import { nextProgramPosition } from '../engine/sessionEngine';
 
 const DEFAULT_DB_NAME = 'JackedAndTan2_LocalDB';
@@ -153,7 +154,8 @@ function validateProfile(value: unknown): value is UserProfile {
     && validateTmRecord(value.trainingMaxes)
     && (value.block2ConfirmedTMs === undefined || validateTmRecord(value.block2ConfirmedTMs))
     && (value.exerciseSwaps === undefined || validateStringRecord(value.exerciseSwaps))
-    && (value.avatar === undefined || isValidAvatar(value.avatar));
+    && (value.avatar === undefined || isValidAvatar(value.avatar))
+    && (value.colorTheme === undefined || isColorTheme(value.colorTheme));
 }
 
 function uniqueIds<T>(items: T[], getId: (item: T) => string): boolean {

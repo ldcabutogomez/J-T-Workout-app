@@ -4,6 +4,7 @@ import { convertProfileUnit } from '../engine/jnt2Engine';
 import { Download, Upload, Users } from 'lucide-react';
 import { canVibrate, feedback, haptic } from '../lib/feedback';
 import { AVATAR_COLORS, defaultAvatarColor, fileToAvatarPhoto } from '../lib/avatar';
+import { COLOR_THEMES, THEMES, themeForProfile } from '../lib/theme';
 import { Avatar, AVATAR_TILE } from './Avatar';
 
 interface SettingsTabProps {
@@ -58,6 +59,7 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSelect
       <section className="card p-5 space-y-4">
         <h2 className="text-lg font-black">Profile preferences</h2>
         <AvatarEditor profile={profile} onUpdateProfile={onUpdateProfile} />
+        <ThemePicker profile={profile} onUpdateProfile={onUpdateProfile} />
         <label className="block text-xs uppercase font-bold text-muted">Lifter name<input value={profile.name} onChange={(event) => onUpdateProfile({ ...profile, name: event.target.value })} className="block w-full mt-1 min-h-11 bg-paper border border-line rounded-xl px-3 text-sm normal-case text-ink" /></label>
         <div className="grid grid-cols-2 gap-3">
           <label className="text-xs uppercase font-bold text-muted">Weight unit<select disabled={Boolean(activeSession)} value={profile.unit} onChange={(event) => setUnit(event.target.value as WeightUnit)} className="block w-full mt-1 min-h-11 bg-paper disabled:opacity-50 border border-line rounded-xl px-3 text-sm normal-case text-ink"><option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option></select></label>
@@ -109,13 +111,13 @@ function Toggle({ label, hint, checked, onChange }: { label: string; hint: strin
   );
 }
 
-const COLOR_NAMES: Record<string, string> = { accent: 'Vermilion', ok: 'Forest', gold: 'Ochre', ink: 'Ink', clay: 'Clay', teal: 'Teal' };
+const COLOR_NAMES: Record<string, string> = { accent: 'Accent', violet: 'Violet', cobalt: 'Cobalt', ok: 'Forest', gold: 'Ochre', ink: 'Ink', clay: 'Clay', teal: 'Teal' };
 
 function AvatarEditor({ profile, onUpdateProfile }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
-  const color = profile.avatar?.color ?? defaultAvatarColor(profile.id);
+  const color = profile.avatar?.color ?? defaultAvatarColor(profile);
 
   const pick = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -152,8 +154,9 @@ function AvatarEditor({ profile, onUpdateProfile }: { profile: UserProfile; onUp
       </div>
       <div className="mt-3" role="radiogroup" aria-label="Profile color">
         <p className="text-xs text-muted">Color for the initial{profile.avatar?.photo ? ' (shown if you remove the photo)' : ''}</p>
-        <div className="mt-2 flex gap-2">
-          {AVATAR_COLORS.map((item) => (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {/* The theme accent is already offered as violet or cobalt, so only show it for the vermilion theme (or if it was chosen before). */}
+          {AVATAR_COLORS.filter((item) => item !== 'accent' || themeForProfile(profile) === 'vermilion' || color === 'accent').map((item) => (
             <button
               key={item}
               type="button"
@@ -167,6 +170,34 @@ function AvatarEditor({ profile, onUpdateProfile }: { profile: UserProfile; onUp
         </div>
       </div>
       <p role="status" className={`mt-2 text-xs ${message?.error ? 'text-bad' : 'text-muted'}`}>{message?.text ?? ''}</p>
+    </div>
+  );
+}
+
+function ThemePicker({ profile, onUpdateProfile }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void }) {
+  const current = themeForProfile(profile);
+  return (
+    <div>
+      <p className="eyebrow">Color theme</p>
+      <div className="mt-2 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Color theme">
+        {COLOR_THEMES.map((theme) => (
+          <button
+            key={theme}
+            type="button"
+            role="radio"
+            aria-checked={current === theme}
+            onClick={() => onUpdateProfile({ ...profile, colorTheme: theme })}
+            className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2 text-sm font-bold ${current === theme ? 'border-accent bg-accent/10 text-accent-ink' : 'border-line bg-surface text-ink'}`}
+          >
+            <span
+              aria-hidden
+              className="h-7 w-7 rounded-full border border-line"
+              style={{ background: `linear-gradient(135deg, ${THEMES[theme].paper} 50%, ${THEMES[theme].accent} 50%)` }}
+            />
+            {THEMES[theme].label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

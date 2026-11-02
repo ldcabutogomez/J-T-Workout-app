@@ -32,7 +32,9 @@
   --color-gold: #c9962b;
   --color-gold-ink: #7d5a0c;
 
-  /* Avatar tile colors (each has white text that passes contrast). */
+  /* Avatar tile colors (each has white text that passes contrast). Not themed. */
+  --color-violet: #7b4fc4;
+  --color-cobalt: #1f5fbf;
   --color-clay: #9c5636;
   --color-teal: #2b6466;
 
@@ -73,6 +75,35 @@
     0% { transform: translate3d(0, -10vh, 0) rotate(0deg); opacity: 1; }
     100% { transform: translate3d(var(--dx, 0), 105vh, 0) rotate(720deg); opacity: 0.9; }
   }
+}
+
+/*
+ * Per-profile themes. The @theme block above is the default (vermilion); these override only the
+ * neutrals, text tones, and accent, so success/error/PR colors mean the same thing everywhere.
+ * tests/theme.test.ts runs every contrast check against each theme.
+ */
+:root[data-theme='lavender'] {
+  --color-paper: #f3eff9;
+  --color-surface: #fbf9fe;
+  --color-sunk: #e9e2f4;
+  --color-line: #d5cbe6;
+  --color-ink: #231a33;
+  --color-ink-2: #3f3552;
+  --color-muted: #675c7b;
+  --color-accent: #7b4fc4;
+  --color-accent-ink: #5e37a6;
+}
+
+:root[data-theme='blue'] {
+  --color-paper: #eef2f7;
+  --color-surface: #f9fbfd;
+  --color-sunk: #e0e7f0;
+  --color-line: #c9d4e2;
+  --color-ink: #101b2d;
+  --color-ink-2: #2c3a52;
+  --color-muted: #526176;
+  --color-accent: #1f5fbf;
+  --color-accent-ink: #174a98;
 }
 
 @layer base {

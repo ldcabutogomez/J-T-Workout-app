@@ -10,6 +10,17 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#f4f0e8" />
+    <script>
+      // Apply the last-used profile theme before first paint so the app never flashes the default colors.
+      try {
+        var papers = { lavender: '#f3eff9', blue: '#eef2f7', vermilion: '#f4f0e8' };
+        var saved = localStorage.getItem('jnt2_color_theme');
+        if (saved && papers[saved]) {
+          document.documentElement.dataset.theme = saved;
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', papers[saved]);
+        }
+      } catch (e) {}
+    </script>
     <meta name="color-scheme" content="light" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

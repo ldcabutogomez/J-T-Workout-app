@@ -176,6 +176,36 @@ try {
   assert.equal(await avatarPage.locator('header img').count(), 0, 'initials return after removing the photo');
   await avatarContext.close();
 
+  // Per-profile themes: Lauren is lavender, Luis is blue, and a choice in Settings applies and persists.
+  const themeContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const themePage = await themeContext.newPage();
+  const themeState = () => themePage.evaluate(() => ({
+    theme: document.documentElement.dataset.theme,
+    accent: getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(),
+    chrome: document.querySelector('meta[name="theme-color"]').getAttribute('content'),
+    background: getComputedStyle(document.body).backgroundColor,
+  }));
+  await themePage.goto(origin, { waitUntil: 'networkidle' });
+  await themePage.getByText('Next scheduled session').waitFor();
+  assert.deepEqual((({ theme, accent, chrome }) => ({ theme, accent, chrome }))(await themeState()), { theme: 'lavender', accent: '#7b4fc4', chrome: '#f3eff9' });
+  await themePage.getByRole('button', { name: 'Luis' }).first().click();
+  await themePage.waitForFunction(() => document.documentElement.dataset.theme === 'blue');
+  assert.deepEqual((({ theme, accent, chrome }) => ({ theme, accent, chrome }))(await themeState()), { theme: 'blue', accent: '#1f5fbf', chrome: '#eef2f7' });
+  assert.equal((await themeState()).background, 'rgb(238, 242, 247)', 'page background follows the theme');
+  await themePage.getByRole('button', { name: 'Settings' }).click();
+  await themePage.getByRole('radio', { name: 'Vermilion' }).click();
+  await themePage.waitForFunction(() => document.documentElement.dataset.theme === 'vermilion');
+  assert.equal((await themeState()).accent, '#d63d16');
+  // The saved theme is applied before the app renders, so a reload never flashes the default colors.
+  await themePage.reload({ waitUntil: 'domcontentloaded' });
+  assert.equal(await themePage.evaluate(() => document.documentElement.dataset.theme), 'vermilion', 'theme is set before first paint');
+  await themePage.waitForSelector('header');
+  assert.equal((await themeState()).theme, 'vermilion', 'the choice persists across reloads');
+  assert.equal(await themePage.locator('header button', { hasText: 'Luis' }).evaluate((el) => el.className.includes('bg-accent')), true, 'the app reopens on the last-used profile');
+  await themePage.getByRole('button', { name: 'Lauren' }).first().click();
+  await themePage.waitForFunction(() => document.documentElement.dataset.theme === 'lavender');
+  await themeContext.close();
+
   // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).
   const iosContext = await browser.newContext({
     viewport: { width: 390, height: 844 },

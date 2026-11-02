@@ -26,12 +26,12 @@ test('squareCrop centers the largest square for landscape, portrait, and square 
   assert.deepEqual(squareCrop(301, 200), { sx: 50, sy: 0, size: 200 });
 });
 
-test('default avatar colors are stable, valid, and differ across the two default profiles', () => {
-  for (const id of ['partner-1', 'partner-2', 'x', '']) {
-    assert.ok(AVATAR_COLORS.includes(defaultAvatarColor(id)));
-    assert.equal(defaultAvatarColor(id), defaultAvatarColor(id));
-  }
-  assert.notEqual(defaultAvatarColor('partner-1'), defaultAvatarColor('partner-2'));
+test('default avatar color follows the profile theme and stays valid and stable', () => {
+  assert.equal(defaultAvatarColor({ id: 'partner-1' }), 'violet');
+  assert.equal(defaultAvatarColor({ id: 'partner-2' }), 'cobalt');
+  assert.equal(defaultAvatarColor({ id: 'someone-else' }), 'accent');
+  assert.equal(defaultAvatarColor({ id: 'partner-1', colorTheme: 'blue' }), 'cobalt', 'an explicit theme wins over the id default');
+  for (const id of ['partner-1', 'partner-2', 'x', '']) assert.ok(AVATAR_COLORS.includes(defaultAvatarColor({ id })));
 });
 
 test('avatar initial uses the first letter and survives empty or emoji names', () => {

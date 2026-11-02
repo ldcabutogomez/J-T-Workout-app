@@ -30,10 +30,13 @@ import { ToastStack, type ToastItem } from './components/Toast';
 import { WorkoutSummary, type WorkoutSummaryData } from './components/WorkoutSummary';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { Avatar } from './components/Avatar';
+import { applyTheme, defaultThemeForId, themeForProfile } from './lib/theme';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp, Users } from 'lucide-react';
 
 type Tab = 'today' | 'program' | 'progress' | 'together' | 'settings' | 'verify';
+
+const ACTIVE_PROFILE_KEY = 'jnt2_active_profile';
 
 function blankProfile(id: string, name: string): UserProfile {
   return {
@@ -47,7 +50,7 @@ function blankProfile(id: string, name: string): UserProfile {
     currentDay: 1,
     trainingMaxes: {},
     weeklyGoalSessions: 4,
-    theme: 'dark',
+    colorTheme: defaultThemeForId(id),
   };
 }
 
@@ -88,6 +91,15 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!profile) return;
+    try { localStorage.setItem(ACTIVE_PROFILE_KEY, profile.id); } catch { /* remembering is best effort */ }
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (profile) applyTheme(themeForProfile(profile));
+  }, [profile?.id, profile?.colorTheme]);
+
+  useEffect(() => {
     setFeedbackPrefs({
       haptics: profile?.hapticsEnabled ?? true,
       sound: profile?.soundEnabled ?? true,
@@ -113,7 +125,13 @@ export default function App() {
           return renamed;
         }));
         setProfiles(stored);
-        setActiveProfileId(stored[0].id);
+        // Reopen on whoever used the app last, so each person's theme and data come back as they left them.
+        let initialId = stored[0].id;
+        try {
+          const saved = localStorage.getItem(ACTIVE_PROFILE_KEY);
+          if (saved && stored.some((item) => item.id === saved)) initialId = saved;
+        } catch { /* falls back to the first profile */ }
+        setActiveProfileId(initialId);
       } catch (error) {
         showBanner((error as Error).message, true);
       }
@@ -492,7 +510,7 @@ export default function App() {
           <div className="flex items-center bg-paper border border-line rounded-xl p-0.5 overflow-x-auto max-w-[62vw]">
             {profiles.map((item) => (
               <button key={item.id} onClick={() => setActiveProfileId(item.id)} className={`flex items-center gap-1.5 py-1 pl-1 pr-2.5 text-xs font-bold rounded-lg whitespace-nowrap ${item.id === profile?.id ? 'bg-accent text-on-accent' : 'text-muted'}`}>
-                <Avatar profile={item} size={22} decorative />
+                <span className={`flex rounded-full ${item.id === profile?.id ? 'ring-2 ring-on-accent' : ''}`}><Avatar profile={item} size={22} decorative /></span>
                 {item.name}
               </button>
             ))}

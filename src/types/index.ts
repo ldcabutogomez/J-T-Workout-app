@@ -78,7 +78,7 @@ export interface UserProfile {
   exerciseCustomizations?: Record<string, string>;
   /** Remembered accessory swaps: `${slotId}::${programExerciseId}` -> alternative exercise id. */
   exerciseSwaps?: Record<string, string>;
-  theme?: 'dark' | 'light';
+  colorTheme?: ColorTheme;
   weeklyGoalSessions?: number;
   hapticsEnabled?: boolean;
   soundEnabled?: boolean;
@@ -87,7 +87,9 @@ export interface UserProfile {
   avatar?: ProfileAvatar;
 }
 
-export type AvatarColor = 'accent' | 'ok' | 'gold' | 'ink' | 'clay' | 'teal';
+export type ColorTheme = 'lavender' | 'blue' | 'vermilion';
+
+export type AvatarColor = 'accent' | 'violet' | 'cobalt' | 'ok' | 'gold' | 'ink' | 'clay' | 'teal';
 
 export interface ProfileAvatar {
   /** Small square JPEG data URL, stored on this device only. */

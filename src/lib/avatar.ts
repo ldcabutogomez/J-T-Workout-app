@@ -1,6 +1,7 @@
-import type { AvatarColor, ProfileAvatar } from '../types';
+import type { AvatarColor, ColorTheme, ProfileAvatar } from '../types';
+import { themeForProfile } from './theme';
 
-export const AVATAR_COLORS: readonly AvatarColor[] = ['accent', 'ok', 'gold', 'ink', 'clay', 'teal'];
+export const AVATAR_COLORS: readonly AvatarColor[] = ['accent', 'violet', 'cobalt', 'ok', 'gold', 'ink', 'clay', 'teal'];
 export const AVATAR_PHOTO_PREFIX = 'data:image/jpeg;base64,';
 /** About 60 KB of image data once base64-encoded. */
 export const AVATAR_PHOTO_MAX_CHARS = 80_000;
@@ -12,11 +13,11 @@ export function squareCrop(width: number, height: number): { sx: number; sy: num
   return { sx: Math.floor((width - size) / 2), sy: Math.floor((height - size) / 2), size };
 }
 
-/** Stable default tile color, so a profile keeps the same color without any saved choice. */
-export function defaultAvatarColor(profileId: string): AvatarColor {
-  let hash = 0;
-  for (const char of profileId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+const THEME_AVATAR: Record<ColorTheme, AvatarColor> = { lavender: 'violet', blue: 'cobalt', vermilion: 'accent' };
+
+/** Default tile color follows the profile's theme, so the initial matches the person's look. */
+export function defaultAvatarColor(profile: { id: string; colorTheme?: ColorTheme }): AvatarColor {
+  return THEME_AVATAR[themeForProfile(profile)];
 }
 
 export function avatarInitial(name: string): string {

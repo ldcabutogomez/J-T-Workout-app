@@ -3,15 +3,9 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { THEME_TOKENS, themeBlock } from './themeTokens';
 
-const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
-
-/** Color tokens from the @theme block, e.g. { paper: '#f4f0e8' }. */
-function tokens(): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const match of css.matchAll(/--color-([a-z0-9-]+):\s*(#[0-9a-fA-F]{6})\s*;/g)) result[match[1]] = match[2].toLowerCase();
-  return result;
-}
+const base = THEME_TOKENS.vermilion;
 
 function luminance(hex: string): number {
   const channel = (offset: number) => {
@@ -26,41 +20,53 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-const t = tokens();
-const ratio = (fg: string, bg: string) => {
-  assert.ok(t[fg], `missing token ${fg}`);
-  assert.ok(t[bg], `missing token ${bg}`);
-  return contrast(t[fg], t[bg]);
-};
+const mix = (hex: string, over: string, amount: number) => '#' + [1, 3, 5]
+  .map((o) => Math.round(parseInt(hex.slice(o, o + 2), 16) * amount + parseInt(over.slice(o, o + 2), 16) * (1 - amount)).toString(16).padStart(2, '0'))
+  .join('');
 
-test('text colors meet WCAG AA (4.5:1) on paper, surface, and sunk', () => {
-  for (const fg of ['ink', 'ink-2', 'muted', 'accent-ink', 'ok', 'warn', 'bad', 'gold-ink']) {
-    for (const bg of ['paper', 'surface', 'sunk']) {
+for (const [themeName, t] of Object.entries(THEME_TOKENS)) {
+  const ratio = (fg: string, bg: string) => {
+    assert.ok(t[fg], `${themeName}: missing token ${fg}`);
+    assert.ok(t[bg], `${themeName}: missing token ${bg}`);
+    return contrast(t[fg], t[bg]);
+  };
+
+  test(`${themeName}: text colors meet WCAG AA (4.5:1) on paper, surface, and sunk`, () => {
+    for (const fg of ['ink', 'ink-2', 'muted', 'accent-ink', 'ok', 'warn', 'bad', 'gold-ink']) {
+      for (const bg of ['paper', 'surface', 'sunk']) {
+        assert.ok(ratio(fg, bg) >= 4.5, `${fg} on ${bg} is ${ratio(fg, bg).toFixed(2)}:1`);
+      }
+    }
+  });
+
+  test(`${themeName}: tinted alert backgrounds keep status text readable`, () => {
+    // Alerts draw ok/warn/bad text on a 10% tint of the same color over the surface.
+    for (const name of ['ok', 'warn', 'bad']) {
+      const tint = mix(t[name], t.surface, 0.1);
+      assert.ok(contrast(t[name], tint) >= 4.5, `${name} on its tint is ${contrast(t[name], tint).toFixed(2)}:1`);
+    }
+  });
+
+  test(`${themeName}: text on filled accent and avatar tiles meets AA`, () => {
+    assert.ok(ratio('on-accent', 'accent') >= 4.5, `on-accent on accent ${ratio('on-accent', 'accent').toFixed(2)}:1`);
+    for (const [bg, fg] of [['ok', 'on-accent'], ['bad', 'on-accent'], ['gold-ink', 'on-accent'], ['clay', 'on-accent'], ['teal', 'on-accent'], ['violet', 'on-accent'], ['cobalt', 'on-accent'], ['ink', 'paper']]) {
       assert.ok(ratio(fg, bg) >= 4.5, `${fg} on ${bg} is ${ratio(fg, bg).toFixed(2)}:1`);
     }
-  }
-});
+  });
 
-test('tinted alert backgrounds keep status text readable', () => {
-  // Alerts draw ok/warn/bad text on a 10% tint of the same color over the surface.
-  const mix = (hex: string, over: string, amount: number) => '#' + [1, 3, 5]
-    .map((o) => Math.round(parseInt(hex.slice(o, o + 2), 16) * amount + parseInt(over.slice(o, o + 2), 16) * (1 - amount)).toString(16).padStart(2, '0'))
-    .join('');
-  for (const name of ['ok', 'warn', 'bad']) {
-    const tint = mix(t[name], t.surface, 0.1);
-    assert.ok(contrast(t[name], tint) >= 4.5, `${name} on its tint is ${contrast(t[name], tint).toFixed(2)}:1`);
-  }
-});
+  test(`${themeName}: accent fills and borders have at least 3:1 against paper`, () => {
+    for (const name of ['accent', 'ok']) assert.ok(ratio(name, 'paper') >= 3, `${name} on paper is ${ratio(name, 'paper').toFixed(2)}:1`);
+  });
+}
 
-test('text on filled accent and avatar tiles meets AA', () => {
-  assert.ok(ratio('on-accent', 'accent') >= 4.5, `on-accent on accent ${ratio('on-accent', 'accent').toFixed(2)}:1`);
-  for (const [bg, fg] of [['ok', 'on-accent'], ['bad', 'on-accent'], ['gold-ink', 'on-accent'], ['clay', 'on-accent'], ['teal', 'on-accent'], ['ink', 'paper']]) {
-    assert.ok(ratio(fg, bg) >= 4.5, `${fg} on ${bg} is ${ratio(fg, bg).toFixed(2)}:1`);
+test('every theme overrides the same set of tokens', () => {
+  const lavender = Object.keys(themeBlock('lavender')).sort();
+  assert.ok(lavender.length >= 9, 'lavender overrides neutrals, text tones, and accent');
+  assert.deepEqual(Object.keys(themeBlock('blue')).sort(), lavender);
+  for (const key of lavender) assert.ok(base[key], `${key} is overridden but has no base value`);
+  for (const forbidden of ['ok', 'warn', 'bad', 'gold', 'gold-ink', 'on-accent']) {
+    assert.ok(!lavender.includes(forbidden), `${forbidden} must mean the same thing in every theme`);
   }
-});
-
-test('non-text accents (borders, rings, progress fills) have at least 3:1 against paper', () => {
-  for (const name of ['accent', 'ok']) assert.ok(ratio(name, 'paper') >= 3, `${name} on paper is ${ratio(name, 'paper').toFixed(2)}:1`);
 });
 
 function sourceFiles(dir: string): string[] {
