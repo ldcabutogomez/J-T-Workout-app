@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "short_name": "J&T 2.0",
+  "name": "Jacked & Tan 2.0 Partner Training Engine",
+  "description": "Offline-capable local workout log for the original GZCL Jacked & Tan 2.0 workbook template.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0f172a",
+  "background_color": "#020617",
+  "icons": [
+    { "src": "./icons/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

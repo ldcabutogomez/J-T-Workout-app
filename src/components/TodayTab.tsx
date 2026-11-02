@@ -1,614 +1,216 @@
-import React, { useState } from 'react';
-import {
-  UserProfile,
-  WorkoutSession,
-  LoggedExercise,
-  LoggedSet,
-  WeightUnit,
-} from '../types';
-import { getDayPrescription, roundLoad } from '../engine/jnt2Engine';
-import { PlateCalculatorModal } from './PlateCalculatorModal';
-import {
-  Play,
-  Check,
-  RotateCcw,
-  Plus,
-  Minus,
-  HelpCircle,
-  Disc3,
-  AlertTriangle,
-  Info,
-} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import type { LoggedSet, SourceReference, UserProfile, WorkoutSession } from '../types';
+import { getDayPrescription } from '../engine/jnt2Engine';
+import { missingTrainingMaxes } from '../engine/sessionEngine';
+import { AlertTriangle, Check, HelpCircle, Minus, Plus, RotateCcw } from 'lucide-react';
 
 interface TodayTabProps {
   profile: UserProfile | null;
   activeSession: WorkoutSession | null;
-  history: WorkoutSession[];
   onStartWorkout: () => void;
-  onLogSet: (slotIdx: number, setIdx: number, actualReps: number, load: number, rir: number) => void;
-  onUndoSet: (slotIdx: number, setIdx: number) => void;
+  onLogSet: (slotId: string, setId: string, reps: number, load: number, rir: number, amrapDeclined?: boolean) => void;
+  onUndoSet: (slotId: string, setId: string) => void;
+  onBackoffDecision: (slotId: string, load: number) => void;
   onCompleteWorkout: () => void;
   onDiscardActiveWorkout: () => void;
-  onAdvanceDayManually: () => void;
+  onSkipSession: () => void;
 }
 
-export const TodayTab: React.FC<TodayTabProps> = ({
+function formatSources(refs: SourceReference[]): string {
+  return refs.map((ref) => `${ref.sheet}!${ref.ranges.join(',')}`).join(' · ');
+}
+
+export function TodayTab({
   profile,
   activeSession,
-  history,
   onStartWorkout,
   onLogSet,
   onUndoSet,
+  onBackoffDecision,
   onCompleteWorkout,
   onDiscardActiveWorkout,
-  onAdvanceDayManually,
-}) => {
-  const [plateCalcTarget, setPlateCalcTarget] = useState<number | null>(null);
-  const [showGlossary, setShowGlossary] = useState(false);
+  onSkipSession,
+}: TodayTabProps) {
+  const [showHelp, setShowHelp] = useState(false);
+  if (!profile) return <div className="p-6 text-center text-slate-400">Loading local profiles…</div>;
 
-  if (!profile) return null;
-
-  // --------------------------------------------------------------------------
-  // GLOSSARY MODAL
-  // --------------------------------------------------------------------------
-  const glossaryModal = showGlossary && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 text-white shadow-2xl space-y-3 max-h-[85vh] overflow-y-auto">
-        <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-          <h3 className="text-lg font-black font-display text-amber-400">GZCL & J&T 2.0 Terms</h3>
-          <button onClick={() => setShowGlossary(false)} className="text-slate-400 hover:text-white text-sm">✕</button>
-        </div>
-        <div className="space-y-3 text-xs leading-relaxed text-slate-300">
-          <div>
-            <strong className="text-white block font-bold text-sm">TM (Training Max)</strong>
-            Defined in the compendium as an <em>estimated daily 2RM</em>. Never substitute 1RM or arbitrarily use 90% of 1RM.
-          </div>
-          <div>
-            <strong className="text-white block font-bold text-sm">RM Target (Rep Max)</strong>
-            The goal reps for your heaviest work set of the day. Stop the set leaving 1–2 reps in reserve.
-          </div>
-          <div>
-            <strong className="text-white block font-bold text-sm">MRS (Max Rep Sets)</strong>
-            Sets done to 1–2 reps in reserve using the same weight as your target RM set.
-          </div>
-          <div>
-            <strong className="text-white block font-bold text-sm">3MRS (3 Max Rep Sets)</strong>
-            1 initial target RM set followed by <em>3 additional sets</em> at the same load (total 4 logged sets).
-          </div>
-          <div>
-            <strong className="text-white block font-bold text-sm">3+ / 4+ (AMRAP on final set)</strong>
-            Means 3 (or 4) total work sets, with an optional rep-out on the final set. It does not mean an extra set.
-          </div>
-          <div>
-            <strong className="text-white block font-bold text-sm">RIR (Reps In Reserve)</strong>
-            How many more clean reps you could have performed before technical failure.
-          </div>
-        </div>
-        <button
-          onClick={() => setShowGlossary(false)}
-          className="w-full bg-slate-800 hover:bg-slate-700 py-2.5 rounded-xl font-bold text-xs uppercase"
-        >
-          Got it
-        </button>
-      </div>
-    </div>
-  );
-
-  // --------------------------------------------------------------------------
-  // IDLE / PREVIEW MODE (No workout in progress)
-  // --------------------------------------------------------------------------
   if (!activeSession) {
-    const dayPrescription = getDayPrescription(profile.currentWeek, profile.currentDay, profile);
-    const dayNames = ['Squat Day', 'Bench Day', 'Deadlift Day', 'Overhead Press Day'];
-
+    const prescription = getDayPrescription(profile.currentWeek, profile.currentDay, profile);
+    const missing = missingTrainingMaxes(prescription, profile);
     return (
       <div className="space-y-4">
-        {glossaryModal}
-        {plateCalcTarget !== null && (
-          <PlateCalculatorModal
-            isOpen={true}
-            onClose={() => setPlateCalcTarget(null)}
-            targetWeight={plateCalcTarget}
-            barbellWeight={profile.barbellWeight || 45}
-            unit={profile.unit}
-          />
-        )}
-
-        {/* Hero Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
-
-          <div className="flex justify-between items-start">
+        <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl">
+          <div className="flex justify-between items-start gap-3">
             <div>
-              <span className="text-[11px] uppercase font-extrabold tracking-widest text-amber-400">
-                Next Scheduled Session
-              </span>
-              <h2 className="text-3xl font-black text-white font-display mt-0.5">
-                {dayNames[profile.currentDay - 1]}
-              </h2>
-              <p className="text-xs text-slate-400 mt-1 font-mono">
-                Week {profile.currentWeek} of 12 · Day {profile.currentDay} of 4
-              </p>
+              <span className="text-[11px] uppercase font-extrabold tracking-widest text-amber-400">Next scheduled session</span>
+              <h1 className="text-2xl sm:text-3xl font-black text-white mt-1">{prescription.title}</h1>
+              <p className="text-xs text-slate-400 font-mono mt-1">Week {profile.currentWeek} of 12 · Day {profile.currentDay} of 4</p>
             </div>
-            <button
-              onClick={() => setShowGlossary(true)}
-              className="text-slate-400 hover:text-amber-400 p-1.5 rounded-xl hover:bg-slate-800/80 transition"
-              title="GZCL Terminology Guide"
-            >
-              <HelpCircle className="w-5 h-5" />
-            </button>
+            <button onClick={() => setShowHelp(true)} className="p-2 rounded-xl bg-slate-800 text-slate-300" aria-label="Set notation help"><HelpCircle className="w-5 h-5" /></button>
           </div>
 
-          {/* Block banner */}
-          <div className="mt-4 p-3 bg-slate-950/70 border border-slate-800 rounded-2xl flex items-start gap-2.5 text-xs text-slate-300">
-            <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              {profile.currentWeek <= 6 ? (
-                <span>
-                  <strong>Block 1 (Hypertrophy Base):</strong> T1 drop sets use fixed percentages of your starting TM ({profile.currentWeek === 6 ? 'Week 6 1RM test' : '3-4 drop sets'}).
-                </span>
-              ) : (
-                <span>
-                  <strong>Block 2 (Strength & Peaking):</strong> T1 back-offs will auto-calculate at 85%–90% of the actual RM weight you hit today.
-                </span>
-              )}
+          {profile.cycleCompleted ? (
+            <div className="mt-4 p-3 rounded-2xl border border-emerald-800 bg-emerald-950/40 text-sm text-emerald-300">This profile is at the end of Week 12. The app will not silently restart or duplicate cycle completion.</div>
+          ) : missing.length > 0 ? (
+            <div role="alert" className="mt-4 p-3 rounded-2xl border border-rose-800 bg-rose-950/40 text-sm text-rose-200">
+              <strong className="block">Personal setup required</strong>
+              <span className="text-xs">Enter {missing.join(', ')} on the Program tab. Workbook example weights are never used as profile data.</span>
             </div>
-          </div>
+          ) : null}
 
           <div className="mt-5 flex gap-2">
-            <button
-              onClick={onStartWorkout}
-              className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-4 px-6 rounded-2xl shadow-lg shadow-amber-500/20 text-base uppercase tracking-wider flex items-center justify-center gap-2 transition active:scale-[0.98]"
-            >
-              <Play className="w-5 h-5 fill-current" />
-              <span>Start Workout</span>
-            </button>
-            <button
-              onClick={onAdvanceDayManually}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3.5 py-4 rounded-2xl text-xs font-bold transition border border-slate-700"
-              title="Skip or advance day without logging"
-            >
-              Skip Day
-            </button>
+            <button disabled={profile.cycleCompleted || missing.length > 0} onClick={onStartWorkout} className="flex-1 min-h-14 bg-amber-500 disabled:bg-slate-700 disabled:text-slate-400 text-slate-950 font-black rounded-2xl uppercase tracking-wider">Start workout</button>
+            <button disabled={profile.cycleCompleted} onClick={onSkipSession} className="min-h-14 px-4 bg-slate-800 disabled:opacity-50 border border-slate-700 rounded-2xl text-xs font-bold">Skip</button>
           </div>
-        </div>
+        </section>
 
-        {/* Programmed Movement Preview */}
-        <div className="space-y-2">
-          <div className="flex justify-between items-center px-1">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Prescribed Movements ({dayPrescription.exercises.length})
-            </h3>
-            <span className="text-[11px] font-mono text-slate-500">{dayPrescription.sourceRef}</span>
-          </div>
-
-          {dayPrescription.exercises.map((p, idx) => (
-            <div
-              key={idx}
-              className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex justify-between items-center"
-            >
-              <div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`text-[10px] font-black px-2 py-0.5 rounded font-mono ${
-                      p.tier === 'T1'
-                        ? 'bg-rose-950 text-rose-300 border border-rose-800'
-                        : p.tier.startsWith('T2')
-                        ? 'bg-amber-950 text-amber-300 border border-amber-800'
-                        : 'bg-sky-950 text-sky-300 border border-sky-800'
-                    }`}
-                  >
-                    {p.tier}
-                  </span>
-                  <span className="font-bold text-white text-sm">{p.defaultExercise}</span>
+        <section className="space-y-2">
+          <h2 className="px-1 text-xs uppercase tracking-wider font-bold text-slate-400">Workbook prescription</h2>
+          {prescription.exercises.map((slot) => (
+            <article key={slot.slotId} className={`bg-slate-900/80 border rounded-2xl p-4 ${slot.ambiguity ? 'border-amber-700' : 'border-slate-800'}`}>
+              <div className="flex justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded bg-slate-800 text-amber-300">{slot.tier}</span>
+                    <strong className="text-sm text-white">{slot.exerciseName}</strong>
+                    {slot.status !== 'work' && <span className="text-[10px] uppercase text-slate-400">{slot.status}</span>}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {slot.status === 'work' || slot.status === 'test'
+                      ? slot.setType === 'mrs'
+                        ? `${slot.repTarget}RM + ${slot.mrsAdditionalSets} additional MRS (${slot.setCount} logged sets)`
+                        : `${slot.setCount} set${slot.setCount === 1 ? '' : 's'}${slot.repTarget ? ` · ${slot.repTarget} reps` : ''}${slot.percentage ? ` · ${slot.percentage * 100}%` : ''}`
+                      : slot.notes}
+                  </p>
+                  {slot.ambiguity && <p className="text-xs text-amber-300 mt-2"><AlertTriangle className="inline w-3.5 h-3.5 mr-1" />{slot.ambiguity}</p>}
                 </div>
-                <p className="text-xs text-slate-400 mt-1 font-mono">
-                  {p.isRestWeek
-                    ? 'Programmed Deload / Rest'
-                    : p.tier === 'T1'
-                    ? `Top ${p.targetRM}RM + ${p.prescribedSets.length - 1} back-off sets`
-                    : p.tier === 'T2a'
-                    ? `${p.prescribedSets.length} sets × ${p.prescribedSets[0]?.prescribedReps || 0} reps`
-                    : `${p.targetRM}RM + 3 Max Rep Sets (4 sets total)`}
-                </p>
               </div>
-
-              {p.tier === 'T1' && profile.trainingMaxes[p.parentLiftKey || ''] && (
-                <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Starting TM</span>
-                  <span className="font-mono font-bold text-amber-400 text-xs">
-                    {profile.trainingMaxes[p.parentLiftKey || '']} {profile.unit}
-                  </span>
-                </div>
-              )}
-            </div>
+              <p className="text-[9px] text-slate-600 font-mono mt-2 break-all">{formatSources(slot.sourceRefs)}</p>
+            </article>
           ))}
-        </div>
+        </section>
+
+        {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       </div>
     );
   }
-
-  // --------------------------------------------------------------------------
-  // ACTIVE WORKOUT MODE (In progress)
-  // --------------------------------------------------------------------------
-  const allSetsDone = activeSession.exercises.every((ex) =>
-    ex.sets.every((s) => s.completed)
-  );
 
   return (
     <div className="space-y-4">
-      {glossaryModal}
-      {plateCalcTarget !== null && (
-        <PlateCalculatorModal
-          isOpen={true}
-          onClose={() => setPlateCalcTarget(null)}
-          targetWeight={plateCalcTarget}
-          barbellWeight={profile.barbellWeight || 45}
-          unit={profile.unit}
-        />
-      )}
-
-      {/* Sticky Top Status Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl flex justify-between items-center">
-        <div>
-          <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400 block">
-            Workout In Progress · Autosaved
-          </span>
-          <h2 className="text-xl font-black text-white font-display">
-            Week {activeSession.week} · Day {activeSession.day}
-          </h2>
+      <section className="bg-slate-900 border border-amber-800/60 rounded-3xl p-5">
+        <div className="flex justify-between gap-3">
+          <div>
+            <span className="text-[11px] uppercase tracking-wider font-bold text-amber-400">{activeSession.isEditingCompleted ? 'Editing completed history' : 'Workout in progress'}</span>
+            <h1 className="text-2xl font-black">Week {activeSession.week} · Day {activeSession.day}</h1>
+            <p className="text-xs text-slate-400 mt-1">Autosaves after every set. Prescription and setup are snapshotted with this session.</p>
+          </div>
+          <button onClick={() => setShowHelp(true)} className="p-2 h-10 rounded-xl bg-slate-800" aria-label="Set notation help"><HelpCircle className="w-5 h-5" /></button>
         </div>
+      </section>
 
-        <div className="flex gap-2">
-          <button
-            onClick={onDiscardActiveWorkout}
-            className="p-2 text-slate-400 hover:text-rose-400 rounded-xl hover:bg-slate-800 transition"
-            title="Discard session"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onCompleteWorkout}
-            className={`px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition ${
-              allSetsDone
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20'
-                : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700'
-            }`}
-          >
-            {allSetsDone ? 'Finish ✓' : 'Finish Early'}
-          </button>
-        </div>
-      </div>
-
-      {/* Exercise Cards */}
-      <div className="space-y-4">
-        {activeSession.exercises.map((exercise, slotIdx) => (
-          <ActiveExerciseBlock
-            key={exercise.slotKey}
-            slotIdx={slotIdx}
-            exercise={exercise}
-            unit={profile.unit}
-            increment={profile.equipmentIncrement}
-            onLogSet={onLogSet}
-            onUndoSet={onUndoSet}
-            onOpenPlateCalc={(w) => setPlateCalcTarget(w)}
-            history={history}
-          />
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// ----------------------------------------------------------------------------
-// EXERCISE BLOCK COMPONENT
-// ----------------------------------------------------------------------------
-interface ActiveExerciseBlockProps {
-  slotIdx: number;
-  exercise: LoggedExercise;
-  unit: WeightUnit;
-  increment: number;
-  onLogSet: (slotIdx: number, setIdx: number, actualReps: number, load: number, rir: number) => void;
-  onUndoSet: (slotIdx: number, setIdx: number) => void;
-  onOpenPlateCalc: (weight: number) => void;
-  history: WorkoutSession[];
-}
-
-const ActiveExerciseBlock: React.FC<ActiveExerciseBlockProps> = ({
-  slotIdx,
-  exercise,
-  unit,
-  increment,
-  onLogSet,
-  onUndoSet,
-  onOpenPlateCalc,
-  history,
-}) => {
-  // If it's a programmed rest slot
-  if (exercise.sets.length === 0) {
-    return (
-      <div className="bg-slate-900/50 border border-slate-800/80 rounded-3xl p-5 text-center">
-        <span className="text-[10px] font-mono uppercase font-bold text-slate-500">
-          {exercise.tier} — Programmed Rest / Recovery
-        </span>
-        <h4 className="text-base font-bold text-slate-300 mt-1">{exercise.exerciseName}</h4>
-        <p className="text-xs text-slate-500 mt-1">{exercise.notes}</p>
-      </div>
-    );
-  }
-
-  // Find previous relevant performance for same exercise and target RM
-  const previousRecord = React.useMemo(() => {
-    if (!exercise.targetRM) return null;
-    for (const sess of history) {
-      const match = sess.exercises.find(
-        (e) => e.exerciseName === exercise.exerciseName && e.targetRM === exercise.targetRM
-      );
-      if (match && match.achievedRMWeight) {
-        return {
-          weight: match.achievedRMWeight,
-          date: sess.completedTime ? new Date(sess.completedTime).toLocaleDateString() : 'Previous',
-        };
-      }
-    }
-    return null;
-  }, [exercise.exerciseName, exercise.targetRM, history]);
-
-  return (
-    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-      {/* Exercise Title and Header */}
-      <div className="flex justify-between items-start border-b border-slate-800 pb-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`text-[10px] font-black px-2 py-0.5 rounded font-mono ${
-                exercise.tier === 'T1'
-                  ? 'bg-rose-950 text-rose-300 border border-rose-800'
-                  : exercise.tier.startsWith('T2')
-                  ? 'bg-amber-950 text-amber-300 border border-amber-800'
-                  : 'bg-sky-950 text-sky-300 border border-sky-800'
-              }`}
-            >
-              {exercise.tier}
-            </span>
-            <h3 className="font-extrabold text-white text-lg font-display tracking-tight">
-              {exercise.exerciseName}
-            </h3>
+      {activeSession.exercises.map((exercise) => (
+        <section key={exercise.slotId} className={`bg-slate-900 border rounded-3xl p-4 space-y-3 ${exercise.manualLoadDecisionPending ? 'border-rose-700' : 'border-slate-800'}`}>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-black px-2 py-0.5 rounded bg-slate-800 text-amber-300">{exercise.tier}</span>
+              <h2 className="font-black text-white">{exercise.exerciseName}</h2>
+              {exercise.status !== 'work' && <span className="text-[10px] uppercase text-slate-400">{exercise.status}</span>}
+            </div>
+            {exercise.notes && <p className="text-xs text-slate-400 mt-1">{exercise.notes}</p>}
           </div>
 
-          {exercise.targetRM && (
-            <p className="text-xs text-slate-400 mt-1">
-              Top Goal: Find <strong className="text-amber-400">{exercise.targetRM}RM</strong> (1-2 reps in reserve)
-            </p>
+          {exercise.manualLoadDecisionPending && (
+            <BackoffDecision unit={activeSession.settingsSnapshot.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} warning={exercise.rmMismatchWarning} onSave={(load) => onBackoffDecision(exercise.slotId, load)} />
           )}
 
-          {previousRecord && (
-            <p className="text-[11px] text-emerald-400/90 font-mono mt-0.5">
-              Previous {exercise.targetRM}RM: {previousRecord.weight} {unit} ({previousRecord.date})
-            </p>
-          )}
-        </div>
+          {exercise.sets.length === 0 ? (
+            <div className="rounded-2xl bg-slate-950/60 border border-slate-800 p-3 text-xs text-slate-400">No logged sets for this {exercise.status} slot.</div>
+          ) : exercise.sets.map((set, index) => (
+            <SetRow key={set.setId} set={set} setNumber={index + 1} unit={set.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} disabled={Boolean(exercise.manualLoadDecisionPending && set.type === 'backoff')} onLog={(reps, load, rir, declined) => onLogSet(exercise.slotId, set.setId, reps, load, rir, declined)} onUndo={() => onUndoSet(exercise.slotId, set.setId)} />
+          ))}
+          <p className="text-[9px] text-slate-600 font-mono break-all">{formatSources(exercise.sourceRefs)}</p>
+        </section>
+      ))}
 
-        {exercise.sets[0]?.load > 0 && (
-          <button
-            onClick={() => onOpenPlateCalc(exercise.sets[0].load)}
-            className="flex items-center gap-1 text-slate-400 hover:text-amber-400 text-xs font-mono bg-slate-950 border border-slate-800 px-2.5 py-1.5 rounded-xl transition"
-            title="Open Plate Calculator"
-          >
-            <Disc3 className="w-3.5 h-3.5" />
-            <span>Plates</span>
-          </button>
-        )}
-      </div>
-
-      {/* Rep-mismatch warning for Block 2 T1 */}
-      {exercise.rmMismatchWarning && (
-        <div className="p-3 bg-amber-950/40 border border-amber-900/60 rounded-2xl flex items-start gap-2 text-xs text-amber-200">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          <span>{exercise.rmMismatchWarning}</span>
-        </div>
-      )}
-
-      {/* Sets List */}
-      <div className="space-y-2.5">
-        {exercise.sets.map((set, setIdx) => (
-          <SetLoggingRow
-            key={set.setId}
-            setNumber={setIdx + 1}
-            set={set}
-            unit={unit}
-            increment={increment}
-            onSave={(reps, load, rir) => onLogSet(slotIdx, setIdx, reps, load, rir)}
-            onUndo={() => onUndoSet(slotIdx, setIdx)}
-            onOpenPlateCalc={onOpenPlateCalc}
-          />
-        ))}
-      </div>
+      <section className="grid grid-cols-3 gap-2">
+        <button onClick={onDiscardActiveWorkout} className="min-h-12 bg-slate-900 border border-slate-800 rounded-2xl text-xs font-bold text-rose-300">Discard draft</button>
+        <button onClick={() => setShowHelp(true)} className="min-h-12 bg-slate-900 border border-slate-800 rounded-2xl text-xs font-bold">Notation</button>
+        <button onClick={onCompleteWorkout} className="min-h-12 bg-emerald-500 text-slate-950 rounded-2xl text-xs font-black uppercase">{activeSession.isEditingCompleted ? 'Save edits' : 'Finish'}</button>
+      </section>
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </div>
   );
-};
-
-// ----------------------------------------------------------------------------
-// SET LOGGING ROW (High-contrast, large touch buttons, one-handed use)
-// ----------------------------------------------------------------------------
-interface SetLoggingRowProps {
-  setNumber: number;
-  set: LoggedSet;
-  unit: WeightUnit;
-  increment: number;
-  onSave: (reps: number, load: number, rir: number) => void;
-  onUndo: () => void;
-  onOpenPlateCalc: (weight: number) => void;
 }
 
-const SetLoggingRow: React.FC<SetLoggingRowProps> = ({
-  setNumber,
-  set,
-  unit,
-  increment,
-  onSave,
-  onUndo,
-  onOpenPlateCalc,
-}) => {
-  const [load, setLoad] = useState<number>(set.load || 0);
-  const [reps, setReps] = useState<number>(set.actualReps || set.prescribedReps);
-  const [rir, setRir] = useState<number>(set.rir ?? 2);
-
-  React.useEffect(() => {
-    setLoad(set.load || 0);
-  }, [set.load]);
-
-  const tagLabel =
-    set.type === 'rm_target'
-      ? 'TOP RM'
-      : set.type === 'backoff'
-      ? set.isAmrap
-        ? 'AMRAP 3+'
-        : 'BACK-OFF'
-      : set.type === 'mrs'
-      ? 'MRS'
-      : 'WORK';
+function SetRow({ set, setNumber, unit, increment, disabled, onLog, onUndo }: {
+  set: LoggedSet;
+  setNumber: number;
+  unit: 'lb' | 'kg';
+  increment: number;
+  disabled: boolean;
+  onLog: (reps: number, load: number, rir: number, declined?: boolean) => void;
+  onUndo: () => void;
+}) {
+  const [load, setLoad] = useState<number | ''>(set.load ?? '');
+  const [reps, setReps] = useState<number | ''>(set.actualReps ?? (set.type === 'mrs' ? '' : set.prescribedReps));
+  const [rir, setRir] = useState(set.rir ?? 2);
+  useEffect(() => {
+    setLoad(set.load ?? '');
+    setReps(set.actualReps ?? (set.type === 'mrs' ? '' : set.prescribedReps));
+    setRir(set.rir ?? 2);
+  }, [set.load, set.actualReps, set.rir, set.completed, set.type, set.prescribedReps]);
 
   if (set.completed) {
     return (
-      <div className="flex justify-between items-center bg-slate-950 border border-emerald-900/60 rounded-2xl px-4 py-3 text-xs">
-        <div className="flex items-center gap-2.5">
-          <span className="font-mono text-emerald-400 font-bold flex items-center gap-1">
-            <Check className="w-3.5 h-3.5" /> #{setNumber}
-          </span>
-          <span className="text-[10px] font-black uppercase bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">
-            {tagLabel}
-          </span>
-          <span className="font-bold text-white text-sm">
-            {set.actualReps} reps @ {set.load} {unit}
-          </span>
-          {set.rir !== undefined && (
-            <span className="text-[10px] text-slate-400 font-mono">({set.rir} RIR)</span>
-          )}
-        </div>
-
-        <button
-          onClick={onUndo}
-          className="text-slate-400 hover:text-slate-200 text-xs font-semibold underline px-2 py-1"
-        >
-          Undo
-        </button>
+      <div className="bg-emerald-950/30 border border-emerald-900 rounded-2xl p-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs"><Check className="w-4 h-4 text-emerald-400" /><strong>Set {setNumber}</strong><span className="font-mono text-slate-300">{set.actualReps} reps @ {set.load} {set.unit}</span>{set.amrapDeclined && <span className="text-slate-500">AMRAP declined</span>}</div>
+        <button onClick={onUndo} className="p-2 rounded-xl text-slate-400" aria-label={`Undo set ${setNumber}`}><RotateCcw className="w-4 h-4" /></button>
       </div>
     );
   }
 
+  const canLog = !disabled && load !== '' && reps !== '' && Number(reps) >= 0 && Number(load) >= 0;
   return (
-    <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      {/* Set Label */}
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-xs font-bold text-slate-400">#{setNumber}</span>
-        <span
-          className={`text-[9px] font-black px-2 py-0.5 rounded font-mono ${
-            set.type === 'rm_target'
-              ? 'bg-amber-500 text-slate-950'
-              : set.isAmrap
-              ? 'bg-rose-950 text-rose-300 border border-rose-800'
-              : 'bg-slate-800 text-slate-300'
-          }`}
-        >
-          {tagLabel}
-        </span>
-        <span className="text-xs text-slate-400 font-mono">
-          Target: {set.prescribedReps} {set.isAmrap ? 'reps+' : 'reps'}
-        </span>
+    <div className={`bg-slate-950/70 border border-slate-800 rounded-2xl p-3 ${disabled ? 'opacity-50' : ''}`}>
+      <div className="flex justify-between gap-2 items-center mb-2">
+        <div className="text-xs"><strong>Set {setNumber}</strong> <span className="text-slate-400">{set.type === 'mrs' ? 'MRS · reps may decline' : `target ${set.prescribedReps}${set.isAmrap ? '+' : ''}`}</span></div>
+        {set.isAmrap && <span className="text-[10px] px-2 py-0.5 rounded bg-rose-950 text-rose-300">optional rep-out</span>}
       </div>
-
-      {/* Steppers & Inputs */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Load Stepper */}
-        <div className="flex flex-col">
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] font-bold uppercase text-slate-500">Weight ({unit})</span>
-            {load > 0 && (
-              <button
-                onClick={() => onOpenPlateCalc(load)}
-                className="text-[9px] text-amber-400 hover:underline"
-              >
-                plates
-              </button>
-            )}
-          </div>
-          <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl overflow-hidden mt-0.5">
-            <button
-              onClick={() => setLoad((prev) => Math.max(0, prev - increment))}
-              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold active:bg-slate-600 transition"
-              aria-label="Decrease load"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <input
-              type="number"
-              step={increment}
-              value={load === 0 ? '' : load}
-              onChange={(e) => setLoad(Number(e.target.value))}
-              placeholder="0"
-              className="w-16 bg-transparent text-center font-mono font-bold text-sm text-white outline-none"
-            />
-            <button
-              onClick={() => setLoad((prev) => prev + increment)}
-              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold active:bg-slate-600 transition"
-              aria-label="Increase load"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Reps Stepper */}
-        <div className="flex flex-col">
-          <span className="text-[9px] font-bold uppercase text-slate-500">Reps</span>
-          <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl overflow-hidden mt-0.5">
-            <button
-              onClick={() => setReps((prev) => Math.max(1, prev - 1))}
-              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold active:bg-slate-600 transition"
-              aria-label="Decrease reps"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <input
-              type="number"
-              value={reps}
-              onChange={(e) => setReps(Number(e.target.value))}
-              className="w-12 bg-transparent text-center font-mono font-bold text-sm text-white outline-none"
-            />
-            <button
-              onClick={() => setReps((prev) => prev + 1)}
-              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold active:bg-slate-600 transition"
-              aria-label="Increase reps"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* RIR (Reps in reserve) */}
-        <div className="flex flex-col">
-          <span className="text-[9px] font-bold uppercase text-slate-500">RIR</span>
-          <select
-            value={rir}
-            onChange={(e) => setRir(Number(e.target.value))}
-            className="bg-slate-900 border border-slate-700 rounded-xl py-1.5 px-2 text-xs font-mono font-bold text-amber-400 outline-none mt-0.5"
-          >
-            <option value={0}>0 (Failure)</option>
-            <option value={1}>1 (1 left)</option>
-            <option value={2}>2 (2 left)</option>
-            <option value={3}>3+ (Easy)</option>
-          </select>
-        </div>
-
-        {/* Big Log Button */}
-        <button
-          onClick={() => onSave(reps, load, rir)}
-          className="mt-3 sm:mt-0 flex-1 sm:flex-none bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition active:scale-95 shadow-md"
-        >
-          Log Set
-        </button>
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+        <Stepper label={`Load (${unit})`} value={load} step={increment} onChange={setLoad} />
+        <Stepper label="Achieved reps" value={reps} step={1} onChange={setReps} />
+        <label className="text-[9px] uppercase font-bold text-slate-500">RIR<select value={rir} onChange={(event) => setRir(Number(event.target.value))} className="block mt-1 min-h-10 bg-slate-900 border border-slate-700 rounded-xl px-2 text-xs text-amber-300"><option value={0}>0</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3+</option></select></label>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), rir)} className="flex-1 min-h-11 bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 rounded-xl text-xs font-black uppercase">Log set</button>
+        {set.isAmrap && <button disabled={disabled || load === ''} onClick={() => onLog(set.prescribedReps, Number(load), rir, true)} className="px-3 min-h-11 bg-slate-800 rounded-xl text-[10px] font-bold">Log prescribed reps, no AMRAP</button>}
       </div>
     </div>
   );
-};
+}
+
+function Stepper({ label, value, step, onChange }: { label: string; value: number | ''; step: number; onChange: (value: number | '') => void }) {
+  return (
+    <label className="text-[9px] uppercase font-bold text-slate-500 min-w-0">{label}
+      <div className="flex mt-1 min-h-10 bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+        <button type="button" onClick={() => onChange(Math.max(0, Number(value || 0) - step))} className="px-2 bg-slate-800" aria-label={`Decrease ${label}`}><Minus className="w-3 h-3" /></button>
+        <input type="number" step={step} value={value} onChange={(event) => onChange(event.target.value === '' ? '' : Number(event.target.value))} className="w-full min-w-0 bg-transparent text-center text-sm font-mono text-white outline-none" />
+        <button type="button" onClick={() => onChange(Number(value || 0) + step)} className="px-2 bg-slate-800" aria-label={`Increase ${label}`}><Plus className="w-3 h-3" /></button>
+      </div>
+    </label>
+  );
+}
+
+function BackoffDecision({ unit, increment, warning, onSave }: { unit: string; increment: number; warning?: string; onSave: (load: number) => void }) {
+  const [load, setLoad] = useState<number | ''>('');
+  return (
+    <div role="alert" className="bg-rose-950/40 border border-rose-800 rounded-2xl p-3">
+      <p className="text-xs text-rose-200"><AlertTriangle className="inline w-4 h-4 mr-1" />{warning}</p>
+      <div className="flex gap-2 mt-2"><input type="number" step={increment} value={load} onChange={(event) => setLoad(event.target.value === '' ? '' : Number(event.target.value))} placeholder={`Back-off load (${unit})`} className="flex-1 min-w-0 bg-slate-950 border border-rose-800 rounded-xl px-3 py-2 text-sm" /><button disabled={load === '' || load <= 0} onClick={() => onSave(Number(load))} className="px-3 bg-rose-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold">Use load</button></div>
+    </div>
+  );
+}
+
+function HelpModal({ onClose }: { onClose: () => void }) {
+  return <div className="fixed inset-0 z-50 bg-slate-950/85 p-4 flex items-center justify-center"><div className="w-full max-w-sm max-h-[85vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-3xl p-5 space-y-3"><h2 className="text-xl font-black text-amber-400">Set notation</h2><p className="text-xs text-slate-300"><strong>3+</strong> is three total work sets; the last set may be extended as an optional AMRAP.</p><p className="text-xs text-slate-300"><strong>3MRS</strong> is one target-RM set followed by three additional max-rep sets: four logged sets total. MRS reps may decline.</p><p className="text-xs text-slate-300">Prescribed reps and achieved reps are stored separately. Block 2 main-lift back-offs use the achieved target-RM load only when the intended rep target is hit; otherwise you must choose a load.</p><button onClick={onClose} className="w-full min-h-11 rounded-xl bg-slate-800 font-bold text-sm">Close</button></div></div>;
+}

@@ -1,92 +1,88 @@
 # Jacked & Tan 2.0 Partner Training Engine
 
-A mobile-first workout tracking progressive web application built strictly around Cody LeFever's original **Jacked & Tan 2.0** program from the **GZCL Free Compendium (November 27th Update)** (`J&T2.0` and `J&T2.0 KGS` sheets).
+A local-first workout tracker for the original Jacked & Tan 2.0 template in `GZCL Free Compendium November 27th Update.xlsx`. The prescription dataset was reconstructed from the workbook's `J&T2.0` and `J&T2.0 KGS` sheets—not from the former app engine, its verification screen, or the General Gainz hybrid.
 
-Designed specifically for two training partners on mobile phones with zero external dependencies, no AI API calls, offline IndexedDB persistence, and an automated rule verification suite.
+The app keeps the existing two-partner, mobile-first workflow while correcting prescriptions, load bases, session persistence, history, progress claims, and production offline behavior. It does not use AI APIs, cloud sync, example workbook weights, or automatically increased training maxes.
 
----
+## Personal setup
 
-## 1. Program Source of Truth & Cell Traceability
+New installations create two blank local profiles. Before starting a workout, enter the lifter's five Block 1 training maxes on the Program tab:
 
-> **Source Notice:** The canonical prescriptions are derived from the official `J&T2.0` and `J&T2.0 KGS` tabs of the GZCL Free Compendium. No hybrid or General Gainz modifications were introduced.
+- Squat
+- Bench Press
+- Deadlift
+- Military Press
+- Front Squat
 
-### Prescriptions & Cell Mappings
+Before Week 7 work that references a Block 2 TM, enter and explicitly save the separate Block 2 values. The app never copies test 1RMs into these fields and never applies an automatic increase.
 
-| Component | Source Cells | Canonical Rule Implemented |
-| :--- | :--- | :--- |
-| **T1 First Block Back-offs** | `J&T2.0!D14:I25` | Lift-specific percentages of starting TM (Squat 70-85%, Bench 65-80%, Deadlift 70-85%, OHP 60-80%). |
-| **T1 Second Block Dynamic Back-offs** | `J&T2.0!Col_T1_Wk7:Wk11` | Computed as 85% (Weeks 7–9) and 90% (Weeks 10–11) of the **actual target-RM load achieved that day**. |
-| **T2a Supplemental Work** | `J&T2.0!Row_T2a` | Fixed percentage work from reference TM (W1: 4×10 @ 50%, W2: 4×8 @ 60%, etc.). Does *not* use the T1 RM rule. |
-| **"3MRS" Notation** | Compendium Guide | 1 initial target RM set followed by **3 additional Max Rep Sets** at the same load (yielding 4 logged sets total). |
-| **"3+" Notation** | Compendium Guide | 3 total work sets with an optional rep-out on set 3 (not 4 sets). |
-| **Test & Deload Weeks** | `J&T2.0!Wk6, Wk7, Wk12` | Week 6: T2 Rest; Week 7: T3 Rest; Week 11: T2 Rest; Week 12: T2 & T3 Rest. |
+Training maxes are the workbook's personal estimated daily 2RM inputs. Workbook sample weights are reference data only and are never seeded into profiles.
 
-### Workbook Quirks & Discrepancies Surfaced
-1. **Rest Recommendation Typo:** The compendium table lists `T1: 3-5 Minutes`, `T2: 2-3 Minutes`, and then repeats `T1: 60-90 Seconds`. In standard GZCL methodology, 60–90 seconds is the T3 rest recommendation. The app displays this quirk transparently and provisions rest timer presets for 4:00 (T1), 2:30 (T2), and 1:30 (T3).
-2. **T2a Training Max Reference:** While standard templates link T2a to the parent competition lift TM, lifters whose variation strength deviates significantly (e.g. Front Squat vs. Back Squat) can customize exercise names and TMs independently.
+## Program behavior
 
----
+- All 12 weeks and four populated days are represented by stable exercise-slot IDs and real workbook cell ranges.
+- Week 1–5 main T1 back-offs use the named Block 1 TM and the lift-specific percentage.
+- Week 7–11 main T1 back-offs use the load actually achieved for that day's target-RM set. A rep mismatch leaves follow-up loads blank until the lifter explicitly chooses and saves a load.
+- T2a work keeps its own exercise-specific percentage and TM mapping, including deadlift for Day 1 deficit deadlifts, Bench for Day 4 legs-up bench, and the separate Block 2 Front Squat input for Day 3.
+- `3+` is three total back-off work sets; the final optional AMRAP can be declined without making the session unsuccessful.
+- `3MRS` is one target-RM set plus three additional MRS—four logged sets total. Achieved reps are recorded separately and may decline.
+- Populated T2c/T3d work, Day 4 Sling Shot Bench, block-specific accessory changes, and the Front Squat-to-Deadlift Day 3 T1 transition are preserved.
+- Week 12 Day 2 and Day 3 T2a tests remain visible but are flagged as workbook conflicts; see [the source mapping and ambiguity log](docs/SOURCE_MAPPING.md).
 
-## 2. Key Features
+## Local state and backups
 
-- **Mobile-First & One-Handed Ergonomics:**
-  - Big touch buttons with instant `+` / `-` increment steppers and quick RIR selectors (0 to 3+).
-  - Floating background-resilient rest timer that calculates elapsed time from wall-clock timestamps so backgrounding the phone preserves the countdown.
-  - Interactive Barbell Plate Calculator modal displaying visual plate stacks for any Olympic bar (45 lb or 20 kg).
-- **Dual Partner Isolation:**
-  - Independent profiles for Partner 1 and Partner 2.
-  - Advancing one person's calendar never skips or advances the partner's training day.
-  - Separate units (`lb` or `kg`), equipment increments (e.g. 5 lb or 2.5 kg), and tone preferences.
-- **Local-First IndexedDB Persistence:**
-  - Autosaves after **every single logged set**.
-  - Unfinished workouts are automatically restored upon page refresh or browser restart.
-  - Separate storage partitions for real workout history vs. demo workouts.
-  - Versioned JSON export/import backup engine with schema validation.
-- **Deterministic Positive Reinforcement (NO AI API):**
-  - Offline rules engine with 4 selectable tones (`minimal`, `warm`, `playful`, `off`).
-  - Triggers based on objective logged events: returning after a 5+ day gap, reaching Week 6/12 test milestones, respecting programmed deload weeks, comparable PR improvements, and rolling weekly session consistency.
-- **Progress & Rep-Max Integrity:**
-  - Tracks true comparable rep-max performance (10RM, 8RM, 6RM, 5RM, 4RM, 3RM, 2RM, 1RM). A heavier 2RM is never falsely labeled a PR over a 10RM.
+Each logged set is serialized through a write queue and saved immediately. Refreshing or reopening restores the profile's unfinished session. Profiles have independent positions, drafts, units, TMs, and history.
 
----
+A session stores a snapshot of its prescription, source ranges, unit, equipment increment, TMs, and customizations. Later settings changes do not rewrite historical prescriptions. Completed-session edits upsert the same record and do not advance the program again. Week 12 Day 4 records the end state and does not silently restart.
 
-## 3. Verification Suite Checks
+Backup format version 2 validates profiles, sessions, exercises, sets, stable IDs, cell references, and nested values before writing. Duplicate profile/session IDs and duplicate active-profile records are rejected by default. The UI offers replace-all only after explicit confirmation; import is one IndexedDB transaction (or a rollback-protected localStorage fallback).
 
-The application includes an in-app verification suite (`Engine Checks` button in header) that runs automated unit tests:
+All records stay in the browser. Export backups regularly, especially before clearing browser storage.
 
-1. **Squat Week 1:** 200 lb TM @ 70% back-off = 140 lb.
-2. **Bench Press Week 1:** 200 lb TM @ 65% back-off = 130 lb.
-3. **Overhead Press Week 1:** 200 lb TM @ 60% back-off = 120 lb.
-4. **Metric Unit Rounding:** 100 kg TM @ 82.5% rounded to nearest 2.5 kg = 82.5 kg.
-5. **Block 2 Dynamic Autoregulation:** Week 7 achieved 6RM of 200 lb automatically sets 85% back-offs to 170 lb regardless of the lifter's old TM.
-6. **Week 10 Dynamic Autoregulation:** Week 10 achieved 5RM of 200 lb sets 90% back-offs to 180 lb.
-7. **Notation Accuracy:** "3MRS" generates exactly 4 logged sets (1 RM + 3 MRS).
-8. **Notation Accuracy:** "3+" generates exactly 3 work sets with the last set marked as AMRAP.
-9. **Deload / Peaking Rules:** Week 6 T2 Rest, Week 7 T3 Rest, and Week 12 full accessory deload verified.
-10. **Storage Roundtrip:** Verifies full JSON backup export and import validation cycle.
+## Install and run
 
----
-
-## 4. Setup & Local Development
+Prerequisites: Node.js `^20.19.0` or `>=22.12.0` and npm.
 
 ```bash
-# 1. Install dependencies
-npm install
-
-# 2. Run local development server
+npm ci
 npm run dev
-
-# 3. Build production bundle
-npm run build
-
-# 4. Run TypeScript checks
-npm run lint
 ```
 
----
+Useful commands:
 
-## 5. Next 3 Immediate Improvements
+```bash
+npm run typecheck       # TypeScript
+npm test                # prescription, engine, storage, and message tests
+npm run build           # production bundle in dist/
+npm run preview         # serve the production build on 127.0.0.1:4173
+npm run test:browser    # production workflow + refresh/offline browser test
+```
 
-1. **Custom Barbell Plate Visualizer Settings:** Allow gym lifters to specify the exact count and weights of plates they own in their home gym (e.g., bumper plates vs. iron plates).
-2. **Warm-Up Ladder Generator:** An optional 3-to-4 set ramp-up ladder (e.g. Bar × 10, 40% × 5, 60% × 3, 80% × 1) before the top RM attempt.
-3. **Web Bluetooth Heart Rate Monitor / Audio Cues:** Optional audio cues and web vibration patterns tailored for lifters training with headphones or phones in pockets.
+Run `npm run build` before `npm run test:browser`. Playwright may require its Chromium binary on a fresh machine (`npx playwright install chromium`).
+
+## Production and offline behavior
+
+The production build emits a versioned `sw.js` containing the actual hashed JS/CSS filenames plus the manifest and install icons. It deletes only older caches with the app's `jnt2-app-` prefix. A downloaded update waits for user action, and the UI disables applying it during an active workout.
+
+After one successful online production load, the tested desktop-Chromium flow can reopen offline, log a set into IndexedDB, refresh offline, and restore that draft. Installation requires HTTPS in deployment (localhost is also a secure context). External fonts are not required.
+
+## Verification scope and limitations
+
+The automated suite independently transcribes workbook expectations and checks all 48 week/day combinations for identity, tier, status, set type, counts, reps, percentages, load bases, transitions, exceptions, and real source ranges. It also covers numeric loads, missing TMs, invalid positions, RM overrides/corrections, MRS/AMRAP semantics, profile isolation, autosave/reload, units, backups, one-time advancement, partial/skipped records, completion messages, comparisons, PRs, and production offline operation.
+
+The in-app Workbook Mapping screen contains isolated, non-destructive smoke checks only. It does not write to workout storage and does not claim to prove workbook fidelity.
+
+Verified here:
+
+- TypeScript check and automated Node test suite.
+- Production Vite build.
+- Desktop Chromium at a 390×844 viewport: setup → start → log → refresh/resume → complete → history.
+- The same production build: service-worker cache, offline reopen, offline log, and offline refresh/restore.
+
+Not performed:
+
+- Installation or hands-on testing on a physical iPhone or Android phone.
+- Cross-browser PWA testing outside desktop Chromium.
+- Resolution of the two Week 12 source contradictions; those remain explicit manual decisions.
+
+See [docs/SOURCE_MAPPING.md](docs/SOURCE_MAPPING.md) for the cell-level mapping and ambiguity record.

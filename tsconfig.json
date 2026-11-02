@@ -4,7 +4,7 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "module": "ESNext",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "lib": [
       "ES2022",
       "DOM",
@@ -17,6 +17,9 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
+      "lucide-react": [
+        "./src/components/icons.tsx"
+      ],
       "@/*": [
         "./*"
       ]
