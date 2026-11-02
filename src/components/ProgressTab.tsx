@@ -6,6 +6,7 @@ import { validCompleted } from '../engine/encouragement';
 import { ProgressRing } from './ProgressRing';
 import { BadgeIcon } from './BadgeIcon';
 import { StreakLabel } from './StreakLabel';
+import { fmtCount } from '../engine/sessionValidity';
 import { ChevronDown, ChevronUp, Trash2, Trophy } from 'lucide-react';
 
 interface ProgressTabProps {
@@ -50,7 +51,7 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
     <div className="space-y-4">
       <section className="animate-slide-up flex items-center gap-4 card p-5">
         <ProgressRing value={streak.weeklyCount} max={streak.weeklyGoal} size={84}>
-          <span className="font-mono text-base font-black text-ink">{streak.weeklyCount}/{streak.weeklyGoal}</span>
+          <span className="font-mono text-base font-black text-ink">{fmtCount(streak.weeklyCount)}/{streak.weeklyGoal}</span>
         </ProgressRing>
         <div>
           <p className="font-black text-ink">{streak.goalMet ? 'Weekly goal hit!' : 'This week'}</p>
@@ -61,7 +62,7 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
 
       <section className="card p-5">
         <h1 className="text-xl font-black">Recorded progress</h1>
-        <p className="text-xs text-muted mt-1">{streak.weeklyCount} of {streak.weeklyGoal} sessions this week (Mon–Sun). Demo, skipped, duplicate, and partial records are excluded.</p>
+        <p className="text-xs text-muted mt-1">{fmtCount(streak.weeklyCount)} of {streak.weeklyGoal} sessions this week (Mon–Sun). Demo, skipped, duplicate, and partial records are excluded.</p>
         <div className="grid grid-cols-2 gap-2 mt-4"><div className="bg-paper rounded-2xl p-3 border border-line"><span className="text-xs uppercase text-muted">Full sessions</span><strong className="block text-2xl text-ok">{valid.length}</strong></div><div className="bg-paper rounded-2xl p-3 border border-line"><span className="text-xs uppercase text-muted">All records</span><strong className="block text-2xl text-ink">{history.length}</strong></div></div>
       </section>
 

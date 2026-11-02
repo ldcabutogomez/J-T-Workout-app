@@ -14,7 +14,7 @@ New installations create two blank local profiles. Before starting a workout, en
 - Military Press
 - Front Squat
 
-Before Week 7 work that references a Block 2 TM, enter and explicitly save the separate Block 2 values. The app never copies test 1RMs into these fields and never applies an automatic increase.
+Before Week 7 work that references a Block 2 TM, enter and explicitly save the separate Block 2 values. Until a lift's Block 2 value is saved, the app uses that lift's Block 1 TM as a starting default (the Program tab says so) so Week 7+ is never blocked. The app never copies test 1RMs into these fields, never writes the default back, and never applies an automatic increase.
 
 Training maxes are the workbook's personal estimated daily 2RM inputs. Workbook sample weights are reference data only and are never seeded into profiles.
 
@@ -28,6 +28,15 @@ Training maxes are the workbook's personal estimated daily 2RM inputs. Workbook 
 - `3MRS` is one target-RM set plus three additional MRS—four logged sets total. Achieved reps are recorded separately and may decline.
 - Populated T2c/T3d work, Day 4 Sling Shot Bench, block-specific accessory changes, and the Front Squat-to-Deadlift Day 3 T1 transition are preserved.
 - Week 12 Day 2 and Day 3 T2a tests remain visible but are flagged as workbook conflicts; see [the source mapping and ambiguity log](docs/SOURCE_MAPPING.md).
+
+## Additions beyond the workbook
+
+The workbook has no warm-up sets and leaves some weights to the lifter (`Find nRM` and the accessory `?` cells). The app adds, clearly labeled and always editable:
+
+- **Suggested loads.** The T1 `Find nRM` set (including Week 6 and 12 tests) is suggested from the training max, using an Epley estimate with the TM treated as a daily 2RM. Accessory and Sling Shot first sets are suggested from the lifter's last logged top set for that exercise, rescaled to today's rep target. Nothing is suggested the first time an exercise appears. Suggestions never replace the workbook's own percentage formulas.
+- **T1 warm-ups.** A checklist above the main lift ramps to that day's heaviest planned set: bar x10, 40% x5, 60% x3, 80% x2, or 40/60/75/90% for 1 to 3 rep days and tests, rounded to the plate increment. Warm-ups are tracked separately and never count toward volume, PRs, set totals or partial-session detection.
+- **Coach messages.** A coach card on Today (welcome back, phase milestones, weekly recap, the day's lift), short nudges mid-workout, and a personal note after a finished workout, in the lifter's chosen tone. Messages are deterministic: the same situation gives the same words.
+- **Partner leaderboard.** Partial workouts count toward pounds lifted, PRs and session totals, and toward the weekly goal, 4-week compliance and streak in proportion to the sets logged (18 of 32 sets is 0.56 of a session). Badges, the 48-session cycle check and "workout complete" claims still require a finished workout. Your own stats appear immediately after a workout without waiting for a partner.
 
 ## Local state and backups
 

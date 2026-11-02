@@ -61,8 +61,10 @@ test('partial, skipped, demo, and duplicate records never support false completi
   const duplicate = structuredClone(current);
   const demo = { ...positioned(base, 1, 2, 'demo', Date.now()), isDemo: true };
   const partialHistory = { ...positioned(base, 1, 3, 'partial-history', Date.now()), status: 'partial' as const, isPartial: true };
+  // Half of its sets logged: a partial workout counts toward the week in proportion (0.5 of a session).
+  partialHistory.exercises.flatMap((exercise) => exercise.sets).forEach((set, index) => { if (index % 2 === 1) set.completed = false; });
   const countMessage = generateSessionEncouragement({ tone: 'minimal', history: [duplicate, demo, partialHistory], currentSession: current, weeklyGoalSessions: 4 });
-  assert.match(countMessage, /1 of 4/);
+  assert.match(countMessage, /1\.5 of 4/, 'full workout (1) + half a partial (0.5); demo and duplicate add nothing');
 });
 
 test('comparable results match stable exercise identity, actual reps, normalized units, and distinguish previous improvement from PR', () => {

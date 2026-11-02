@@ -1,6 +1,6 @@
 import type { EncouragementTone, LoggedExercise, SessionResult, WorkoutSession } from '../types';
 import { normalizeWeight } from './jnt2Engine';
-import { validCompleted, weekStart, weeklyCounts } from './sessionValidity';
+import { countsTowardStats, fmtCount, sessionCredit, validCompleted, weekStart, weeklyCounts } from './sessionValidity';
 
 export { validCompleted };
 
@@ -67,7 +67,7 @@ function compareExercise(
 function comparisonCandidates(current: WorkoutSession, history: WorkoutSession[]): WorkoutSession[] {
   return history
     .filter((item) => item.sessionId !== current.sessionId
-      && validCompleted(item)
+      && countsTowardStats(item)
       && (current.completedTime === undefined || (item.completedTime ?? 0) < current.completedTime))
     .sort((a, b) => (b.completedTime ?? 0) - (a.completedTime ?? 0));
 }
@@ -100,7 +100,7 @@ export function priorContext(
   excludeSessionId?: string,
 ): { last: number | null; best: number | null } {
   const loads = history
-    .filter((session) => session.sessionId !== excludeSessionId && validCompleted(session))
+    .filter((session) => session.sessionId !== excludeSessionId && countsTowardStats(session))
     .sort((a, b) => (b.completedTime ?? 0) - (a.completedTime ?? 0))
     .flatMap((session) => session.exercises
       .filter((exercise) => exercise.exerciseId === exerciseId)
@@ -138,7 +138,13 @@ export function generateSessionEncouragement(ctx: EncouragementContext): string 
   }
   if (currentSession.status === 'partial') {
     const logged = currentSession.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set) => set.completed).length, 0);
-    return render(tone, `Partial session saved: ${logged} sets logged.`, `Your partial session is safely saved with ${logged} sets recorded.`, `${logged} sets recorded—your partial session is safely in the log.`);
+    const credit = fmtCount(sessionCredit(currentSession));
+    return render(
+      tone,
+      `Partial session saved: ${logged} sets logged. It counts as ${credit} of a session this week.`,
+      `Your partial session is safely saved with ${logged} sets recorded. It counts as ${credit} of a session toward your weekly goal.`,
+      `${logged} sets recorded—your partial session is safely in the log and counts as ${credit} of a session this week.`,
+    );
   }
 
   const completed = history
@@ -185,7 +191,7 @@ export function generateSessionEncouragement(ctx: EncouragementContext): string 
     }
   }
 
-  const thisWeek = weeklyCounts([...completed, currentSession]).get(weekStart(now)) ?? 0;
+  const thisWeek = fmtCount(weeklyCounts([...history.filter((item) => item.sessionId !== currentSession.sessionId), currentSession]).get(weekStart(now)) ?? 0);
   return render(
     tone,
     `Workout saved. ${thisWeek} of ${weeklyGoalSessions} target sessions completed this week.`,

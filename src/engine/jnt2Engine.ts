@@ -28,10 +28,25 @@ export function roundLoad(value: number, increment: number): number {
   return Number(rounded.toFixed(4));
 }
 
+const validTm = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+/**
+ * The training max to use for a lift in a block. Block 2 has its own saved values; until a lift's
+ * Block 2 value is saved, its Block 1 value is used as a starting default (never written back).
+ */
+export function resolveTrainingMax(
+  profile: UserProfile,
+  key: TrainingMaxKey,
+  block: 1 | 2,
+): { value: number | null; defaulted: boolean } {
+  const own = (block === 1 ? profile.trainingMaxes : profile.block2ConfirmedTMs)?.[key];
+  if (validTm(own)) return { value: own, defaulted: false };
+  if (block === 2 && validTm(profile.trainingMaxes?.[key])) return { value: profile.trainingMaxes[key] as number, defaulted: true };
+  return { value: null, defaulted: false };
+}
+
 export function getTrainingMax(profile: UserProfile, basis: Extract<LoadBasis, { kind: 'training_max' }>): number | null {
-  const source = basis.block === 1 ? profile.trainingMaxes : profile.block2ConfirmedTMs;
-  const value = source?.[basis.key];
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  return resolveTrainingMax(profile, basis.key, basis.block).value;
 }
 
 export function calculateSetLoad(

@@ -1,7 +1,7 @@
 import type { UserProfile, WorkoutSession } from '../types';
 import { countResults, deriveHighlights, streakFromCounts } from './achievements';
 import { normalizeWeight } from './jnt2Engine';
-import { validCompleted, weekStart, weeklyCounts } from './sessionValidity';
+import { countsTowardStats, validCompleted, weekStart, weeklyCounts } from './sessionValidity';
 
 export type LeaderboardCategory = 'compliance' | 'streak' | 'volume' | 'prs';
 
@@ -17,7 +17,10 @@ export interface PartnerStats {
   volumeLb: number;
   prCount: number;
   badgeCount: number;
+  /** Fully finished workouts. */
   sessionsCompleted: number;
+  /** Partial workouts that still count toward volume, PRs and (proportionally) the weekly goal. */
+  partialSessions: number;
   currentWeek: number;
   currentDay: number;
   lastSessionAt: number | null;
@@ -55,6 +58,8 @@ export interface PartnerSnapshot {
   prCount: number;
   badgeCount: number;
   sessionsCompleted: number;
+  /** Optional so snapshots from phones on an older build still parse. */
+  partialSessions?: number;
   currentWeek: number;
   currentDay: number;
   lastSessionAt: number | null;
@@ -77,11 +82,13 @@ export function snapshotFromHistory(
   now: number,
   deviceId = 'local',
 ): PartnerSnapshot {
-  const valid = history.filter(validCompleted);
+  // Partial workouts count toward volume, PRs and session totals; the weekly numbers below weight them by sets finished.
+  const counted = history.filter(countsTowardStats);
+  const finished = counted.filter(validCompleted);
   const derived = deriveHighlights(history);
   let volumeLb = 0;
   let prCount = 0;
-  for (const session of valid) {
+  for (const session of counted) {
     const highlights = derived.get(session.sessionId);
     if (!highlights) continue;
     volumeLb += normalizeWeight(highlights.totalVolume, session.settingsSnapshot.unit, 'lb');
@@ -94,9 +101,9 @@ export function snapshotFromHistory(
     const week = new Date(thisWeek);
     week.setDate(week.getDate() - 7 * i);
     const count = counts.get(week.getTime()) ?? 0;
-    if (count > 0) weekly[weekKey(week.getTime())] = count;
+    if (count > 0) weekly[weekKey(week.getTime())] = Math.round(count * 100) / 100;
   }
-  const last = valid.reduce<number | null>((best, s) => {
+  const last = counted.reduce<number | null>((best, s) => {
     const t = s.completedTime ?? s.startTime;
     return best === null || t > best ? t : best;
   }, null);
@@ -110,7 +117,8 @@ export function snapshotFromHistory(
     volumeLb: Math.round(volumeLb),
     prCount,
     badgeCount: profile.unlockedBadges?.length ?? 0,
-    sessionsCompleted: new Set(valid.map((s) => s.sessionId)).size,
+    sessionsCompleted: new Set(finished.map((s) => s.sessionId)).size,
+    partialSessions: new Set(counted.map((s) => s.sessionId)).size - new Set(finished.map((s) => s.sessionId)).size,
     currentWeek: profile.currentWeek,
     currentDay: profile.currentDay,
     lastSessionAt: last,
@@ -150,6 +158,8 @@ export function parseSnapshot(raw: unknown): PartnerSnapshot | null {
   const currentDay = num(r.currentDay);
   const updatedAt = num(r.updatedAt);
   if ([weeklyGoal, volumeLb, prCount, badgeCount, sessionsCompleted, currentWeek, currentDay, updatedAt].some((x) => x === null)) return null;
+  const partialSessions = r.partialSessions === undefined ? 0 : num(r.partialSessions);
+  if (partialSessions === null) return null;
   const lastSessionAt = r.lastSessionAt === null ? null : num(r.lastSessionAt);
   if (r.lastSessionAt !== null && lastSessionAt === null) return null;
   const weekly: Record<string, number> = {};
@@ -170,6 +180,7 @@ export function parseSnapshot(raw: unknown): PartnerSnapshot | null {
     prCount: prCount as number,
     badgeCount: badgeCount as number,
     sessionsCompleted: sessionsCompleted as number,
+    partialSessions,
     currentWeek: currentWeek as number,
     currentDay: currentDay as number,
     lastSessionAt,
@@ -195,6 +206,7 @@ export function statsFromSnapshot(snapshot: PartnerSnapshot, now: number): Partn
     prCount: snapshot.prCount,
     badgeCount: snapshot.badgeCount,
     sessionsCompleted: snapshot.sessionsCompleted,
+    partialSessions: snapshot.partialSessions ?? 0,
     currentWeek: snapshot.currentWeek,
     currentDay: snapshot.currentDay,
     lastSessionAt: snapshot.lastSessionAt,
@@ -236,4 +248,27 @@ export function buildLeaderboard(
   now = Date.now(),
 ): Leaderboard {
   return rankStats(profiles.map((p) => computePartnerStats(p, historyByProfile[p.id] ?? [], now)));
+}
+
+export interface BoardInput {
+  profiles: UserProfile[];
+  historyByProfile: Record<string, WorkoutSession[]>;
+  /** The local profile this phone is paired as, when partner sync is active. */
+  pairedProfileId: string | null;
+  /** Snapshots pulled from partner phones (this phone's own already removed). */
+  remote: PartnerSnapshot[];
+  now?: number;
+}
+
+/**
+ * The Together leaderboard. Your own row is always built from local history, so it reflects a workout the
+ * moment it is saved: never gated on pairing, a finished sync, or a partner being present.
+ */
+export function composeBoard({ profiles, historyByProfile, pairedProfileId, remote, now = Date.now() }: BoardInput): Leaderboard {
+  const mine = pairedProfileId ? profiles.find((item) => item.id === pairedProfileId) : undefined;
+  if (!mine) return buildLeaderboard(profiles, historyByProfile, now);
+  return rankStats([
+    computePartnerStats(mine, historyByProfile[mine.id] ?? [], now),
+    ...remote.map((item) => ({ ...statsFromSnapshot(item, now), profileId: `remote:${item.deviceId}` })),
+  ]);
 }

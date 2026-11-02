@@ -1,6 +1,6 @@
 import type { SessionHighlights, SessionResult, UnlockedBadge, WorkoutSession } from '../types';
 import { findAllComparableResults, isVerifiedCycleComplete } from './encouragement';
-import { validCompleted, weekStart, weeklyCounts } from './sessionValidity';
+import { countsTowardStats, meetsGoal, validCompleted, weekStart, weeklyCounts } from './sessionValidity';
 
 export { weekStart };
 import { normalizeWeight } from './jnt2Engine';
@@ -67,8 +67,8 @@ export function computeHighlights(session: WorkoutSession, history: WorkoutSessi
  * compared only against sessions completed before it, so edits can never leave stale PRs behind.
  */
 export function deriveHighlights(history: WorkoutSession[]): Map<string, SessionHighlights> {
-  const valid = history.filter(validCompleted);
-  return new Map(valid.map((session) => [session.sessionId, computeHighlights(session, valid)]));
+  const counted = history.filter(countsTowardStats);
+  return new Map(counted.map((session) => [session.sessionId, computeHighlights(session, counted)]));
 }
 
 export const countResults = (results: SessionResult[], kind: SessionResult['kind']) =>
@@ -76,7 +76,7 @@ export const countResults = (results: SessionResult[], kind: SessionResult['kind
 
 /** Headline for the completion summary. Never calls an improvement a personal best. */
 export function summaryHeadline(results: SessionResult[], celebrate: boolean): string {
-  if (!celebrate) return 'Session saved';
+  if (!celebrate) return 'Partial workout saved';
   if (countResults(results, 'all_time_pr')) return 'New personal best!';
   if (countResults(results, 'previous_improvement')) return 'Up from last time';
   if (countResults(results, 'matched_best')) return 'Matched your best';
@@ -112,13 +112,13 @@ export function streakFromCounts(
   const goal = Math.max(1, weeklyGoal);
   const thisWeek = weekStart(now);
   const weeklyCount = counts.get(thisWeek) ?? 0;
-  const goalMet = weeklyCount >= goal;
+  const goalMet = meetsGoal(weeklyCount, goal);
 
   let streakWeeks = goalMet ? 1 : 0;
   let cursor = new Date(thisWeek);
   for (;;) {
     cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() - 7);
-    if ((counts.get(cursor.getTime()) ?? 0) >= goal) streakWeeks += 1;
+    if (meetsGoal(counts.get(cursor.getTime()) ?? 0, goal)) streakWeeks += 1;
     else break;
   }
   return { weeklyCount, weeklyGoal: goal, goalMet, streakWeeks };
@@ -137,10 +137,12 @@ export function evaluateBadges(
   const all = [...history.filter((s) => s.sessionId !== current.sessionId), current];
   const completed = all.filter(validCompleted);
   const total = completed.length;
-  const streak = computeStreak(all, weeklyGoal, now).streakWeeks;
+  // Badges recognise finished workouts only. Partial workouts count toward leaderboard stats but not here.
+  const streak = computeStreak(completed, weeklyGoal, now).streakWeeks;
   const derived = deriveHighlights(all);
+  const finishedIds = new Set(completed.map((s) => s.sessionId));
   const allTimePrs = (id: string) => countResults(derived.get(id)?.results ?? [], 'all_time_pr');
-  const totalPrs = [...derived.keys()].reduce((sum, id) => sum + allTimePrs(id), 0);
+  const totalPrs = [...derived.keys()].filter((id) => finishedIds.has(id)).reduce((sum, id) => sum + allTimePrs(id), 0);
   const currentPrs = allTimePrs(current.sessionId);
   const earned: string[] = [];
   if (total >= 1) earned.push('first_workout');

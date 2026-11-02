@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Trophy, Users } from 'lucide-react';
 import type { Leaderboard, LeaderboardCategory, PartnerStats } from '../engine/leaderboard';
 import { ProgressRing } from './ProgressRing';
+import { fmtCount } from '../engine/sessionValidity';
 import { StreakLabel } from './StreakLabel';
 import { Avatar } from './Avatar';
 import type { UserProfile } from '../types';
@@ -10,6 +11,23 @@ export interface SyncStatus {
   state: 'idle' | 'syncing' | 'ok' | 'error';
   error?: string;
   at?: number;
+  lastPushAt?: number;
+  lastPullAt?: number;
+  remoteCount?: number;
+  /** What the last push actually sent, so you can see your workout reached the server. */
+  lastPushed?: { volumeLb: number; sessions: number; partial: number; weekCount: number };
+}
+
+export interface SyncDiagnostics {
+  host: string;
+  keyType: string;
+  deviceId: string;
+  pairedAs: string | null;
+  trainingAs: string | null;
+  trainingAsId: string | null;
+  /** This phone is paired as one profile but a different one is being used. */
+  mismatch: boolean;
+  connection: { state: 'idle' | 'testing' | 'ok' | 'error'; message?: string };
 }
 
 export interface PairingUi {
@@ -23,6 +41,9 @@ export interface PairingUi {
   onJoin: (code: string, meId: string) => string | null;
   onUnlink: () => void;
   onSyncNow: () => void;
+  diagnostics?: SyncDiagnostics;
+  onTestConnection: () => void;
+  onRepairAs: (profileId: string) => void;
 }
 
 interface TogetherTabProps {
@@ -109,6 +130,47 @@ function PairingPanel({ pairing, defaultMeId }: { pairing: PairingUi; defaultMeI
   );
 }
 
+function SyncDetails({ pairing }: { pairing: PairingUi }) {
+  const d = pairing.diagnostics;
+  if (!pairing.configured || !d) return null;
+  const { status } = pairing;
+  const row = (label: string, value: string) => (
+    <div className="flex justify-between gap-3 py-1"><dt className="text-muted">{label}</dt><dd className="text-right font-semibold text-ink break-all">{value}</dd></div>
+  );
+  return (
+    <details className="card px-4">
+      <summary className="flex min-h-12 cursor-pointer items-center justify-between text-sm font-bold text-ink-2">
+        <span>Sync details</span>
+        <span className={`text-xs font-semibold ${status.state === 'error' ? 'text-bad' : 'text-muted'}`}>
+          {status.state === 'error' ? 'Problem' : pairing.code ? (status.at ? `Synced ${ago(status.at)}` : 'Not synced yet') : 'Not linked'}
+        </span>
+      </summary>
+      <dl className="pb-2 text-xs">
+        {row('Server', d.host)}
+        {row('Key', d.keyType)}
+        {row('This phone', `…${d.deviceId.slice(-6)}`)}
+        {row('Linked as', pairing.code ? (d.pairedAs ?? 'unknown') : 'not linked')}
+        {pairing.code && row('Last sent', status.lastPushAt ? ago(status.lastPushAt) : 'never')}
+        {pairing.code && status.lastPushed && row('What was sent', `${status.lastPushed.volumeLb.toLocaleString()} lb · ${status.lastPushed.sessions} finished${status.lastPushed.partial ? ` + ${status.lastPushed.partial} partial` : ''} · ${fmtCount(status.lastPushed.weekCount)} this week`)}
+        {pairing.code && row('Last received', status.lastPullAt ? ago(status.lastPullAt) : 'never')}
+        {pairing.code && row('Partner phones found', String(status.remoteCount ?? 0))}
+      </dl>
+      {status.state === 'error' && <p role="alert" className="alert-bad mb-2 text-xs">{status.error}</p>}
+      {d.mismatch && d.trainingAsId && (
+        <div className="alert-warn mb-2 text-xs">
+          This phone is linked as {d.pairedAs} but you are training as {d.trainingAs}, so {d.trainingAs}'s workouts are not being sent.
+          <button onClick={() => pairing.onRepairAs(d.trainingAsId as string)} className="mt-2 block min-h-11 rounded-xl bg-accent px-3 text-xs font-black text-on-accent">Link as {d.trainingAs}</button>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2 pb-3">
+        <button onClick={pairing.onTestConnection} disabled={d.connection.state === 'testing'} className="btn-secondary min-h-11 text-xs">{d.connection.state === 'testing' ? 'Testing…' : 'Test connection'}</button>
+        {pairing.code && <button onClick={pairing.onSyncNow} disabled={status.state === 'syncing'} className="btn-secondary min-h-11 text-xs">{status.state === 'syncing' ? 'Syncing…' : 'Sync now'}</button>}
+      </div>
+      {d.connection.message && <p role="status" className={`pb-3 text-xs ${d.connection.state === 'error' ? 'text-bad' : 'text-ok'}`}>{d.connection.message}</p>}
+    </details>
+  );
+}
+
 const CATEGORIES: { key: LeaderboardCategory; label: string; value: (s: PartnerStats) => string }[] = [
   { key: 'compliance', label: '4-wk compliance', value: (s) => `${s.compliancePct}%` },
   { key: 'streak', label: 'Week streak', value: (s) => `${s.streakWeeks}` },
@@ -127,22 +189,10 @@ export function TogetherTab({ board, youId, pairing, profiles }: TogetherTabProp
   const personFor = (s: PartnerStats) => profiles?.find((p) => p.id === s.profileId) ?? { id: s.profileId, name: s.name };
   if (!board) return <p className="text-sm text-muted p-4">Loading partners…</p>;
   const defaultMeId = pairing.profiles.find((p) => p.id === youId)?.id ?? pairing.profiles[0]?.id ?? '';
-  if (board.ranked.length < 2) {
-    return (
-      <div className="space-y-4">
-        <PairingPanel pairing={pairing} defaultMeId={defaultMeId} />
-        <div className="card p-6 text-center">
-          <Users className="w-8 h-8 text-accent-ink mx-auto" />
-          <p className="font-black text-ink mt-2">{pairing.code ? 'Waiting for your partner' : 'Add a training partner'}</p>
-          <p className="text-xs text-muted mt-1">{pairing.code ? 'Send them the code above. Once their phone joins, the leaderboard appears here.' : 'Link a partner to unlock the shared leaderboard.'}</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <PairingPanel pairing={pairing} defaultMeId={defaultMeId} />
+      <SyncDetails pairing={pairing} />
       <section className="grid grid-cols-2 gap-3">
         {board.ranked.map((s) => {
           const last = lastTrained(s);
@@ -153,7 +203,7 @@ export function TogetherTab({ board, youId, pairing, profiles }: TogetherTabProp
               <p className="font-black text-ink truncate max-w-full">{s.name}{isYou && <span className="text-accent-ink text-xs ml-1 align-middle">YOU</span>}</p>
               <div className="mt-2">
                 <ProgressRing value={s.weeklyCount} max={s.weeklyGoal} size={72}>
-                  <span className="font-mono text-sm font-black text-ink">{s.weeklyCount}/{s.weeklyGoal}</span>
+                  <span className="font-mono text-sm font-black text-ink">{fmtCount(s.weeklyCount)}/{s.weeklyGoal}</span>
                 </ProgressRing>
               </div>
               <p className="text-xs text-muted mt-1">this week</p>
@@ -162,10 +212,18 @@ export function TogetherTab({ board, youId, pairing, profiles }: TogetherTabProp
               </p>
               <p className={`text-xs mt-1 ${last.warn ? 'text-bad' : 'text-muted'}`}>{last.text}</p>
               {s.syncedAt !== undefined && <p className="text-xs text-muted mt-0.5">synced {ago(s.syncedAt)}</p>}
+              <p className="text-xs text-muted mt-1">{s.sessionsCompleted + s.partialSessions} session{s.sessionsCompleted + s.partialSessions === 1 ? '' : 's'}{s.partialSessions > 0 ? ` (${s.partialSessions} partial)` : ''}</p>
               <p className="text-xs text-muted mt-1 font-mono">Wk {s.currentWeek} · Day {s.currentDay}</p>
             </div>
           );
         })}
+        {board.ranked.length < 2 && (
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-line p-4 text-center">
+            <Users className="w-8 h-8 text-accent-ink" />
+            <p className="mt-2 font-black text-ink">{pairing.code ? 'Waiting for your partner' : 'Add a training partner'}</p>
+            <p className="mt-1 text-xs text-muted">{pairing.code ? 'Send them the code above. Your stats are already here.' : 'Link a partner above to compare stats. Your own stats show here right away.'}</p>
+          </div>
+        )}
       </section>
 
       <section className="card p-4">

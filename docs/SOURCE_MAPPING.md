@@ -110,3 +110,11 @@ These contradictions occur in both source sheets and are not described as verifi
    - Decision: keep the explicit T2a test visible, flag the conflict, and leave performance to the lifter's manual decision.
 
 No other source contradiction was silently resolved. Blank Block 2 cells are represented as omitted rather than replaced with the former app's accessory substitutions.
+
+## App additions that are not in the workbook
+
+These are product choices, not source cells, and none of them change a workbook-derived prescription, set count or source range:
+
+- **Warm-up sets** (T1 main lifts only): kept outside `prescribedSets`, so workbook set counts and `setCount === prescribedSets.length` stay true.
+- **Suggested loads** for cells the workbook leaves blank: the T1 `Find nRM` / test set (`J&T2.0` rows 57, 69, 81, 93 and the matching Block 2 cells) and the accessory `?` weights. The suggestion is a pre-filled editable value flagged `suggested`; `loadBasis` remains `user_selected`.
+- **Block 2 TM default:** for a lift whose Block 2 input (`AI4:AI7`, `AS5`) has not been saved, formulas that reference it use the Block 1 input (`E4:E7`, `O5`) instead. The stored Block 2 value is never written automatically.

@@ -63,6 +63,14 @@ try {
   await page.getByRole('heading', { name: 'Hip Thrust' }).waitFor();
   await page.getByText('Swapped from Single Leg Press').waitFor();
   const squat = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Back Squat' }) });
+  // The workbook leaves "Find 10RM" to the lifter; the app suggests a starting load from the TM and a T1 warm-up ramp.
+  await squat.getByText(/Suggested from your training max/).waitFor();
+  assert.equal(await squat.locator('input[type="number"]').first().inputValue(), '160', 'RM set is suggested from the squat TM');
+  await squat.getByText('Warm-up').waitFor();
+  assert.equal(await squat.getByRole('checkbox').count(), 4, 'standard ramp has four steps');
+  await squat.getByRole('checkbox').first().click();
+  assert.equal(await squat.getByRole('checkbox').first().getAttribute('aria-checked'), 'true');
+  assert.equal(await page.locator('section').filter({ has: page.getByRole('heading', { name: '2" Deficit Deadlift' }) }).getByRole('checkbox').count(), 0, 'only the T1 lift has warm-ups');
   const firstLog = squat.getByRole('button', { name: 'Log set' }).first();
   const firstRow = firstLog.locator('..').locator('..');
   await firstRow.locator('input').nth(0).fill('180');
@@ -72,6 +80,7 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByText('Workout in progress').waitFor();
   await page.getByText('10 reps @ 180 lb').waitFor();
+  assert.equal(await squat.getByRole('checkbox', { includeHidden: true }).first().getAttribute('aria-checked'), 'true', 'ticked warm-up steps survive a reload (the list collapses once the RM set is logged)');
 
   for (let guard = 0; guard < 80; guard += 1) {
     const buttons = page.getByRole('button', { name: 'Log set' });
@@ -173,6 +182,7 @@ try {
   await avatarPage.getByRole('button', { name: 'Settings' }).click();
   await avatarPage.getByRole('button', { name: 'Remove photo' }).click();
   await avatarPage.getByText('Photo removed.').waitFor();
+  await avatarPage.locator('header img').first().waitFor({ state: 'detached' });
   assert.equal(await avatarPage.locator('header img').count(), 0, 'initials return after removing the photo');
   await avatarContext.close();
 
@@ -205,6 +215,47 @@ try {
   await themePage.getByRole('button', { name: 'Lauren' }).first().click();
   await themePage.waitForFunction(() => document.documentElement.dataset.theme === 'lavender');
   await themeContext.close();
+
+  // Coach card, a partial workout, and your own stats showing on Together right away (no partner needed).
+  const partialContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const pp = await partialContext.newPage();
+  pp.on('dialog', (dialog) => dialog.accept());
+  await pp.goto(origin, { waitUntil: 'networkidle' });
+  await pp.getByText('Coach', { exact: true }).waitFor();
+  await pp.getByRole('button', { name: 'Dismiss coach message' }).click();
+  await pp.getByText('Coach', { exact: true }).waitFor({ state: 'detached' });
+  await pp.reload({ waitUntil: 'networkidle' });
+  await pp.getByText('Next scheduled session').waitFor();
+  assert.equal(await pp.getByText('Coach', { exact: true }).count(), 0, 'a dismissed coach message stays dismissed');
+
+  await pp.getByRole('button', { name: 'Program' }).click();
+  const pBlock1 = pp.locator('section').filter({ has: pp.getByRole('heading', { name: 'Block 1 training maxes' }) });
+  await pBlock1.getByRole('button', { name: /Edit/ }).click();
+  for (const [index, value] of ['200', '180', '300', '120', '160'].entries()) await pBlock1.locator('input[type="number"]').nth(index).fill(value);
+  await pBlock1.getByRole('button', { name: /Save/ }).click();
+  await pp.getByText('Block 1 TMs confirmed').waitFor();
+  await pp.getByRole('button', { name: 'Today' }).click();
+  await pp.getByRole('button', { name: 'Start workout' }).click();
+  await pp.getByText('Workout in progress').waitFor();
+  for (let i = 0; i < 2; i += 1) {
+    const logButton = pp.getByRole('button', { name: 'Log set' }).first();
+    await logButton.click();
+    await pp.waitForTimeout(250);
+  }
+  await pp.getByRole('button', { name: 'Finish' }).click();
+  const partialSummary = pp.getByRole('dialog', { name: 'Workout summary' });
+  await partialSummary.waitFor();
+  await partialSummary.getByText('Partial workout saved').first().waitFor();
+  await partialSummary.getByText(/of a session toward your weekly goal/).waitFor();
+  assert.equal(await partialSummary.getByText('New personal best!').count(), 0, 'a partial workout is not celebrated');
+  await pp.keyboard.press('Escape');
+  await pp.getByRole('button', { name: 'Together' }).click();
+  const ownRow = pp.getByRole('row').filter({ hasText: 'Lauren' });
+  await ownRow.waitFor();
+  assert.match(await ownRow.innerText(), /\d{1,3},\d{3}/, 'pounds from the partial workout are on the leaderboard immediately');
+  await pp.getByText('1 session (1 partial)').waitFor();
+  assert.equal(await pp.getByRole('row').filter({ hasText: 'Luis' }).count(), 1, 'the other local profile is listed too');
+  await partialContext.close();
 
   // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).
   const iosContext = await browser.newContext({

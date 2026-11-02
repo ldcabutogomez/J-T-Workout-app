@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import type { LoggedSet, SourceReference, UserProfile, WorkoutSession } from '../types';
+import type { LoggedExercise, LoggedSet, SourceReference, UserProfile, WorkoutSession } from '../types';
 import { getDayPrescription } from '../engine/jnt2Engine';
 import { missingTrainingMaxes } from '../engine/sessionEngine';
 import { AlertTriangle, Check, ChevronDown, HelpCircle, Minus, Plus, RotateCcw } from 'lucide-react';
 import { priorContext } from '../engine/encouragement';
 import { useDialog } from '../lib/useDialog';
+import { warmupSets } from '../engine/warmup';
 import type { StreakInfo } from '../engine/achievements';
 import { getSwapOptions, SWAP_GROUP_LABELS, type SwappableSlot } from '../program/swapOptions';
 import { ProgressRing } from './ProgressRing';
 import { StreakLabel } from './StreakLabel';
+import { fmtCount } from '../engine/sessionValidity';
 import { Avatar } from './Avatar';
+import { CoachCard } from './CoachCard';
+import type { CoachMessage } from '../engine/coach';
 
 interface TodayTabProps {
   profile: UserProfile | null;
@@ -22,6 +26,9 @@ interface TodayTabProps {
   onDiscardActiveWorkout: () => void;
   onSkipSession: () => void;
   onSwapExercise: (slotId: string, originalExerciseId: string, alternativeId: string) => void;
+  onToggleWarmup: (slotId: string, stepId: string) => void;
+  coach?: CoachMessage | null;
+  onDismissCoach?: (id: string) => void;
   streak?: StreakInfo;
   history: WorkoutSession[];
 }
@@ -41,11 +48,16 @@ export function TodayTab({
   onDiscardActiveWorkout,
   onSkipSession,
   onSwapExercise,
+  onToggleWarmup,
+  coach,
+  onDismissCoach,
   streak,
   history,
 }: TodayTabProps) {
   const [showHelp, setShowHelp] = useState(false);
   const [reopened, setReopened] = useState<Record<string, boolean>>({});
+  // The load currently typed into each T1 exercise's first (RM) set, so the warm-up ramp follows it.
+  const [topDraft, setTopDraft] = useState<Record<string, number | ''>>({});
   if (!profile) return <div className="p-6 text-center text-muted">Loading local profiles…</div>;
 
   if (!activeSession) {
@@ -54,6 +66,7 @@ export function TodayTab({
     return (
       <div className="space-y-4">
         {streak && <WeekCard profile={profile} streak={streak} />}
+        {coach && onDismissCoach && <CoachCard message={coach} onDismiss={onDismissCoach} />}
         <section className="card p-5  animate-slide-up">
           <div className="flex justify-between items-start gap-3">
             <div>
@@ -164,10 +177,20 @@ export function TodayTab({
             <BackoffDecision unit={activeSession.settingsSnapshot.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} warning={exercise.rmMismatchWarning} onSave={(load) => onBackoffDecision(exercise.slotId, load)} />
           )}
 
+          {exercise.tier === 'T1' && exercise.sets.length > 0 && !activeSession.isEditingCompleted && (
+            <WarmupList
+              exercise={exercise}
+              draftLoad={topDraft[exercise.slotId]}
+              barbell={activeSession.settingsSnapshot.barbellWeight}
+              increment={activeSession.settingsSnapshot.equipmentIncrement}
+              onToggle={(stepId) => onToggleWarmup(exercise.slotId, stepId)}
+            />
+          )}
+
           {exercise.sets.length === 0 ? (
             <div className="rounded-2xl bg-paper/60 border border-line p-3 text-xs text-muted">No logged sets for this {exercise.status} slot.</div>
           ) : exercise.sets.map((set, index) => (
-            <SetRow key={set.setId} set={set} setNumber={index + 1} unit={set.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} isCurrent={set.setId === currentSetId} context={set.completed || (set.type !== 'rm_target' && set.type !== 'test') ? undefined : contextLine(exercise.exerciseId, set.prescribedReps, history, set.unit, activeSession.sessionId)} disabled={Boolean(exercise.manualLoadDecisionPending && set.type === 'backoff')} onLog={(reps, load, rir, declined) => onLogSet(exercise.slotId, set.setId, reps, load, rir, declined)} onUndo={() => onUndoSet(exercise.slotId, set.setId)} />
+            <SetRow key={set.setId} set={set} setNumber={index + 1} unit={set.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} onLoadChange={index === 0 && exercise.tier === 'T1' ? (value) => setTopDraft((drafts) => (drafts[exercise.slotId] === value ? drafts : { ...drafts, [exercise.slotId]: value })) : undefined} isCurrent={set.setId === currentSetId} context={set.completed || (set.type !== 'rm_target' && set.type !== 'test') ? undefined : contextLine(exercise.exerciseId, set.prescribedReps, history, set.unit, activeSession.sessionId)} disabled={Boolean(exercise.manualLoadDecisionPending && set.type === 'backoff')} onLog={(reps, load, rir, declined) => onLogSet(exercise.slotId, set.setId, reps, load, rir, declined)} onUndo={() => onUndoSet(exercise.slotId, set.setId)} />
           ))}
           <SourceDetails refs={exercise.sourceRefs} />
         </section>
@@ -215,7 +238,7 @@ function ExerciseSwap({ slot, locked = false, lockedReason, onSwap }: {
 
 function WeekCard({ profile, streak }: { profile: UserProfile; streak: StreakInfo }) {
   const name = profile.name;
-  const remaining = Math.max(0, streak.weeklyGoal - streak.weeklyCount);
+  const remaining = fmtCount(Math.max(0, streak.weeklyGoal - streak.weeklyCount));
   const headline = streak.goalMet
     ? 'Weekly goal crushed!'
     : streak.weeklyCount === 0
@@ -224,7 +247,7 @@ function WeekCard({ profile, streak }: { profile: UserProfile; streak: StreakInf
   return (
     <section className="animate-slide-up flex items-center gap-4 card p-4">
       <ProgressRing value={streak.weeklyCount} max={streak.weeklyGoal}>
-        <span className="font-mono text-sm font-black text-ink">{streak.weeklyCount}/{streak.weeklyGoal}</span>
+        <span className="font-mono text-sm font-black text-ink">{fmtCount(streak.weeklyCount)}/{streak.weeklyGoal}</span>
       </ProgressRing>
       <div className="min-w-0 flex-1">
         <p className="font-black text-ink text-sm">{headline}</p>
@@ -257,7 +280,7 @@ function SessionProgress({ session }: { session: WorkoutSession }) {
   );
 }
 
-function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context, onLog, onUndo }: {
+function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context, onLoadChange, onLog, onUndo }: {
   set: LoggedSet;
   setNumber: number;
   unit: 'lb' | 'kg';
@@ -265,12 +288,14 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
   disabled: boolean;
   isCurrent: boolean;
   context?: string;
+  onLoadChange?: (value: number | '') => void;
   onLog: (reps: number, load: number, rir: number, declined?: boolean) => void;
   onUndo: () => void;
 }) {
   const [load, setLoad] = useState<number | ''>(set.load ?? '');
   const [reps, setReps] = useState<number | ''>(set.actualReps ?? (set.type === 'mrs' ? '' : set.prescribedReps));
   const [rir, setRir] = useState(set.rir ?? 2);
+  useEffect(() => { onLoadChange?.(load); }, [load]);
   useEffect(() => {
     setLoad(set.load ?? '');
     setReps(set.actualReps ?? (set.type === 'mrs' ? '' : set.prescribedReps));
@@ -300,6 +325,9 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
         <Stepper label="Achieved reps" value={reps} step={1} onChange={setReps} />
         <label className="text-xs uppercase font-bold text-muted">RIR<select value={rir} onChange={(event) => setRir(Number(event.target.value))} className="block mt-1 min-h-10 bg-surface border border-line rounded-xl px-2 text-xs text-accent-ink"><option value={0}>0</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3+</option></select></label>
       </div>
+      {set.suggested && load !== '' && Number(load) === set.load && (
+        <p className="mt-2 text-xs font-semibold text-accent-ink">{set.suggested === 'tm' ? 'Suggested from your training max. Adjust to what you can do today.' : 'Suggested from last time. Adjust to what you can do today.'}</p>
+      )}
       <div className="flex gap-2 mt-3">
         <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), rir)} className={`flex-1 bg-ok disabled:bg-sunk disabled:text-muted text-on-accent rounded-xl font-black uppercase active:scale-[0.98] transition ${isCurrent ? 'min-h-12 text-sm' : 'min-h-11 text-xs'}`}>Log set</button>
         {set.isAmrap && <button disabled={disabled || load === ''} onClick={() => onLog(set.prescribedReps, Number(load), rir, true)} className="px-3 min-h-11 bg-sunk rounded-xl text-xs font-bold">Log prescribed reps, no AMRAP</button>}
@@ -327,6 +355,44 @@ function BackoffDecision({ unit, increment, warning, onSave }: { unit: string; i
       <p className="text-xs text-bad"><AlertTriangle className="inline w-4 h-4 mr-1" />{warning}</p>
       <div className="flex gap-2 mt-2"><input type="number" step={increment} value={load} onChange={(event) => setLoad(event.target.value === '' ? '' : Number(event.target.value))} placeholder={`Back-off load (${unit})`} className="flex-1 min-w-0 bg-paper border border-bad/40 rounded-xl px-3 py-2 text-sm" /><button disabled={load === '' || load <= 0} onClick={() => onSave(Number(load))} className="px-3 bg-bad disabled:opacity-40 text-on-accent rounded-xl text-xs font-bold">Use load</button></div>
     </div>
+  );
+}
+
+function WarmupList({ exercise, draftLoad, barbell, increment, onToggle }: {
+  exercise: LoggedExercise;
+  draftLoad: number | '' | undefined;
+  barbell: number;
+  increment: number;
+  onToggle: (stepId: string) => void;
+}) {
+  const top = exercise.sets[0];
+  const topLoad = draftLoad === undefined ? top.load : draftLoad === '' ? null : draftLoad;
+  const steps = warmupSets({ topLoad, topReps: top.prescribedReps, barbell, increment });
+  if (!steps.length) return null;
+  const done = exercise.warmupsDone ?? [];
+  const doneCount = steps.filter((step) => done.includes(step.id)).length;
+  const allDone = doneCount === steps.length;
+  return (
+    <details open={!allDone && !top.completed} className="rounded-xl border border-line bg-sunk/50 px-3">
+      <summary className="flex min-h-11 cursor-pointer items-center justify-between text-sm font-bold text-ink-2">
+        <span>Warm-up</span>
+        <span className="text-xs font-semibold text-muted">{doneCount} of {steps.length} done</span>
+      </summary>
+      <ul className="pb-2">
+        {steps.map((step) => {
+          const checked = done.includes(step.id);
+          return (
+            <li key={step.id}>
+              <button type="button" role="checkbox" aria-checked={checked} onClick={() => onToggle(step.id)} className="flex min-h-11 w-full items-center gap-3 text-left">
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${checked ? 'border-ok bg-ok text-on-accent' : 'border-line bg-surface'}`}>{checked && <Check className="h-4 w-4" />}</span>
+                <span className={`text-sm font-bold ${checked ? 'text-muted line-through' : 'text-ink'}`}>{step.label}</span>
+                <span className="ml-auto font-mono text-sm text-ink-2">{step.reps} × {step.load} {top.unit}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }
 

@@ -5,7 +5,8 @@ import type {
   UserProfile,
   WorkoutSession,
 } from '../types';
-import { calculateSetLoad, getDayPrescription, roundLoad } from './jnt2Engine';
+import { calculateSetLoad, getDayPrescription, resolveTrainingMax, roundLoad } from './jnt2Engine';
+import { suggestFromHistory, suggestRmLoadFor } from './suggestions';
 
 function copy<T>(value: T): T {
   return typeof structuredClone === 'function'
@@ -18,9 +19,7 @@ export function missingTrainingMaxes(prescription: DayPrescription, profile: Use
   for (const exercise of prescription.exercises) {
     for (const set of exercise.prescribedSets) {
       if (set.loadBasis.kind !== 'training_max') continue;
-      const values = set.loadBasis.block === 1 ? profile.trainingMaxes : profile.block2ConfirmedTMs;
-      const value = values?.[set.loadBasis.key];
-      if (!Number.isFinite(value) || (value ?? 0) <= 0) {
+      if (resolveTrainingMax(profile, set.loadBasis.key, set.loadBasis.block).value === null) {
         missing.add(`${set.loadBasis.block === 1 ? 'Block 1' : 'Block 2'} ${set.loadBasis.key.replace('_', ' ')} TM`);
       }
     }
@@ -28,11 +27,32 @@ export function missingTrainingMaxes(prescription: DayPrescription, profile: Use
   return [...missing];
 }
 
+/**
+ * Where the workbook leaves a weight to the lifter ("Find nRM" and accessory "?"), pre-fill an
+ * editable suggestion: from the training max for T1 RM sets, from last time for everything else.
+ */
+function suggestedLoad(
+  slot: DayPrescription['exercises'][number],
+  set: DayPrescription['exercises'][number]['prescribedSets'][number],
+  profile: UserProfile,
+  history: WorkoutSession[],
+): { load: number; source: 'tm' | 'history' } | null {
+  if (set.type !== 'rm_target' && set.type !== 'test') return null;
+  if (set.loadBasis.kind !== 'user_selected') return null;
+  if (set.suggestFrom) {
+    const load = suggestRmLoadFor(profile, set.suggestFrom, set.prescribedReps);
+    return load === null ? null : { load, source: 'tm' };
+  }
+  const load = suggestFromHistory(slot.exerciseId, set.prescribedReps, history, profile.unit, profile.equipmentIncrement);
+  return load === null ? null : { load, source: 'history' };
+}
+
 export function createWorkoutSession(
   profile: UserProfile,
   prescription: DayPrescription,
   now = Date.now(),
   allowMissingTrainingMaxes = false,
+  history: WorkoutSession[] = [],
 ): WorkoutSession {
   const missing = missingTrainingMaxes(prescription, profile);
   if (missing.length && !allowMissingTrainingMaxes) throw new Error(`Set up ${missing.join(', ')} before starting this session.`);
@@ -48,17 +68,22 @@ export function createWorkoutSession(
     sourceRefs: copy(slot.sourceRefs),
     loadBasis: slot.loadBasis ? copy(slot.loadBasis) : undefined,
     swappedFrom: slot.swappedFrom ? { ...slot.swappedFrom } : undefined,
-    sets: slot.prescribedSets.map((set) => ({
-      setId: `${slot.slotId}-s${set.setNumber}`,
-      type: set.type,
-      prescribedReps: set.prescribedReps,
-      actualReps: null,
-      load: calculateSetLoad(set, profile),
-      unit: profile.unit,
-      rir: 2,
-      isAmrap: set.isAmrap,
-      completed: false,
-    })),
+    sets: slot.prescribedSets.map((set) => {
+      const computed = calculateSetLoad(set, profile);
+      const suggestion = computed === null ? suggestedLoad(slot, set, profile, history) : null;
+      return {
+        setId: `${slot.slotId}-s${set.setNumber}`,
+        type: set.type,
+        prescribedReps: set.prescribedReps,
+        actualReps: null,
+        load: computed ?? suggestion?.load ?? null,
+        unit: profile.unit,
+        rir: 2,
+        isAmrap: set.isAmrap,
+        completed: false,
+        ...(suggestion ? { suggested: suggestion.source } : {}),
+      };
+    }),
   }));
 
   return {
@@ -153,6 +178,7 @@ export function logSet(
   set.load = load;
   set.rir = rir;
   set.completed = true;
+  set.suggested = undefined;
   set.timestamp = now;
   set.amrapDeclined = amrapDeclined || undefined;
   set.userLoadOverride = priorLoad !== null && Math.abs(priorLoad - load) > 1e-9 ? true : set.userLoadOverride;

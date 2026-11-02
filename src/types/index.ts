@@ -24,6 +24,8 @@ export interface ProgramSetPrescription {
   amrapOptional?: boolean;
   percentage?: number;
   loadBasis: LoadBasis;
+  /** For a lifter-chosen RM set: which training max the app may use to suggest a starting load. */
+  suggestFrom?: { key: TrainingMaxKey; block: 1 | 2 };
   sourceRefs: SourceReference[];
 }
 
@@ -152,6 +154,8 @@ export interface LoggedSet {
   completed: boolean;
   userLoadOverride?: boolean;
   timestamp?: number;
+  /** Set while `load` is an app suggestion the lifter has not yet confirmed. */
+  suggested?: 'tm' | 'history';
 }
 
 export interface LoggedExercise {
@@ -171,6 +175,8 @@ export interface LoggedExercise {
   sourceRefs: SourceReference[];
   loadBasis?: LoadBasis;
   swappedFrom?: SwappedFrom;
+  /** Warm-up steps ticked off (T1 main lifts only). Warm-ups never count as work sets. */
+  warmupsDone?: string[];
 }
 
 export interface WorkoutSession {

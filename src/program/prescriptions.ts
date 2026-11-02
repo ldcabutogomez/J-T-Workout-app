@@ -209,6 +209,7 @@ function makeMainT1(week: number, day: number): ExerciseSlotPrescription {
       T1_TARGETS[week - 1],
       { kind: 'user_selected' },
       refs,
+      { suggestFrom: { key: tmKey, block: isBlock1 ? 1 : 2 } },
     ),
   ];
 
@@ -269,7 +270,7 @@ function makeSecondaryT1(week: number): ExerciseSlotPrescription {
   const target = week <= 6 ? T1_TARGETS[week - 1] : [7, 4, 2, 5, 3, 1][week - 7];
   const additional = week <= 5 ? 4 : ({ 7: 4, 8: 4, 9: 1, 10: 3, 11: 1 } as Record<number, number>)[week] ?? 0;
   const test = week === 6 || week === 12;
-  const sets = [setPrescription(1, test ? 'test' : 'rm_target', target, { kind: 'user_selected' }, refs)];
+  const sets = [setPrescription(1, test ? 'test' : 'rm_target', target, { kind: 'user_selected' }, refs, { suggestFrom: { key: 'bench', block: week <= 6 ? 1 : 2 } })];
   for (let i = 0; i < additional; i += 1) {
     sets.push(setPrescription(i + 2, 'mrs', target, { kind: 'achieved_rm', slotId }, refs));
   }

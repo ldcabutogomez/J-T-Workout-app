@@ -58,6 +58,9 @@ export function ProgramTab({ profile, onUpdateProfile }: ProgramTabProps) {
     const values = block === 1 ? profile.trainingMaxes : (profile.block2ConfirmedTMs ?? {});
     const isEditing = editing === block;
     const complete = REQUIRED_TRAINING_MAXES.every(({ key }) => Number(values[key]) > 0);
+    const defaultedLabels = block === 2
+      ? REQUIRED_TRAINING_MAXES.filter(({ key }) => !(Number(values[key]) > 0) && Number(profile.trainingMaxes[key]) > 0).map(({ label }) => label)
+      : [];
     return (
       <section className="card p-5 ">
         <div className="flex justify-between items-start gap-3">
@@ -67,11 +70,12 @@ export function ProgramTab({ profile, onUpdateProfile }: ProgramTabProps) {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
           {REQUIRED_TRAINING_MAXES.map(({ key, label }) => (
             <label key={key} className="bg-paper/70 border border-line rounded-2xl p-3 text-xs uppercase font-bold text-muted">{label}
-              {isEditing ? <input type="number" min="0" step={profile.equipmentIncrement} value={draft[key] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value === '' ? undefined : Number(event.target.value) }))} className="w-full mt-1 bg-surface border border-line rounded-lg px-2 py-1.5 text-base normal-case text-accent-ink font-mono" /> : <span className="block mt-1 text-base normal-case text-accent-ink font-mono">{values[key] ? `${values[key]} ${profile.unit}` : 'Not set'}</span>}
+              {isEditing ? <input type="number" min="0" step={profile.equipmentIncrement} value={draft[key] ?? ''} placeholder={block === 2 && profile.trainingMaxes[key] ? String(profile.trainingMaxes[key]) : undefined} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value === '' ? undefined : Number(event.target.value) }))} className="w-full mt-1 bg-surface border border-line rounded-lg px-2 py-1.5 text-base normal-case text-accent-ink font-mono" /> : <span className="block mt-1 text-base normal-case text-accent-ink font-mono">{values[key] ? `${values[key]} ${profile.unit}` : 'Not set'}</span>}
             </label>
           ))}
         </div>
         <p className={`text-xs mt-3 ${complete ? 'text-ok' : 'text-accent-ink'}`}>{complete ? `Block ${block} TMs confirmed${block === 2 && profile.block2ConfirmedAt ? ` on ${new Date(profile.block2ConfirmedAt).toLocaleDateString()}` : ''}.` : `Block ${block} setup is incomplete. No workbook example values will be substituted.`}</p>
+        {block === 2 && defaultedLabels.length > 0 && <p className="text-xs text-ink-2 mt-1">Using your Block 1 value for {defaultedLabels.join(', ')} until you save a Block 2 TM.</p>}
         {block === 2 && <p className="text-xs text-muted mt-1">These values are stored separately and are never auto-increased or replaced with a test 1RM.</p>}
       </section>
     );

@@ -30,6 +30,27 @@ export function normalizePairCode(input: string): string | null {
 
 export const formatPairCode = (code: string) => `${code.slice(0, 5)}-${code.slice(5)}`;
 
+/** Turns a failed response into a message a person can act on, keeping the server's own explanation. */
+export function describeSyncFailure(status: number, detail: string): string {
+  if (detail.includes('pairing full')) return 'That code already has two phones linked.';
+  let message = '';
+  let code = '';
+  try {
+    const parsed = JSON.parse(detail) as { message?: unknown; code?: unknown };
+    message = typeof parsed.message === 'string' ? parsed.message : '';
+    code = typeof parsed.code === 'string' ? parsed.code : '';
+  } catch {
+    message = detail.trim().slice(0, 140);
+  }
+  if (status === 404 || code === 'PGRST202') {
+    return `The sync functions were not found on the server (${status}). Run supabase/schema.sql in your Supabase SQL editor.`;
+  }
+  if (status === 401 || status === 403) {
+    return `The server rejected the key (${status}). Check VITE_SUPABASE_ANON_KEY in the repository variables and redeploy.`;
+  }
+  return `Sync failed (${status})${message ? `: ${message}` : ''}`;
+}
+
 async function rpc<T>(config: CloudConfig, fn: string, body: unknown, fetchImpl: typeof fetch): Promise<T> {
   const response = await fetchImpl(`${config.url}/rest/v1/rpc/${fn}`, {
     method: 'POST',
@@ -43,8 +64,7 @@ async function rpc<T>(config: CloudConfig, fn: string, body: unknown, fetchImpl:
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    if (detail.includes('pairing full')) throw new Error('That code already has two phones linked.');
-    throw new Error(`Sync failed (${response.status})`);
+    throw new Error(describeSyncFailure(response.status, detail));
   }
   const text = await response.text();
   return (text ? JSON.parse(text) : null) as T;
@@ -68,6 +88,21 @@ export async function pullSnapshots(
   const rows = await rpc<unknown>(config, 'pull_snapshots', { p_code: code }, fetchImpl);
   if (!Array.isArray(rows)) return [];
   return rows.map(parseSnapshot).filter((s): s is PartnerSnapshot => s !== null);
+}
+
+/**
+ * Read-only check that the server is reachable, the key is accepted, and the sync functions exist.
+ * Asks for a throwaway code nobody has used, so it returns an empty list and writes nothing.
+ */
+export async function testConnection(config: CloudConfig, fetchImpl: typeof fetch = fetch): Promise<void> {
+  await rpc<unknown>(config, 'pull_snapshots', { p_code: generatePairCode() }, fetchImpl);
+}
+
+/** Which kind of key is configured, without exposing it. */
+export function describeKey(anonKey: string): 'legacy JWT' | 'publishable' | 'unrecognized' {
+  if (anonKey.startsWith('eyJ')) return 'legacy JWT';
+  if (anonKey.startsWith('sb_publishable_')) return 'publishable';
+  return 'unrecognized';
 }
 
 // Device-local pairing state. Deliberately outside IndexedDB and backups: a restored backup must never

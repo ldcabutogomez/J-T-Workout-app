@@ -18,8 +18,9 @@ import { haptic, setFeedbackPrefs } from './lib/feedback';
 import { feedback } from './lib/feedback';
 import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, prRewardKey } from './lib/rewards';
 import { TogetherTab, type SyncStatus } from './components/TogetherTab';
-import { buildLeaderboard, computePartnerStats, rankStats, snapshotFromHistory, statsFromSnapshot, type PartnerSnapshot } from './engine/leaderboard';
-import { clearPairing, generatePairCode, getDeviceId, loadPairing, normalizePairCode, pullSnapshots, pushSnapshot, readCloudConfig, savePairing } from './sync/cloud';
+import { composeBoard, snapshotFromHistory, weekKey, type PartnerSnapshot } from './engine/leaderboard';
+import { fmtCount, meetsGoal, sessionCredit, validCompleted, weekStart } from './engine/sessionValidity';
+import { clearPairing, describeKey, generatePairCode, getDeviceId, loadPairing, normalizePairCode, pullSnapshots, pushSnapshot, readCloudConfig, savePairing, saveSyncProfile, testConnection } from './sync/cloud';
 import { TodayTab } from './components/TodayTab';
 import { ProgramTab } from './components/ProgramTab';
 import { ProgressTab } from './components/ProgressTab';
@@ -30,6 +31,8 @@ import { ToastStack, type ToastItem } from './components/Toast';
 import { WorkoutSummary, type WorkoutSummaryData } from './components/WorkoutSummary';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { Avatar } from './components/Avatar';
+import { nudgeMessage, postWorkoutMessage, todayCandidates, type NudgeKind } from './engine/coach';
+import { loadSeen, markSeen } from './lib/coachSeen';
 import { applyTheme, defaultThemeForId, themeForProfile } from './lib/theme';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp, Users } from 'lucide-react';
@@ -67,6 +70,9 @@ export default function App() {
   const [remote, setRemote] = useState<PartnerSnapshot[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: 'idle' });
   const syncing = useRef(false);
+  const syncPending = useRef(false);
+  const [coachTick, setCoachTick] = useState(0);
+  const [connection, setConnection] = useState<{ state: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ state: 'idle' });
   const [partnerHistory, setPartnerHistory] = useState<Record<string, WorkoutSession[]> | null>(null);
   const [banner, setBanner] = useState<{ text: string; error?: boolean } | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -185,20 +191,28 @@ export default function App() {
   const syncNow = async () => {
     const { profiles: current, code, meId: me } = latest.current;
     const mine = current.find((item) => item.id === me);
-    if (!cloudConfig || !code || !mine || syncing.current) return;
+    if (!cloudConfig || !code || !mine) return;
+    if (syncing.current) { syncPending.current = true; return; }
     syncing.current = true;
     setSyncStatus((prev) => ({ ...prev, state: 'syncing' }));
     try {
       const myHistory = await dbService.getSessionHistory(mine.id, false);
-      await pushSnapshot(cloudConfig, code, snapshotFromHistory(mine, myHistory, Date.now(), deviceId));
+      const now = Date.now();
+      const snapshot = snapshotFromHistory(mine, myHistory, now, deviceId);
+      await pushSnapshot(cloudConfig, code, snapshot);
+      const lastPushed = { volumeLb: snapshot.volumeLb, sessions: snapshot.sessionsCompleted, partial: snapshot.partialSessions ?? 0, weekCount: snapshot.weekly[weekKey(weekStart(now))] ?? 0 };
+      setSyncStatus((prev) => ({ ...prev, lastPushAt: now, lastPushed }));
       const all = await pullSnapshots(cloudConfig, code);
-      setRemote(all.filter((item) => item.deviceId !== deviceId));
-      setSyncStatus({ state: 'ok', at: Date.now() });
+      const others = all.filter((item) => item.deviceId !== deviceId);
+      setRemote(others);
+      setSyncStatus({ state: 'ok', at: Date.now(), lastPushAt: now, lastPullAt: Date.now(), remoteCount: others.length, lastPushed });
     } catch (error) {
       const message = typeof navigator !== 'undefined' && navigator.onLine === false ? 'Offline. Will retry when you are back online.' : (error as Error).message;
-      setSyncStatus((prev) => ({ state: 'error', error: message, at: prev.at }));
+      setSyncStatus((prev) => ({ ...prev, state: 'error', error: message, at: prev.at }));
     } finally {
       syncing.current = false;
+      // A sync requested while one was running (for example a workout finishing) runs again with fresh data.
+      if (syncPending.current) { syncPending.current = false; window.setTimeout(() => void syncNow(), 0); }
     }
   };
 
@@ -225,14 +239,8 @@ export default function App() {
 
   const leaderboard = useMemo(() => {
     if (!partnerHistory) return null;
-    const now = Date.now();
-    const mine = paired ? profiles.find((item) => item.id === meId) : undefined;
-    if (!mine) return buildLeaderboard(profiles, partnerHistory, now);
-    // Paired: this phone's lifter from local history, the partner from their synced snapshot.
-    return rankStats([
-      computePartnerStats(mine, partnerHistory[mine.id] ?? [], now),
-      ...remote.map((item) => ({ ...statsFromSnapshot(item, now), profileId: `remote:${item.deviceId}` })),
-    ]);
+    // Your own row always comes from local history, so it shows right after a workout, paired or not.
+    return composeBoard({ profiles, historyByProfile: partnerHistory, pairedProfileId: paired ? meId : null, remote });
   }, [profiles, partnerHistory, paired, meId, remote]);
 
   const pairingUi = {
@@ -261,6 +269,56 @@ export default function App() {
       setSyncStatus({ state: 'idle' });
     },
     onSyncNow: () => void syncNow(),
+    diagnostics: cloudConfig ? {
+      host: (() => { try { return new URL(cloudConfig.url).host; } catch { return cloudConfig.url; } })(),
+      keyType: describeKey(cloudConfig.anonKey),
+      deviceId,
+      pairedAs: profiles.find((item) => item.id === pairing.profileId)?.name ?? null,
+      trainingAs: profile?.name ?? null,
+      trainingAsId: profile?.id ?? null,
+      mismatch: Boolean(paired && profile && profile.id !== meId),
+      connection,
+    } : undefined,
+    onTestConnection: async () => {
+      if (!cloudConfig) return;
+      setConnection({ state: 'testing' });
+      try {
+        await testConnection(cloudConfig);
+        setConnection({ state: 'ok', message: 'Connected. The server accepted the key and the sync functions respond.' });
+      } catch (error) {
+        setConnection({ state: 'error', message: (error as Error).message });
+      }
+    },
+    onRepairAs: (profileId: string) => {
+      saveSyncProfile(profileId);
+      setPairing((current) => ({ ...current, profileId }));
+      setRemote([]);
+    },
+  };
+
+  // The Today coach card: welcome back, phase milestone, weekly recap, or the day's pre-workout line.
+  const coachQueue = useMemo(() => {
+    if (!profile || activeSession || profile.cycleCompleted) return [];
+    const prescription = getDayPrescription(profile.currentWeek, profile.currentDay, profile);
+    const seen = loadSeen(profile.id);
+    return todayCandidates({
+      now: Date.now(),
+      tone: profile.tone,
+      name: profile.name,
+      profileId: profile.id,
+      unit: profile.unit,
+      weeklyGoal: profile.weeklyGoalSessions ?? 4,
+      history,
+      week: profile.currentWeek,
+      day: profile.currentDay,
+      mainLift: prescription.exercises[0]?.exerciseName ?? 'your main lift',
+    }).filter((message) => !seen.has(message.id));
+  }, [profile, activeSession, history, coachTick]);
+  const coachMessage = coachQueue[0] ?? null;
+  // Dismissing clears everything queued for now, so one tap makes the card go away instead of showing the next message.
+  const dismissCoach = () => {
+    if (profile) coachQueue.forEach((message) => markSeen(profile.id, message.id));
+    setCoachTick((value) => value + 1);
   };
 
   const persistActive = async (session: WorkoutSession) => {
@@ -282,7 +340,7 @@ export default function App() {
     }
     try {
       const prescription = getDayPrescription(profile.currentWeek, profile.currentDay, profile);
-      const session = createWorkoutSession(profile, prescription);
+      const session = createWorkoutSession(profile, prescription, Date.now(), false, history);
       await persistActive(session);
       showBanner(`Started Week ${profile.currentWeek}, Day ${profile.currentDay}.`);
     } catch (error) {
@@ -320,12 +378,32 @@ export default function App() {
         && !updated.isEditingCompleted && !hasDelivered(updated, doneKey));
       if (freshDone) updated = markDelivered(updated, doneKey);
 
+      // A short coach nudge at the halfway point, the last set, or after an all-out (RIR 0) set, once each per workout.
+      let nudge: string | null = null;
+      if (!freshPr && !updated.isEditingCompleted && profile) {
+        const allSets = updated.exercises.flatMap((item) => item.sets);
+        const doneCount = allSets.filter((item) => item.completed).length;
+        const due: Array<[NudgeKind, boolean]> = [
+          ['last_set', allSets.length - doneCount === 1],
+          ['halfway', allSets.length >= 6 && doneCount * 2 >= allSets.length],
+          ['hard_set', rir === 0],
+        ];
+        const pick = due.find(([kind, ready]) => ready && !hasDelivered(updated, `nudge:${kind}`));
+        if (pick) {
+          nudge = nudgeMessage(pick[0], { tone: profile.tone, name: profile.name, profileId: profile.id, seed: updated.sessionId, exercise: exercise?.exerciseName });
+          updated = markDelivered(updated, `nudge:${pick[0]}`);
+        }
+      }
+
       await persistActive(updated);
       if (exercise?.manualLoadDecisionPending) showBanner(exercise.rmMismatchWarning ?? 'Choose a back-off load.', true);
 
       if (freshPr) {
         feedback('pr');
         showToast(`New PR! ${freshPr.exerciseName} ${freshPr.reps} × ${Number(freshPr.load.toFixed(2))} ${freshPr.unit}`, 'pr');
+      } else if (nudge) {
+        haptic('setLogged');
+        showToast(nudge);
       } else if (freshDone && exercise) {
         haptic('exerciseDone');
         showToast(`${exercise.exerciseName} complete · ${exercise.sets.length}/${exercise.sets.length} sets`);
@@ -371,6 +449,22 @@ export default function App() {
     }
   };
 
+  const handleToggleWarmup = async (slotId: string, stepId: string) => {
+    const current = activeSessionRef.current;
+    if (!current) return;
+    const exercises = current.exercises.map((exercise) => {
+      if (exercise.slotId !== slotId) return exercise;
+      const done = exercise.warmupsDone ?? [];
+      return { ...exercise, warmupsDone: done.includes(stepId) ? done.filter((id) => id !== stepId) : [...done, stepId] };
+    });
+    try {
+      await persistActive({ ...current, exercises, updatedTime: Date.now() });
+      haptic('select');
+    } catch (error) {
+      showBanner((error as Error).message, true);
+    }
+  };
+
   const handleBackoffDecision = async (slotId: string, load: number) => {
     const current = activeSessionRef.current;
     if (!current) return;
@@ -395,6 +489,27 @@ export default function App() {
       currentSession: completed,
       weeklyGoalSessions: profile.weeklyGoalSessions,
     });
+    // A finished workout gets a personal coach note (the 48-session cycle message keeps its own wording).
+    if (celebrate && profile.tone !== 'off' && !isVerifiedCycleComplete(completed, history)) {
+      const goal = profile.weeklyGoalSessions ?? 4;
+      const others = history.filter((item) => item.sessionId !== completed.sessionId);
+      const streakNow = computeStreak([...others, completed], goal);
+      const trainedToday = remote.find((item) => item.lastSessionAt !== null && new Date(item.lastSessionAt).toDateString() === new Date().toDateString());
+      const note = postWorkoutMessage({
+        tone: profile.tone,
+        name: profile.name,
+        profileId: profile.id,
+        unit: completed.settingsSnapshot.unit,
+        weeklyGoal: goal,
+        session: completed,
+        isFirstWorkout: !others.some(validCompleted),
+        highlights: computeHighlights(completed, history),
+        streak: streakNow,
+        weeklyGoalNewlyMet: meetsGoal(streakNow.weeklyCount, goal) && !meetsGoal(streakNow.weeklyCount - 1, goal),
+        partnerName: trainedToday?.name,
+      });
+      if (note) completed.encouragementMessage = note;
+    }
     try {
       const result = await dbService.completeAndAdvance(completed, profile);
       let savedProfile = result.profile;
@@ -426,12 +541,15 @@ export default function App() {
           unit: completed.settingsSnapshot.unit,
           tone: savedProfile.tone,
           celebrate,
+          partialNote: completed.status === 'partial'
+            ? `Your ${highlights.setsCompleted} logged sets count toward your pounds lifted and PRs, and as ${fmtCount(sessionCredit(completed))} of a session toward your weekly goal.`
+            : undefined,
           celebration: pickPrimaryCelebration({
             celebrate,
             cycleComplete: isVerifiedCycleComplete(completed, history),
             results: highlights.results,
             delivered: completed.rewardsDelivered ?? [],
-            weeklyGoalNewlyMet: streak.weeklyCount === goal,
+            weeklyGoalNewlyMet: meetsGoal(streak.weeklyCount, goal) && !meetsGoal(streak.weeklyCount - sessionCredit(completed), goal),
             newBadgeCount: newBadges.length,
           }),
           nextTitle,
@@ -527,7 +645,7 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
       <main key={tab} className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full animate-fade-in">
-        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onToggleWarmup={handleToggleWarmup} coach={coachMessage} onDismissCoach={dismissCoach} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && <ProgramTab profile={profile} onUpdateProfile={updateProfile} />}
         {tab === 'progress' && <ProgressTab profile={profile} history={history} onEditSession={editCompletedSession} onDeleteSession={async (id, demo) => {
           if (!profile || !window.confirm('Delete this session record? This cannot be undone.')) return;

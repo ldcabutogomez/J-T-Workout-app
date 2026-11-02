@@ -51,7 +51,7 @@ test('headlines: benchmark, matched, plain, and partial sessions never claim a r
   assert.equal(summaryHeadline(kinds('benchmark'), true), 'Benchmark established');
   assert.equal(summaryHeadline(kinds('matched_best'), true), 'Matched your best');
   assert.equal(summaryHeadline([], true), 'Workout complete!');
-  assert.equal(summaryHeadline(kinds('all_time_pr'), false), 'Session saved');
+  assert.equal(summaryHeadline(kinds('all_time_pr'), false), 'Partial workout saved');
 });
 
 test('comparisons only look at earlier sessions, so editing old history cannot claim a stale PR', () => {

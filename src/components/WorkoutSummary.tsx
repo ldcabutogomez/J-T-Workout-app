@@ -9,6 +9,7 @@ import { BadgeIcon } from './BadgeIcon';
 import { StreakLabel } from './StreakLabel';
 import { Confetti } from './Confetti';
 import { ProgressRing } from './ProgressRing';
+import { fmtCount } from '../engine/sessionValidity';
 
 export interface WorkoutSummaryData {
   title: string;
@@ -22,6 +23,8 @@ export interface WorkoutSummaryData {
   /** The single major feedback sequence for this completion. */
   celebration: Celebration;
   nextTitle?: string;
+  /** Set for a partial workout: how it counts, since it is not celebrated like a finished one. */
+  partialNote?: string;
 }
 
 const CELEBRATION_FEEDBACK: Record<Celebration, FeedbackKind | null> = {
@@ -99,7 +102,8 @@ export function WorkoutSummary({ data, onDone }: { data: WorkoutSummaryData; onD
   const dialogRef = useDialog({ onClose: onDone });
   const volume = useCountUp(highlights.totalVolume);
   const sets = useCountUp(highlights.setsCompleted, 600);
-  const results = celebrate ? highlights.results : [];
+  // Partial workouts still count toward PRs and volume, so their results are shown (just not celebrated).
+  const results = highlights.results;
   const improvements = results.filter((r) => r.kind === 'all_time_pr' || r.kind === 'previous_improvement');
   const quiet = results.filter((r) => r.kind === 'matched_best' || r.kind === 'benchmark');
   const hasAllTimePr = countResults(results, 'all_time_pr') > 0;
@@ -126,7 +130,8 @@ export function WorkoutSummary({ data, onDone }: { data: WorkoutSummaryData; onD
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent text-on-accent" aria-hidden><HeaderIcon className="h-8 w-8" /></div>
           <h1 className="mt-3 text-3xl font-black text-ink">{headline}</h1>
           <p className="mt-1 text-xs font-mono uppercase tracking-wider text-accent-ink">{data.title}</p>
-          {data.message && tone !== 'off' && <p className="mx-auto mt-3 max-w-sm text-sm text-ink-2">{data.message}</p>}
+          {data.partialNote && <p className="mx-auto mt-3 max-w-sm text-sm text-ink-2">{data.partialNote}</p>}
+          {data.message && tone !== 'off' && !data.partialNote && <p className="mx-auto mt-3 max-w-sm text-sm text-ink-2">{data.message}</p>}
         </header>
 
         <section className="animate-slide-up grid grid-cols-3 gap-2" style={{ animationDelay: '0.1s' }}>
@@ -161,14 +166,14 @@ export function WorkoutSummary({ data, onDone }: { data: WorkoutSummaryData; onD
 
         <section className="animate-slide-up flex items-center gap-4 rounded-3xl border border-line bg-surface p-4" style={{ animationDelay: '0.3s' }}>
           <ProgressRing value={streak.weeklyCount} max={streak.weeklyGoal} size={84}>
-            <span className="font-mono text-base font-black text-ink">{streak.weeklyCount}/{streak.weeklyGoal}</span>
+            <span className="font-mono text-base font-black text-ink">{fmtCount(streak.weeklyCount)}/{streak.weeklyGoal}</span>
           </ProgressRing>
           <div>
             <p className="text-sm font-black text-ink">{streak.goalMet ? 'Weekly goal hit!' : 'This week'}</p>
             <p className="mt-0.5 text-xs text-muted">
               {streak.goalMet
                 ? 'You showed up all week. Enjoy the recovery.'
-                : `${streak.weeklyGoal - streak.weeklyCount} more session${streak.weeklyGoal - streak.weeklyCount === 1 ? '' : 's'} to reach your goal`}
+                : `${fmtCount(streak.weeklyGoal - streak.weeklyCount)} more session${Math.abs(streak.weeklyGoal - streak.weeklyCount - 1) < 0.05 ? '' : 's'} to reach your goal`}
             </p>
             {streak.streakWeeks > 0 && <p className="mt-1 text-xs"><StreakLabel weeks={streak.streakWeeks} /></p>}
           </div>

@@ -20,10 +20,18 @@ test('missing and invalid block training maxes prevent session generation', () =
   assert.deepEqual(missingTrainingMaxes(day1, missingBlock1), ['Block 1 deadlift TM']);
   assert.throws(() => createWorkoutSession(missingBlock1, day1), /deadlift TM/);
 
-  const missingBlock2 = profile({ block2ConfirmedTMs: { squat: 210 } });
-  const day3 = getDayPrescription(7, 3, missingBlock2);
-  assert.deepEqual(missingTrainingMaxes(day3, missingBlock2), ['Block 2 front squat TM']);
-  assert.throws(() => createWorkoutSession(missingBlock2, day3), /front squat TM/);
+  // Block 2 falls back to the Block 1 value for any lift whose Block 2 value is not saved yet.
+  const defaulted = profile({ block2ConfirmedTMs: { squat: 210 } });
+  const day3 = getDayPrescription(7, 3, defaulted);
+  assert.deepEqual(missingTrainingMaxes(day3, defaulted), []);
+  const fromBlock1 = createWorkoutSession(defaulted, day3);
+  const t2a = fromBlock1.exercises.find((e) => e.slotId === 'd3-t2a')!;
+  assert.ok(t2a.sets.every((set) => set.load !== null), 'Block 2 T2a loads are filled from the Block 1 TM');
+
+  // Still missing (and still blocking) when neither block has a value for the lift.
+  const neither = profile({ trainingMaxes: { squat: 200, bench: 180, deadlift: 300, ohp: 120 }, block2ConfirmedTMs: { squat: 210 } });
+  assert.deepEqual(missingTrainingMaxes(getDayPrescription(7, 3, neither), neither), ['Block 2 front squat TM']);
+  assert.throws(() => createWorkoutSession(neither, getDayPrescription(7, 3, neither)), /front squat TM/);
 
   const invalid = profile({ trainingMaxes: { ...profile().trainingMaxes, deadlift: Number.NaN } });
   assert.throws(() => createWorkoutSession(invalid, getDayPrescription(1, 1, invalid)), /deadlift TM/);
