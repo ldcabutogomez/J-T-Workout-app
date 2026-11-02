@@ -46,10 +46,11 @@ self.addEventListener('fetch', event => {
       const copy = response.clone();
       caches.open(CACHE_NAME).then(cache => cache.put('./index.html', copy));
       return response;
-    }).catch(() => caches.match('./index.html').then(response => response || new Response('J&T 2.0 is unavailable offline until one successful online load.', { status: 503, headers: { 'Content-Type': 'text/plain' } }))));
+    }).catch(() => caches.match('./index.html', { ignoreVary: true }).then(response => response || new Response('J&T 2.0 is unavailable offline until one successful online load.', { status: 503, headers: { 'Content-Type': 'text/plain' } }))));
     return;
   }
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
+  // ignoreVary: module scripts send an Origin header the precache request did not, so a Vary: Origin response would never match offline.
+  event.respondWith(caches.match(event.request, { ignoreVary: true }).then(cached => cached || fetch(event.request).then(response => {
     if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
     return response;
   })));
