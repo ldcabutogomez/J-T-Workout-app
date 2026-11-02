@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import type { EncouragementTone, UserProfile, WeightUnit, WorkoutSession } from '../types';
 import { convertProfileUnit } from '../engine/jnt2Engine';
 import { Download, Upload, Users } from 'lucide-react';
+import { canVibrate, feedback, haptic } from '../lib/feedback';
 
 interface SettingsTabProps {
   profiles: UserProfile[];
@@ -66,6 +67,14 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSelect
       </section>
 
       <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
+        <h2 className="text-lg font-black">Feedback &amp; rewards</h2>
+        <Toggle label="Vibration" hint={canVibrate() ? 'Buzz on set logged, PRs, and rest end. On iPhone (iOS 17.4+) this is a light tick, and only when you tap something.' : 'Not supported on this device or browser.'} checked={profile.hapticsEnabled ?? true} onChange={(hapticsEnabled) => { onUpdateProfile({ ...profile, hapticsEnabled }); if (hapticsEnabled) window.setTimeout(() => haptic('pr'), 50); }} />
+        <Toggle label="Sounds" hint="Short chimes for PRs, finishing, and rest end." checked={profile.soundEnabled ?? true} onChange={(soundEnabled) => { onUpdateProfile({ ...profile, soundEnabled }); if (soundEnabled) window.setTimeout(() => feedback('badge'), 50); }} />
+        <Toggle label="Auto-start rest timer" hint="Start a tier-based countdown after each logged set." checked={profile.autoStartRest ?? false} onChange={(autoStartRest) => onUpdateProfile({ ...profile, autoStartRest })} />
+        <button onClick={() => feedback('finish')} className="w-full min-h-11 bg-slate-800 border border-slate-700 rounded-2xl text-xs font-bold active:scale-[0.98] transition">Test vibration &amp; sound</button>
+      </section>
+
+      <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
         <h2 className="text-lg font-black">Local backups</h2>
         <p className="text-xs text-slate-400">Version 2 imports validate every profile, session, exercise, and set before one transaction writes anything. Duplicate IDs are rejected unless you explicitly approve replace-all.</p>
         {status && <div role={status.error ? 'alert' : 'status'} className={`p-3 rounded-2xl text-xs ${status.error ? 'bg-rose-950 border border-rose-800 text-rose-200' : 'bg-emerald-950 border border-emerald-800 text-emerald-200'}`}>{status.text}</div>}
@@ -73,5 +82,19 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSelect
         <input ref={inputRef} type="file" accept="application/json,.json" onChange={importFile} className="hidden" />
       </section>
     </div>
+  );
+}
+
+function Toggle({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="w-full flex items-center justify-between gap-3 text-left min-h-12">
+      <span className="min-w-0">
+        <strong className="block text-sm text-white">{label}</strong>
+        <span className="block text-[11px] text-slate-400">{hint}</span>
+      </span>
+      <span className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${checked ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${checked ? 'left-[22px]' : 'left-0.5'}`} />
+      </span>
+    </button>
   );
 }

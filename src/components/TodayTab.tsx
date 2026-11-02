@@ -3,6 +3,8 @@ import type { LoggedSet, SourceReference, UserProfile, WorkoutSession } from '..
 import { getDayPrescription } from '../engine/jnt2Engine';
 import { missingTrainingMaxes } from '../engine/sessionEngine';
 import { AlertTriangle, Check, HelpCircle, Minus, Plus, RotateCcw } from 'lucide-react';
+import type { StreakInfo } from '../engine/achievements';
+import { ProgressRing } from './ProgressRing';
 
 interface TodayTabProps {
   profile: UserProfile | null;
@@ -14,6 +16,7 @@ interface TodayTabProps {
   onCompleteWorkout: () => void;
   onDiscardActiveWorkout: () => void;
   onSkipSession: () => void;
+  streak?: StreakInfo;
 }
 
 function formatSources(refs: SourceReference[]): string {
@@ -30,6 +33,7 @@ export function TodayTab({
   onCompleteWorkout,
   onDiscardActiveWorkout,
   onSkipSession,
+  streak,
 }: TodayTabProps) {
   const [showHelp, setShowHelp] = useState(false);
   if (!profile) return <div className="p-6 text-center text-slate-400">Loading local profiles…</div>;
@@ -39,7 +43,8 @@ export function TodayTab({
     const missing = missingTrainingMaxes(prescription, profile);
     return (
       <div className="space-y-4">
-        <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl">
+        {streak && <WeekCard name={profile.name} streak={streak} />}
+        <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl animate-slide-up">
           <div className="flex justify-between items-start gap-3">
             <div>
               <span className="text-[11px] uppercase font-extrabold tracking-widest text-amber-400">Next scheduled session</span>
@@ -59,7 +64,7 @@ export function TodayTab({
           ) : null}
 
           <div className="mt-5 flex gap-2">
-            <button disabled={profile.cycleCompleted || missing.length > 0} onClick={onStartWorkout} className="flex-1 min-h-14 bg-amber-500 disabled:bg-slate-700 disabled:text-slate-400 text-slate-950 font-black rounded-2xl uppercase tracking-wider">Start workout</button>
+            <button disabled={profile.cycleCompleted || missing.length > 0} onClick={onStartWorkout} className="flex-1 min-h-14 bg-amber-500 disabled:bg-slate-700 disabled:text-slate-400 text-slate-950 font-black rounded-2xl uppercase tracking-wider active:scale-[0.98] transition">Start workout</button>
             <button disabled={profile.cycleCompleted} onClick={onSkipSession} className="min-h-14 px-4 bg-slate-800 disabled:opacity-50 border border-slate-700 rounded-2xl text-xs font-bold">Skip</button>
           </div>
         </section>
@@ -106,6 +111,7 @@ export function TodayTab({
           </div>
           <button onClick={() => setShowHelp(true)} className="p-2 h-10 rounded-xl bg-slate-800" aria-label="Set notation help"><HelpCircle className="w-5 h-5" /></button>
         </div>
+        <SessionProgress session={activeSession} />
       </section>
 
       {activeSession.exercises.map((exercise) => (
@@ -142,6 +148,48 @@ export function TodayTab({
   );
 }
 
+function WeekCard({ name, streak }: { name: string; streak: StreakInfo }) {
+  const remaining = Math.max(0, streak.weeklyGoal - streak.weeklyCount);
+  const headline = streak.goalMet
+    ? 'Weekly goal crushed!'
+    : streak.weeklyCount === 0
+      ? `Ready when you are, ${name}`
+      : `${remaining} more to hit your weekly goal`;
+  return (
+    <section className="animate-slide-up flex items-center gap-4 bg-slate-900 border border-slate-800 rounded-3xl p-4">
+      <ProgressRing value={streak.weeklyCount} max={streak.weeklyGoal}>
+        <span className="font-mono text-sm font-black text-white">{streak.weeklyCount}/{streak.weeklyGoal}</span>
+      </ProgressRing>
+      <div className="min-w-0">
+        <p className="font-black text-white text-sm">{headline}</p>
+        <p className="text-xs text-slate-400 mt-0.5">
+          {streak.streakWeeks > 0
+            ? `🔥 ${streak.streakWeeks}-week streak`
+            : 'Hit your weekly goal to start a streak'}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function SessionProgress({ session }: { session: WorkoutSession }) {
+  const sets = session.exercises.flatMap((exercise) => exercise.sets);
+  const done = sets.filter((set) => set.completed).length;
+  if (!sets.length) return null;
+  const pct = Math.round((done / sets.length) * 100);
+  return (
+    <div className="mt-4" role="progressbar" aria-valuemin={0} aria-valuemax={sets.length} aria-valuenow={done} aria-label="Sets completed">
+      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+        <span>{done === sets.length ? 'All sets done — nice work!' : `${done} of ${sets.length} sets`}</span>
+        <span className="font-mono">{pct}%</span>
+      </div>
+      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${done === sets.length ? 'bg-emerald-500' : 'bg-amber-400'}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function SetRow({ set, setNumber, unit, increment, disabled, onLog, onUndo }: {
   set: LoggedSet;
   setNumber: number;
@@ -162,7 +210,7 @@ function SetRow({ set, setNumber, unit, increment, disabled, onLog, onUndo }: {
 
   if (set.completed) {
     return (
-      <div className="bg-emerald-950/30 border border-emerald-900 rounded-2xl p-3 flex items-center justify-between gap-3">
+      <div className="animate-pop bg-emerald-950/30 border border-emerald-900 rounded-2xl p-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs"><Check className="w-4 h-4 text-emerald-400" /><strong>Set {setNumber}</strong><span className="font-mono text-slate-300">{set.actualReps} reps @ {set.load} {set.unit}</span>{set.amrapDeclined && <span className="text-slate-500">AMRAP declined</span>}</div>
         <button onClick={onUndo} className="p-2 rounded-xl text-slate-400" aria-label={`Undo set ${setNumber}`}><RotateCcw className="w-4 h-4" /></button>
       </div>
@@ -182,7 +230,7 @@ function SetRow({ set, setNumber, unit, increment, disabled, onLog, onUndo }: {
         <label className="text-[9px] uppercase font-bold text-slate-500">RIR<select value={rir} onChange={(event) => setRir(Number(event.target.value))} className="block mt-1 min-h-10 bg-slate-900 border border-slate-700 rounded-xl px-2 text-xs text-amber-300"><option value={0}>0</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3+</option></select></label>
       </div>
       <div className="flex gap-2 mt-3">
-        <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), rir)} className="flex-1 min-h-11 bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 rounded-xl text-xs font-black uppercase">Log set</button>
+        <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), rir)} className={`flex-1 min-h-11 bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 rounded-xl text-xs font-black uppercase active:scale-[0.98] transition`}>Log set</button>
         {set.isAmrap && <button disabled={disabled || load === ''} onClick={() => onLog(set.prescribedReps, Number(load), rir, true)} className="px-3 min-h-11 bg-slate-800 rounded-xl text-[10px] font-bold">Log prescribed reps, no AMRAP</button>}
       </div>
     </div>

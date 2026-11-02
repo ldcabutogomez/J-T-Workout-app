@@ -72,6 +72,32 @@ export interface UserProfile {
   exerciseCustomizations?: Record<string, string>;
   theme?: 'dark' | 'light';
   weeklyGoalSessions?: number;
+  hapticsEnabled?: boolean;
+  soundEnabled?: boolean;
+  autoStartRest?: boolean;
+  unlockedBadges?: UnlockedBadge[];
+}
+
+export interface UnlockedBadge {
+  id: string;
+  unlockedAt: number;
+}
+
+export interface SessionPR {
+  exerciseId: string;
+  exerciseName: string;
+  reps: number;
+  load: number;
+  unit: WeightUnit;
+  previousBest?: number;
+  kind: 'all_time_pr' | 'previous_improvement';
+}
+
+export interface SessionHighlights {
+  prs: SessionPR[];
+  totalVolume: number;
+  setsCompleted: number;
+  durationMs: number;
 }
 
 export interface SessionSettingsSnapshot {
@@ -135,6 +161,7 @@ export interface WorkoutSession {
   settingsSnapshot: SessionSettingsSnapshot;
   exercises: LoggedExercise[];
   encouragementMessage?: string;
+  highlights?: SessionHighlights;
 }
 
 export interface BackupExportData {

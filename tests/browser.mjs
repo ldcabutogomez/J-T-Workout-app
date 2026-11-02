@@ -82,7 +82,13 @@ try {
   }
   assert.equal(await page.getByRole('button', { name: 'Log set' }).count(), 0, 'every populated Week 1 Day 1 set should be loggable');
   await page.getByRole('button', { name: 'Finish' }).click();
-  await page.getByText(/Workout saved/).waitFor();
+  const summary = page.getByRole('dialog', { name: 'Workout summary' });
+  await summary.waitFor();
+  await summary.getByText('Workout complete!').waitFor();
+  await summary.getByText('First Rep').waitFor();
+  await assertNoHorizontalClipping(page, 'Workout summary');
+  await summary.getByRole('button', { name: 'Done' }).click();
+  await summary.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Progress' }).click();
   await page.getByText('Week 1 · Day 1').waitFor();
   await page.getByText('completed', { exact: true }).waitFor();

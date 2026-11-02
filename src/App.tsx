@@ -10,13 +10,17 @@ import {
   makeSkippedSession,
   undoSet,
 } from './engine/sessionEngine';
-import { generateSessionEncouragement } from './engine/encouragement';
+import { findAllComparableResults, generateSessionEncouragement } from './engine/encouragement';
+import { BADGES, computeHighlights, computeStreak, evaluateBadges, newlyUnlocked } from './engine/achievements';
+import { feedback, haptic, setFeedbackPrefs } from './lib/feedback';
 import { TodayTab } from './components/TodayTab';
 import { ProgramTab } from './components/ProgramTab';
 import { ProgressTab } from './components/ProgressTab';
 import { SettingsTab } from './components/SettingsTab';
 import { VerificationTab } from './components/VerificationTab';
-import { RestTimer } from './components/RestTimer';
+import { RestTimer, type RestRequest } from './components/RestTimer';
+import { ToastStack, type ToastItem } from './components/Toast';
+import { WorkoutSummary, type WorkoutSummaryData } from './components/WorkoutSummary';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp } from 'lucide-react';
@@ -47,6 +51,10 @@ export default function App() {
   const activeSessionRef = useRef<WorkoutSession | null>(null);
   const [history, setHistory] = useState<WorkoutSession[]>([]);
   const [banner, setBanner] = useState<{ text: string; error?: boolean } | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [summary, setSummary] = useState<WorkoutSummaryData | null>(null);
+  const [restRequest, setRestRequest] = useState<RestRequest | null>(null);
+  const toastId = useRef(0);
 
   const profile = useMemo(
     () => profiles.find((item) => item.id === activeProfileId) ?? profiles[0] ?? null,
@@ -57,6 +65,19 @@ export default function App() {
     setBanner({ text, error });
     window.setTimeout(() => setBanner(null), error ? 7000 : 4500);
   };
+
+  const showToast = (text: string, tone: ToastItem['tone'] = 'default') => {
+    const id = ++toastId.current;
+    setToasts((items) => [...items, { id, text, tone }]);
+    window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), 3200);
+  };
+
+  useEffect(() => {
+    setFeedbackPrefs({
+      haptics: profile?.hapticsEnabled ?? true,
+      sound: profile?.soundEnabled ?? true,
+    });
+  }, [profile?.hapticsEnabled, profile?.soundEnabled]);
 
   useEffect(() => {
     void (async () => {
@@ -141,6 +162,23 @@ export default function App() {
       await persistActive(updated);
       const exercise = updated.exercises.find((item) => item.slotId === slotId);
       if (exercise?.manualLoadDecisionPending) showBanner(exercise.rmMismatchWarning ?? 'Choose a back-off load.', true);
+
+      const topSet = exercise?.sets.find((item) => item.completed && (item.type === 'rm_target' || item.type === 'test'));
+      const pr = exercise && topSet?.setId === setId
+        ? findAllComparableResults(updated, history).find((r) => r.exerciseId === exercise.exerciseId && r.kind === 'all_time_pr')
+        : undefined;
+      if (pr) {
+        feedback('pr');
+        showToast(`New PR! ${pr.exerciseName} ${pr.reps} × ${Number(pr.load.toFixed(2))} ${pr.unit}`, 'pr');
+      } else {
+        haptic('setLogged');
+      }
+
+      const allDone = updated.exercises.every((item) => item.sets.every((set) => set.completed));
+      if (profile?.autoStartRest && exercise && !allDone && !updated.isEditingCompleted) {
+        const seconds = exercise.tier === 'T1' ? 240 : exercise.tier.startsWith('T2') ? 150 : 90;
+        setRestRequest((prev) => ({ id: (prev?.id ?? 0) + 1, seconds }));
+      }
     } catch (error) {
       showBanner((error as Error).message, true);
     }
@@ -171,7 +209,10 @@ export default function App() {
     if (!profile || !activeSessionRef.current) return;
     let completed = finalizeSession(activeSessionRef.current);
     if (completed.isPartial && !window.confirm('Some prescribed sets are unfinished or a back-off decision is pending. Save this as a partial session and advance once?')) return;
+    const wasEditing = Boolean(activeSessionRef.current.isEditingCompleted);
     completed.isEditingCompleted = false;
+    const celebrate = completed.status === 'completed' && !wasEditing;
+    if (celebrate) completed.highlights = computeHighlights(completed, history);
     completed.encouragementMessage = generateSessionEncouragement({
       tone: profile.tone,
       history,
@@ -180,11 +221,39 @@ export default function App() {
     });
     try {
       const result = await dbService.completeAndAdvance(completed, profile);
-      setProfiles((items) => items.map((item) => item.id === result.profile.id ? result.profile : item));
+      let savedProfile = result.profile;
       activeSessionRef.current = null;
       setActiveSession(null);
-      setHistory(await dbService.getSessionHistory(profile.id, true));
-      showBanner(completed.encouragementMessage || (result.advanced ? 'Workout saved and program position advanced.' : 'Completed session edits saved without advancing again.'));
+      const updatedHistory = await dbService.getSessionHistory(profile.id, true);
+      setHistory(updatedHistory);
+
+      if (!wasEditing && completed.status !== 'skipped') {
+        const goal = savedProfile.weeklyGoalSessions ?? 4;
+        let newBadges: typeof BADGES = [];
+        if (celebrate) {
+          const unlocked = newlyUnlocked(evaluateBadges(completed, history, goal), savedProfile.unlockedBadges);
+          if (unlocked.length) {
+            savedProfile = { ...savedProfile, unlockedBadges: [...(savedProfile.unlockedBadges ?? []), ...unlocked] };
+            await dbService.saveProfile(savedProfile);
+            newBadges = BADGES.filter((badge) => unlocked.some((item) => item.id === badge.id));
+          }
+        }
+        const nextTitle = savedProfile.cycleCompleted ? undefined : getDayPrescription(savedProfile.currentWeek, savedProfile.currentDay, savedProfile).title;
+        setSummary({
+          title: `Week ${completed.week} · Day ${completed.day}`,
+          message: completed.encouragementMessage ?? '',
+          highlights: completed.highlights ?? computeHighlights(completed, history),
+          streak: computeStreak(updatedHistory, goal),
+          newBadges,
+          unit: completed.settingsSnapshot.unit,
+          tone: savedProfile.tone,
+          celebrate,
+          nextTitle,
+        });
+      } else {
+        showBanner(completed.encouragementMessage || (result.advanced ? 'Workout saved and program position advanced.' : 'Completed session edits saved without advancing again.'));
+      }
+      setProfiles((items) => items.map((item) => item.id === savedProfile.id ? savedProfile : item));
     } catch (error) {
       showBanner((error as Error).message, true);
     }
@@ -270,8 +339,8 @@ export default function App() {
 
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-rose-500 text-white' : 'bg-amber-500 text-slate-950'}`}>{banner.text}</div>}
 
-      <main className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full">
-        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} />}
+      <main key={tab} className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full animate-fade-in">
+        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && <ProgramTab profile={profile} onUpdateProfile={updateProfile} />}
         {tab === 'progress' && <ProgressTab profile={profile} history={history} onEditSession={editCompletedSession} onDeleteSession={async (id, demo) => {
           if (!profile || !window.confirm('Delete this session record? This cannot be undone.')) return;
@@ -299,7 +368,9 @@ export default function App() {
         {tab === 'verify' && <VerificationTab />}
       </main>
 
-      <RestTimer />
+      <RestTimer restRequest={restRequest} />
+      <ToastStack toasts={toasts} />
+      {summary && <WorkoutSummary data={summary} onDone={() => { setSummary(null); setTab('today'); }} />}
       <nav className="fixed bottom-0 left-0 right-0 z-30 bg-slate-900/95 border-t border-slate-800 py-2 px-3 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">
         <NavButton active={tab === 'today'} label="Today" icon={<Dumbbell className="w-5 h-5" />} onClick={() => setTab('today')} />
         <NavButton active={tab === 'program'} label="Program" icon={<CalendarDays className="w-5 h-5" />} onClick={() => setTab('program')} />

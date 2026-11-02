@@ -11,14 +11,16 @@ export interface EncouragementContext {
 
 export interface ComparableResult {
   kind: 'all_time_pr' | 'previous_improvement';
+  exerciseId: string;
   exerciseName: string;
   reps: number;
   load: number;
   unit: 'lb' | 'kg';
   delta: number;
+  previousBest: number;
 }
 
-function validCompleted(session: WorkoutSession): boolean {
+export function validCompleted(session: WorkoutSession): boolean {
   return session.status === 'completed'
     && Boolean(session.completedTime)
     && !session.isSkipped
@@ -37,52 +39,62 @@ function topPerformance(exercise: LoggedExercise) {
   return { reps: set.actualReps, load: set.load, unit: set.unit };
 }
 
+function compareExercise(
+  exercise: LoggedExercise,
+  candidates: WorkoutSession[],
+): ComparableResult | null {
+  const performance = topPerformance(exercise);
+  if (!performance) return null;
+  const comparable = candidates.flatMap((session) => session.exercises
+    .filter((item) => item.exerciseId === exercise.exerciseId)
+    .map((item) => ({ session, performance: topPerformance(item) }))
+    .filter((item): item is { session: WorkoutSession; performance: NonNullable<ReturnType<typeof topPerformance>> } =>
+      Boolean(item.performance && item.performance.reps === performance.reps),
+    ));
+  if (!comparable.length) return null;
+  const normalized = comparable.map((item) => ({
+    ...item,
+    load: normalizeWeight(item.performance.load, item.performance.unit, performance.unit),
+  }));
+  const previous = normalized[0].load;
+  const priorBest = Math.max(...normalized.map((item) => item.load));
+  const base = {
+    exerciseId: exercise.exerciseId,
+    exerciseName: exercise.exerciseName,
+    reps: performance.reps,
+    load: performance.load,
+    unit: performance.unit,
+  };
+  if (performance.load > priorBest + 1e-6) {
+    return { ...base, kind: 'all_time_pr', delta: performance.load - priorBest, previousBest: priorBest };
+  }
+  if (performance.load > previous + 1e-6) {
+    return { ...base, kind: 'previous_improvement', delta: performance.load - previous, previousBest: priorBest };
+  }
+  return null;
+}
+
+function comparisonCandidates(current: WorkoutSession, history: WorkoutSession[]): WorkoutSession[] {
+  return history
+    .filter((item) => item.sessionId !== current.sessionId && validCompleted(item))
+    .sort((a, b) => (b.completedTime ?? 0) - (a.completedTime ?? 0));
+}
+
+export function findAllComparableResults(
+  current: WorkoutSession,
+  history: WorkoutSession[],
+): ComparableResult[] {
+  const candidates = comparisonCandidates(current, history);
+  return current.exercises
+    .map((exercise) => compareExercise(exercise, candidates))
+    .filter((result): result is ComparableResult => result !== null);
+}
+
 export function findComparableResult(
   current: WorkoutSession,
   history: WorkoutSession[],
 ): ComparableResult | null {
-  const candidates = history
-    .filter((item) => item.sessionId !== current.sessionId && validCompleted(item))
-    .sort((a, b) => (b.completedTime ?? 0) - (a.completedTime ?? 0));
-
-  for (const exercise of current.exercises) {
-    const performance = topPerformance(exercise);
-    if (!performance) continue;
-    const comparable = candidates.flatMap((session) => session.exercises
-      .filter((item) => item.exerciseId === exercise.exerciseId)
-      .map((item) => ({ session, performance: topPerformance(item) }))
-      .filter((item): item is { session: WorkoutSession; performance: NonNullable<ReturnType<typeof topPerformance>> } =>
-        Boolean(item.performance && item.performance.reps === performance.reps),
-      ));
-    if (!comparable.length) continue;
-    const normalized = comparable.map((item) => ({
-      ...item,
-      load: normalizeWeight(item.performance.load, item.performance.unit, performance.unit),
-    }));
-    const previous = normalized[0].load;
-    const priorBest = Math.max(...normalized.map((item) => item.load));
-    if (performance.load > priorBest + 1e-6) {
-      return {
-        kind: 'all_time_pr',
-        exerciseName: exercise.exerciseName,
-        reps: performance.reps,
-        load: performance.load,
-        unit: performance.unit,
-        delta: performance.load - priorBest,
-      };
-    }
-    if (performance.load > previous + 1e-6) {
-      return {
-        kind: 'previous_improvement',
-        exerciseName: exercise.exerciseName,
-        reps: performance.reps,
-        load: performance.load,
-        unit: performance.unit,
-        delta: performance.load - previous,
-      };
-    }
-  }
-  return null;
+  return findAllComparableResults(current, history)[0] ?? null;
 }
 
 export function isVerifiedCycleComplete(current: WorkoutSession, history: WorkoutSession[]): boolean {

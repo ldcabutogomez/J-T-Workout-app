@@ -1,13 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { Timer, X, Volume2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Timer, X } from 'lucide-react';
+import { feedback } from '../lib/feedback';
+
+export interface RestRequest {
+  id: number;
+  seconds: number;
+}
 
 interface RestTimerProps {
+  /** Bump `id` to start a rest countdown without opening the panel (auto-start after a set). */
+  restRequest?: RestRequest | null;
   defaultT1Sec?: number;
   defaultT2Sec?: number;
   defaultT3Sec?: number;
 }
 
 export const RestTimer: React.FC<RestTimerProps> = ({
+  restRequest = null,
   defaultT1Sec = 240, // 4:00 (T1: 3-5 min)
   defaultT2Sec = 150, // 2:30 (T2: 2-3 min)
   defaultT3Sec = 90,  // 1:30 (T3: 60-90 sec)
@@ -29,6 +38,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({
   });
 
   const [isOpen, setIsOpen] = useState(false);
+  const [totalSeconds, setTotalSeconds] = useState<number>(() => Math.max(1, secondsRemaining));
 
   // Sync remaining seconds with timestamp even after app backgrounding
   useEffect(() => {
@@ -47,12 +57,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({
       if (rem <= 0) {
         setTargetEndTimestamp(null);
         localStorage.removeItem('jnt2_active_timer_target');
-        playChime();
-        if ('vibrate' in navigator) {
-          try {
-            navigator.vibrate([200, 100, 200, 100, 400]);
-          } catch (e) {}
-        }
+        feedback('timerEnd');
       }
     };
 
@@ -61,31 +66,20 @@ export const RestTimer: React.FC<RestTimerProps> = ({
     return () => clearInterval(interval);
   }, [targetEndTimestamp]);
 
-  const playChime = () => {
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.25); // A5
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.65);
-    } catch (e) {}
-  };
-
-  const startTimer = (seconds: number) => {
+  const startTimer = (seconds: number, open = true) => {
     const end = Date.now() + seconds * 1000;
     setTargetEndTimestamp(end);
     setSecondsRemaining(seconds);
-    setIsOpen(true);
+    setTotalSeconds(seconds);
+    if (open) setIsOpen(true);
   };
+
+  const lastRequestId = useRef(restRequest?.id ?? 0);
+  useEffect(() => {
+    if (!restRequest || restRequest.id === lastRequestId.current) return;
+    lastRequestId.current = restRequest.id;
+    startTimer(restRequest.seconds, false);
+  }, [restRequest]);
 
   const adjustTimer = (deltaSec: number) => {
     if (!targetEndTimestamp) {
@@ -109,11 +103,12 @@ export const RestTimer: React.FC<RestTimerProps> = ({
   };
 
   const isRunning = targetEndTimestamp !== null && secondsRemaining > 0;
+  const progress = isRunning ? Math.min(1, Math.max(0, secondsRemaining / Math.max(totalSeconds, secondsRemaining))) : 0;
 
   return (
     <div className="fixed bottom-20 right-4 z-40">
       {isOpen ? (
-        <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl rounded-3xl p-4 w-72 text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+        <div className="bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl rounded-3xl p-4 w-72 text-slate-100 animate-pop">
           <div className="flex justify-between items-center pb-2 border-b border-slate-800">
             <div className="flex items-center gap-1.5">
               <Timer className="w-4 h-4 text-amber-400" />
@@ -195,21 +190,28 @@ export const RestTimer: React.FC<RestTimerProps> = ({
               onClick={cancelTimer}
               className="w-full bg-rose-950/70 hover:bg-rose-900 border border-rose-800/70 text-rose-300 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition active:scale-95"
             >
-              Reset Timer
+              Skip Rest
             </button>
           )}
         </div>
       ) : (
         <button
           onClick={() => setIsOpen(true)}
-          className={`flex items-center gap-2.5 px-4 py-3 rounded-full font-bold shadow-2xl transition-all border ${
+          className={`flex items-center gap-2.5 px-4 py-3 rounded-full font-bold shadow-2xl transition-all border active:scale-95 ${
             isRunning
-              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-amber-500/20'
+              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-amber-500/20 animate-pulse-ring'
               : 'bg-slate-900 text-slate-200 border-slate-700 hover:bg-slate-800 hover:border-slate-600'
           }`}
           aria-label="Open rest timer"
         >
-          <Timer className={`w-4 h-4 ${isRunning ? 'animate-spin text-slate-950' : 'text-amber-400'}`} />
+          <span
+            className="relative inline-flex h-6 w-6 items-center justify-center rounded-full"
+            style={isRunning ? { background: `conic-gradient(#0f172a ${progress * 360}deg, rgb(15 23 42 / 0.2) 0)` } : undefined}
+          >
+            <span className={`inline-flex h-4 w-4 items-center justify-center rounded-full ${isRunning ? 'bg-amber-500' : ''}`}>
+              <Timer className={`w-4 h-4 ${isRunning ? 'text-slate-950' : 'text-amber-400'}`} />
+            </span>
+          </span>
           <span className="font-mono text-sm tracking-tight">
             {isRunning ? formatTime(secondsRemaining) : 'Rest'}
           </span>

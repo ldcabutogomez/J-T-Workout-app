@@ -71,7 +71,7 @@ test('comparable results match stable exercise identity, actual reps, normalized
   const previous = topResult(base, 'previous', 200, 5, 90);
   const current = topResult(base, 'current', 300, 5, 100);
   assert.deepEqual(findComparableResult(current, [oldBest, previous]), {
-    kind: 'previous_improvement', exerciseName: 'Back Squat', reps: 5, load: 100, unit: 'lb', delta: 10,
+    kind: 'previous_improvement', exerciseId: 'back-squat', exerciseName: 'Back Squat', reps: 5, load: 100, unit: 'lb', delta: 10, previousBest: 110,
   });
 
   const pr = topResult(base, 'pr', 400, 5, 115);
