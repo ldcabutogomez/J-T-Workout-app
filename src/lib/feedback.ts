@@ -1,4 +1,4 @@
-export type FeedbackKind = 'setLogged' | 'pr' | 'finish' | 'badge' | 'timerEnd';
+export type FeedbackKind = 'select' | 'setLogged' | 'exerciseDone' | 'pr' | 'finish' | 'badge' | 'timerEnd';
 
 interface FeedbackPrefs {
   haptics: boolean;
@@ -12,17 +12,22 @@ export const setFeedbackPrefs = (next: Partial<FeedbackPrefs>) => {
   prefs = { ...prefs, ...next };
 };
 
+// Short, crisp confirmations; the long attention pattern is reserved for the rest timer.
 const VIBRATION: Record<FeedbackKind, number | number[]> = {
+  select: 12,
   setLogged: 25,
-  pr: [60, 40, 60, 40, 140],
-  finish: [80, 50, 80, 50, 80, 50, 300],
-  badge: [40, 30, 40, 30, 120],
+  exerciseDone: [30, 40, 30],
+  pr: [40, 40, 40, 40, 100],
+  finish: [50, 50, 50, 50, 160],
+  badge: [40, 40, 90],
   timerEnd: [200, 100, 200, 100, 400],
 };
 
 // Each tone is [frequency Hz, start offset s, duration s].
 const TONES: Record<FeedbackKind, [number, number, number][]> = {
+  select: [[520, 0, 0.04]],
   setLogged: [[660, 0, 0.08]],
+  exerciseDone: [[740, 0, 0.1], [880, 0.1, 0.12]],
   pr: [[587, 0, 0.12], [740, 0.12, 0.12], [880, 0.24, 0.3]],
   finish: [[523, 0, 0.15], [659, 0.15, 0.15], [784, 0.3, 0.15], [1047, 0.45, 0.5]],
   badge: [[784, 0, 0.1], [988, 0.1, 0.25]],
@@ -57,9 +62,11 @@ const tick = () => getSwitchLabel()?.click();
 
 // Pulse gaps (ms) between ticks to approximate each vibration pattern.
 const TICK_GAPS: Record<FeedbackKind, number[]> = {
+  select: [0],
   setLogged: [0],
+  exerciseDone: [0, 80],
   pr: [0, 90, 90],
-  finish: [0, 100, 100, 100],
+  finish: [0, 100, 100],
   badge: [0, 80],
   timerEnd: [0, 120, 120],
 };

@@ -29,10 +29,13 @@ test('total volume sums completed reps x load', () => {
 
 test('highlights report duration and set count', () => {
   const base = at(completeSession(), 'a', NOW);
+  const logged = base.exercises.flatMap((e) => e.sets).filter((set) => set.completed);
+  logged[0].timestamp = 1_000;
+  logged[logged.length - 1].timestamp = 1_000 + 45 * 60_000;
   const h = computeHighlights(base, []);
-  assert.equal(h.durationMs, 3_600_000);
+  assert.equal(h.durationMs, 45 * 60_000, 'measured from first to last logged set, not draft age');
   assert.ok(h.setsCompleted > 0);
-  assert.deepEqual(h.prs, []);
+  assert.deepEqual(h.results.filter((r) => r.kind === 'all_time_pr'), []);
 });
 
 test('weekStart is Monday midnight', () => {

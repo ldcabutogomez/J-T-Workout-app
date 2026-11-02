@@ -60,7 +60,7 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSelect
           <label className="text-[10px] uppercase font-bold text-slate-400">Weight unit<select disabled={Boolean(activeSession)} value={profile.unit} onChange={(event) => setUnit(event.target.value as WeightUnit)} className="block w-full mt-1 min-h-11 bg-slate-950 disabled:opacity-50 border border-slate-800 rounded-xl px-3 text-sm normal-case text-white"><option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option></select></label>
           <label className="text-[10px] uppercase font-bold text-slate-400">Equipment increment<input type="number" min="0.1" step="0.5" value={profile.equipmentIncrement} onChange={(event) => onUpdateProfile({ ...profile, equipmentIncrement: Number(event.target.value) })} className="block w-full mt-1 min-h-11 bg-slate-950 border border-slate-800 rounded-xl px-3 text-sm normal-case text-white" /></label>
           <label className="text-[10px] uppercase font-bold text-slate-400">Barbell ({profile.unit})<input type="number" min="0" value={profile.barbellWeight} onChange={(event) => onUpdateProfile({ ...profile, barbellWeight: Number(event.target.value) })} className="block w-full mt-1 min-h-11 bg-slate-950 border border-slate-800 rounded-xl px-3 text-sm normal-case text-white" /></label>
-          <label className="text-[10px] uppercase font-bold text-slate-400">7-day target<select value={profile.weeklyGoalSessions ?? 4} onChange={(event) => onUpdateProfile({ ...profile, weeklyGoalSessions: Number(event.target.value) })} className="block w-full mt-1 min-h-11 bg-slate-950 border border-slate-800 rounded-xl px-3 text-sm normal-case text-white"><option value={3}>3 sessions</option><option value={4}>4 sessions</option><option value={5}>5 sessions</option></select></label>
+          <label className="text-[10px] uppercase font-bold text-slate-400">Weekly session goal<select value={profile.weeklyGoalSessions ?? 4} onChange={(event) => onUpdateProfile({ ...profile, weeklyGoalSessions: Number(event.target.value) })} className="block w-full mt-1 min-h-11 bg-slate-950 border border-slate-800 rounded-xl px-3 text-sm normal-case text-white"><option value={3}>3 sessions</option><option value={4}>4 sessions</option><option value={5}>5 sessions</option></select></label>
         </div>
         <label className="block text-[10px] uppercase font-bold text-slate-400">Encouragement tone<select value={profile.tone} onChange={(event) => onUpdateProfile({ ...profile, tone: event.target.value as EncouragementTone })} className="block w-full mt-1 min-h-11 bg-slate-950 border border-slate-800 rounded-xl px-3 text-sm normal-case text-white"><option value="minimal">Minimal</option><option value="warm">Warm</option><option value="playful">Playful</option><option value="off">Off</option></select></label>
         <p className="text-[11px] text-slate-500">Changing units converts future profile TMs. Historical sets retain their recorded unit and are normalized only for comparisons.</p>
@@ -71,7 +71,14 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSelect
         <Toggle label="Vibration" hint={canVibrate() ? 'Buzz on set logged, PRs, and rest end. On iPhone (iOS 17.4+) this is a light tick, and only when you tap something.' : 'Not supported on this device or browser.'} checked={profile.hapticsEnabled ?? true} onChange={(hapticsEnabled) => { onUpdateProfile({ ...profile, hapticsEnabled }); if (hapticsEnabled) window.setTimeout(() => haptic('pr'), 50); }} />
         <Toggle label="Sounds" hint="Short chimes for PRs, finishing, and rest end." checked={profile.soundEnabled ?? true} onChange={(soundEnabled) => { onUpdateProfile({ ...profile, soundEnabled }); if (soundEnabled) window.setTimeout(() => feedback('badge'), 50); }} />
         <Toggle label="Auto-start rest timer" hint="Start a tier-based countdown after each logged set." checked={profile.autoStartRest ?? false} onChange={(autoStartRest) => onUpdateProfile({ ...profile, autoStartRest })} />
-        <button onClick={() => feedback('finish')} className="w-full min-h-11 bg-slate-800 border border-slate-700 rounded-2xl text-xs font-bold active:scale-[0.98] transition">Test vibration &amp; sound</button>
+        <div>
+          <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Preview</p>
+          <div className="grid grid-cols-4 gap-2">
+            {([['setLogged', 'Set'], ['pr', 'PR'], ['finish', 'Finish'], ['timerEnd', 'Rest end']] as const).map(([kind, label]) => (
+              <button key={kind} onClick={() => feedback(kind)} className="min-h-11 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold active:scale-[0.98] transition">{label}</button>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">

@@ -11,10 +11,12 @@ import {
   swapExercise,
   undoSet,
 } from './engine/sessionEngine';
-import { findAllComparableResults, generateSessionEncouragement } from './engine/encouragement';
+import { findAllComparableResults, generateSessionEncouragement, isVerifiedCycleComplete } from './engine/encouragement';
 import { findAlternative, swapKey } from './program/swapOptions';
 import { BADGES, computeHighlights, computeStreak, evaluateBadges, newlyUnlocked } from './engine/achievements';
-import { feedback, haptic, setFeedbackPrefs } from './lib/feedback';
+import { haptic, setFeedbackPrefs } from './lib/feedback';
+import { feedback } from './lib/feedback';
+import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, prRewardKey } from './lib/rewards';
 import { TodayTab } from './components/TodayTab';
 import { ProgramTab } from './components/ProgramTab';
 import { ProgressTab } from './components/ProgressTab';
@@ -160,18 +162,33 @@ export default function App() {
     const current = activeSessionRef.current;
     if (!current) return;
     try {
-      const updated = logSet(current, slotId, setId, reps, load, rir, Date.now(), amrapDeclined);
-      await persistActive(updated);
+      let updated = logSet(current, slotId, setId, reps, load, rir, Date.now(), amrapDeclined);
       const exercise = updated.exercises.find((item) => item.slotId === slotId);
-      if (exercise?.manualLoadDecisionPending) showBanner(exercise.rmMismatchWarning ?? 'Choose a back-off load.', true);
 
+      // A top set that beats the all-time best earns a PR moment, once per exact result.
       const topSet = exercise?.sets.find((item) => item.completed && (item.type === 'rm_target' || item.type === 'test'));
-      const pr = exercise && topSet?.setId === setId
+      const pr = exercise && topSet?.setId === setId && !updated.isEditingCompleted
         ? findAllComparableResults(updated, history).find((r) => r.exerciseId === exercise.exerciseId && r.kind === 'all_time_pr')
         : undefined;
-      if (pr) {
+      const prKey = pr ? prRewardKey(pr) : null;
+      const freshPr = pr && prKey && !hasDelivered(updated, prKey) ? pr : undefined;
+      if (prKey && freshPr) updated = markDelivered(updated, prKey);
+
+      // Finishing an exercise's last set earns one quiet transition.
+      const doneKey = exerciseDoneKey(slotId);
+      const freshDone = Boolean(exercise && exercise.sets.length > 0 && exercise.sets.every((item) => item.completed)
+        && !updated.isEditingCompleted && !hasDelivered(updated, doneKey));
+      if (freshDone) updated = markDelivered(updated, doneKey);
+
+      await persistActive(updated);
+      if (exercise?.manualLoadDecisionPending) showBanner(exercise.rmMismatchWarning ?? 'Choose a back-off load.', true);
+
+      if (freshPr) {
         feedback('pr');
-        showToast(`New PR! ${pr.exerciseName} ${pr.reps} × ${Number(pr.load.toFixed(2))} ${pr.unit}`, 'pr');
+        showToast(`New PR! ${freshPr.exerciseName} ${freshPr.reps} × ${Number(freshPr.load.toFixed(2))} ${freshPr.unit}`, 'pr');
+      } else if (freshDone && exercise) {
+        haptic('exerciseDone');
+        showToast(`${exercise.exerciseName} complete · ${exercise.sets.length}/${exercise.sets.length} sets`);
       } else {
         haptic('setLogged');
       }
@@ -206,7 +223,7 @@ export default function App() {
       const current = activeSessionRef.current;
       if (current) await persistActive(swapExercise(current, slotId, updatedProfile));
       await updateProfile(updatedProfile);
-      haptic('setLogged');
+      haptic('select');
       const name = alternativeId ? findAlternative(alternativeId)?.alternative.name : undefined;
       showToast(name ? `Swapped to ${name}` : 'Back to the program exercise');
     } catch (error) {
@@ -232,7 +249,6 @@ export default function App() {
     const wasEditing = Boolean(activeSessionRef.current.isEditingCompleted);
     completed.isEditingCompleted = false;
     const celebrate = completed.status === 'completed' && !wasEditing;
-    if (celebrate) completed.highlights = computeHighlights(completed, history);
     completed.encouragementMessage = generateSessionEncouragement({
       tone: profile.tone,
       history,
@@ -259,15 +275,25 @@ export default function App() {
           }
         }
         const nextTitle = savedProfile.cycleCompleted ? undefined : getDayPrescription(savedProfile.currentWeek, savedProfile.currentDay, savedProfile).title;
+        const highlights = computeHighlights(completed, history);
+        const streak = computeStreak(updatedHistory, goal);
         setSummary({
           title: `Week ${completed.week} · Day ${completed.day}`,
           message: completed.encouragementMessage ?? '',
-          highlights: completed.highlights ?? computeHighlights(completed, history),
-          streak: computeStreak(updatedHistory, goal),
+          highlights,
+          streak,
           newBadges,
           unit: completed.settingsSnapshot.unit,
           tone: savedProfile.tone,
           celebrate,
+          celebration: pickPrimaryCelebration({
+            celebrate,
+            cycleComplete: isVerifiedCycleComplete(completed, history),
+            results: highlights.results,
+            delivered: completed.rewardsDelivered ?? [],
+            weeklyGoalNewlyMet: streak.weeklyCount === goal,
+            newBadgeCount: newBadges.length,
+          }),
           nextTitle,
         });
       } else {
@@ -360,7 +386,7 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-rose-500 text-white' : 'bg-amber-500 text-slate-950'}`}>{banner.text}</div>}
 
       <main key={tab} className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full animate-fade-in">
-        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && <ProgramTab profile={profile} onUpdateProfile={updateProfile} />}
         {tab === 'progress' && <ProgressTab profile={profile} history={history} onEditSession={editCompletedSession} onDeleteSession={async (id, demo) => {
           if (!profile || !window.confirm('Delete this session record? This cannot be undone.')) return;
@@ -388,7 +414,7 @@ export default function App() {
         {tab === 'verify' && <VerificationTab />}
       </main>
 
-      <RestTimer restRequest={restRequest} />
+      <RestTimer restRequest={restRequest} setsLogged={activeSession ? activeSession.exercises.reduce((sum, item) => sum + item.sets.filter((set) => set.completed).length, 0) : 0} />
       <ToastStack toasts={toasts} />
       {summary && <WorkoutSummary data={summary} onDone={() => { setSummary(null); setTab('today'); }} />}
       <nav className="fixed bottom-0 left-0 right-0 z-30 bg-slate-900/95 border-t border-slate-800 py-2 px-3 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">

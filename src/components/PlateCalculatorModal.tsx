@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { calculateBarbellPlates } from '../engine/jnt2Engine';
 import { WeightUnit } from '../types';
+import { useDialog } from '../lib/useDialog';
 
 interface PlateCalculatorModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export const PlateCalculatorModal: React.FC<PlateCalculatorModalProps> = ({
   barbellWeight,
   unit,
 }) => {
+  const dialogRef = useDialog({ onClose, active: isOpen });
   if (!isOpen) return null;
 
   const plates = calculateBarbellPlates(targetWeight, barbellWeight, unit);
@@ -47,7 +49,7 @@ export const PlateCalculatorModal: React.FC<PlateCalculatorModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 text-white shadow-2xl space-y-4">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Barbell plate calculator" className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 text-white shadow-2xl space-y-4">
         <div className="flex justify-between items-center pb-2 border-b border-slate-800">
           <div>
             <h3 className="text-lg font-black tracking-tight text-white font-display">

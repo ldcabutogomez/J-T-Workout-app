@@ -71,7 +71,8 @@ test('comparable results match stable exercise identity, actual reps, normalized
   const previous = topResult(base, 'previous', 200, 5, 90);
   const current = topResult(base, 'current', 300, 5, 100);
   assert.deepEqual(findComparableResult(current, [oldBest, previous]), {
-    kind: 'previous_improvement', exerciseId: 'back-squat', exerciseName: 'Back Squat', reps: 5, load: 100, unit: 'lb', delta: 10, previousBest: 110,
+    kind: 'previous_improvement', exerciseId: 'back-squat', exerciseName: 'Back Squat', reps: 5, load: 100, unit: 'lb',
+    previousSessionLoad: 90, allTimeBestLoad: 110, deltaVsPrevious: 10, deltaVsBest: -10,
   });
 
   const pr = topResult(base, 'pr', 400, 5, 115);
@@ -86,7 +87,7 @@ test('comparable results match stable exercise identity, actual reps, normalized
   const metricCurrent = topResult(base, 'metric-current', 700, 5, 101, 'kg');
   const normalized = findComparableResult(metricCurrent, [metricPrior])!;
   assert.equal(normalized.kind, 'all_time_pr');
-  assert.ok(Math.abs(normalized.delta - 1) < 0.001);
+  assert.ok(Math.abs((normalized.deltaVsBest ?? 0) - 1) < 0.001);
 });
 
 test('actual RM mismatch and tone off produce truthful output', () => {

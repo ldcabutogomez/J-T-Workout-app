@@ -1,5 +1,8 @@
-import type { SessionHighlights, UnlockedBadge, WorkoutSession } from '../types';
-import { findAllComparableResults, isVerifiedCycleComplete, validCompleted } from './encouragement';
+import type { SessionHighlights, SessionResult, UnlockedBadge, WorkoutSession } from '../types';
+import { findAllComparableResults, isVerifiedCycleComplete } from './encouragement';
+import { validCompleted, weekStart, weeklyCounts } from './sessionValidity';
+
+export { weekStart };
 import { normalizeWeight } from './jnt2Engine';
 
 export interface BadgeDefinition {
@@ -14,9 +17,9 @@ export const BADGES: BadgeDefinition[] = [
   { id: 'sessions_5', name: 'Getting Rolling', description: 'Complete 5 workouts', icon: '🔥' },
   { id: 'sessions_10', name: 'Double Digits', description: 'Complete 10 workouts', icon: '💪' },
   { id: 'sessions_25', name: 'Quarter Century', description: 'Complete 25 workouts', icon: '🏅' },
-  { id: 'sessions_50', name: 'Iron Habit', description: 'Complete 50 workouts', icon: '🏆' },
-  { id: 'first_pr', name: 'New Best', description: 'Set your first comparable PR', icon: '⭐' },
-  { id: 'triple_pr', name: 'PR Party', description: 'Set 3 PRs in one workout', icon: '🎉' },
+  { id: 'sessions_40', name: 'Forty Strong', description: 'Complete 40 workouts', icon: '🏆' },
+  { id: 'first_pr', name: 'New Best', description: 'Set your first all-time PR', icon: '⭐' },
+  { id: 'triple_pr', name: 'PR Party', description: 'Set 3 all-time PRs in one workout', icon: '🎉' },
   { id: 'streak_2', name: 'Two-Week Streak', description: 'Hit your weekly goal 2 weeks in a row', icon: '📅' },
   { id: 'streak_4', name: 'Month of Consistency', description: 'Hit your weekly goal 4 weeks in a row', icon: '🗓️' },
   { id: 'streak_8', name: 'Unstoppable', description: 'Hit your weekly goal 8 weeks in a row', icon: '⚡' },
@@ -39,32 +42,44 @@ export function countCompletedSets(session: WorkoutSession): number {
   return session.exercises.reduce((sum, ex) => sum + ex.sets.filter((s) => s.completed).length, 0);
 }
 
+/** First to last logged set. Draft age is ignored, so a draft left overnight does not inflate it. */
+export function loggedDurationMs(session: WorkoutSession): number {
+  const stamps = session.exercises
+    .flatMap((exercise) => exercise.sets)
+    .filter((set) => set.completed && typeof set.timestamp === 'number')
+    .map((set) => set.timestamp as number);
+  return stamps.length >= 2 ? Math.max(...stamps) - Math.min(...stamps) : 0;
+}
+
 export function computeHighlights(session: WorkoutSession, history: WorkoutSession[]): SessionHighlights {
-  const prs = findAllComparableResults(session, history).map((r) => ({
-    exerciseId: r.exerciseId,
-    exerciseName: r.exerciseName,
-    reps: r.reps,
-    load: r.load,
-    unit: r.unit,
-    previousBest: r.previousBest,
-    kind: r.kind,
-  }));
-  const end = session.completedTime ?? Date.now();
   return {
-    prs,
+    results: findAllComparableResults(session, history),
     totalVolume: computeTotalVolume(session),
     setsCompleted: countCompletedSets(session),
-    durationMs: Math.max(0, end - session.startTime),
+    durationMs: loggedDurationMs(session),
   };
 }
 
-/** Start of the local calendar week (Monday 00:00) as a timestamp. */
-export function weekStart(timestamp: number): number {
-  const d = new Date(timestamp);
-  d.setHours(0, 0, 0, 0);
-  const offset = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - offset);
-  return d.getTime();
+/**
+ * Highlights for every valid completed session, derived from history on read. Each session is
+ * compared only against sessions completed before it, so edits can never leave stale PRs behind.
+ */
+export function deriveHighlights(history: WorkoutSession[]): Map<string, SessionHighlights> {
+  const valid = history.filter(validCompleted);
+  return new Map(valid.map((session) => [session.sessionId, computeHighlights(session, valid)]));
+}
+
+export const countResults = (results: SessionResult[], kind: SessionResult['kind']) =>
+  results.filter((result) => result.kind === kind).length;
+
+/** Headline for the completion summary. Never calls an improvement a personal best. */
+export function summaryHeadline(results: SessionResult[], celebrate: boolean): string {
+  if (!celebrate) return 'Session saved';
+  if (countResults(results, 'all_time_pr')) return 'New personal best!';
+  if (countResults(results, 'previous_improvement')) return 'Up from last time';
+  if (countResults(results, 'matched_best')) return 'Matched your best';
+  if (countResults(results, 'benchmark')) return 'Benchmark established';
+  return 'Workout complete!';
 }
 
 export interface StreakInfo {
@@ -84,11 +99,7 @@ export function computeStreak(
   now = Date.now(),
 ): StreakInfo {
   const goal = Math.max(1, weeklyGoal);
-  const counts = new Map<number, number>();
-  for (const s of sessions.filter(validCompleted)) {
-    const key = weekStart(s.completedTime ?? s.startTime);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
+  const counts = weeklyCounts(sessions);
   const thisWeek = weekStart(now);
   const weeklyCount = counts.get(thisWeek) ?? 0;
   const goalMet = weeklyCount >= goal;
@@ -117,14 +128,14 @@ export function evaluateBadges(
   const completed = all.filter(validCompleted);
   const total = completed.length;
   const streak = computeStreak(all, weeklyGoal, now).streakWeeks;
-  const priorPrCount = history
-    .filter((s) => s.sessionId !== current.sessionId && s.highlights)
-    .reduce((sum, s) => sum + (s.highlights?.prs.length ?? 0), 0);
-  const currentPrs = current.highlights?.prs.length ?? 0;
+  const derived = deriveHighlights(all);
+  const allTimePrs = (id: string) => countResults(derived.get(id)?.results ?? [], 'all_time_pr');
+  const totalPrs = [...derived.keys()].reduce((sum, id) => sum + allTimePrs(id), 0);
+  const currentPrs = allTimePrs(current.sessionId);
   const earned: string[] = [];
   if (total >= 1) earned.push('first_workout');
-  for (const n of [5, 10, 25, 50]) if (total >= n) earned.push(`sessions_${n}`);
-  if (priorPrCount + currentPrs >= 1) earned.push('first_pr');
+  for (const n of [5, 10, 25, 40]) if (total >= n) earned.push(`sessions_${n}`);
+  if (totalPrs >= 1) earned.push('first_pr');
   if (currentPrs >= 3) earned.push('triple_pr');
   for (const n of [2, 4, 8]) if (streak >= n) earned.push(`streak_${n}`);
   if (isVerifiedCycleComplete(current, history)) earned.push('cycle_complete');

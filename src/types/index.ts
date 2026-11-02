@@ -91,20 +91,29 @@ export interface UnlockedBadge {
   unlockedAt: number;
 }
 
-export interface SessionPR {
+export type ResultKind = 'all_time_pr' | 'previous_improvement' | 'matched_best' | 'benchmark';
+
+/** A top-set comparison against earlier sessions for the same exercise and achieved rep count. */
+export interface SessionResult {
+  kind: ResultKind;
   exerciseId: string;
   exerciseName: string;
   reps: number;
   load: number;
   unit: WeightUnit;
-  previousBest?: number;
-  kind: 'all_time_pr' | 'previous_improvement';
+  /** Load in the most recent earlier comparable session, in `unit`; null for a benchmark. */
+  previousSessionLoad: number | null;
+  /** Best earlier comparable load, in `unit`; null for a benchmark. */
+  allTimeBestLoad: number | null;
+  deltaVsPrevious: number | null;
+  deltaVsBest: number | null;
 }
 
 export interface SessionHighlights {
-  prs: SessionPR[];
+  results: SessionResult[];
   totalVolume: number;
   setsCompleted: number;
+  /** First to last logged set; 0 when fewer than two sets carry timestamps. */
   durationMs: number;
 }
 
@@ -171,7 +180,10 @@ export interface WorkoutSession {
   settingsSnapshot: SessionSettingsSnapshot;
   exercises: LoggedExercise[];
   encouragementMessage?: string;
-  highlights?: SessionHighlights;
+  /** Deprecated: highlights are derived from history on read. Old sessions may still carry this. */
+  highlights?: unknown;
+  /** Reward feedback already delivered for this session, so undo/relog never replays it. */
+  rewardsDelivered?: string[];
 }
 
 export interface BackupExportData {

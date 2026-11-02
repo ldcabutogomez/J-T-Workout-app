@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { UserProfile, WorkoutSession } from '../types';
 import { normalizeWeight } from '../engine/jnt2Engine';
-import { BADGES, computeStreak } from '../engine/achievements';
+import { BADGES, computeStreak, countResults, deriveHighlights } from '../engine/achievements';
 import { validCompleted } from '../engine/encouragement';
 import { ProgressRing } from './ProgressRing';
 import { ChevronDown, ChevronUp, Trash2, Trophy } from 'lucide-react';
@@ -38,12 +38,11 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
     return result;
   })();
 
-  const sevenDaysAgo = Date.now() - 7 * 86_400_000;
-  const recentCount = new Set(valid.filter((item) => (item.completedTime ?? 0) > sevenDaysAgo).map((item) => item.sessionId)).size;
-
   const streak = computeStreak(history, profile.weeklyGoalSessions ?? 4);
   const unlocked = new Map((profile.unlockedBadges ?? []).map((badge) => [badge.id, badge.unlockedAt]));
-  const lifetimeVolume = valid.reduce((sum, session) => sum + (session.highlights?.totalVolume ?? 0), 0);
+  const derived = deriveHighlights(history);
+  const lifetimeVolume = valid.reduce((sum, session) => sum + (derived.get(session.sessionId)?.totalVolume ?? 0), 0);
+  const earnedCount = BADGES.filter((badge) => unlocked.has(badge.id)).length;
 
   return (
     <div className="space-y-4">
@@ -60,12 +59,12 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
 
       <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5">
         <h1 className="text-xl font-black">Recorded progress</h1>
-        <p className="text-xs text-slate-400 mt-1">{recentCount} fully completed real session{recentCount === 1 ? '' : 's'} in the last 7 days. Demo, skipped, duplicate, and partial records are excluded.</p>
+        <p className="text-xs text-slate-400 mt-1">{streak.weeklyCount} of {streak.weeklyGoal} sessions this week (Mon–Sun). Demo, skipped, duplicate, and partial records are excluded.</p>
         <div className="grid grid-cols-2 gap-2 mt-4"><div className="bg-slate-950 rounded-2xl p-3 border border-slate-800"><span className="text-[10px] uppercase text-slate-500">Full sessions</span><strong className="block text-2xl text-emerald-400">{valid.length}</strong></div><div className="bg-slate-950 rounded-2xl p-3 border border-slate-800"><span className="text-[10px] uppercase text-slate-500">All records</span><strong className="block text-2xl text-white">{history.length}</strong></div></div>
       </section>
 
       <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
-        <h2 className="font-black">Badges <span className="text-xs font-mono text-slate-500">{unlocked.size}/{BADGES.length}</span></h2>
+        <h2 className="font-black">Badges <span className="text-xs font-mono text-slate-500">{earnedCount}/{BADGES.length}</span></h2>
         <div className="grid grid-cols-3 gap-2">
           {BADGES.map((badge) => {
             const earned = unlocked.has(badge.id);
@@ -91,9 +90,10 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
         {history.length === 0 && <div className="p-5 text-center text-xs text-slate-500 bg-slate-950 rounded-2xl">No session records yet.</div>}
         {history.map((session) => {
           const open = expanded === session.sessionId;
+          const prCount = countResults(derived.get(session.sessionId)?.results ?? [], 'all_time_pr');
           const setCount = session.exercises.reduce((sum, exercise) => sum + exercise.sets.filter((set) => set.completed).length, 0);
           return <article key={session.sessionId} className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3">
-            <button onClick={() => setExpanded(open ? null : session.sessionId)} className="w-full flex justify-between items-center text-left min-h-11"><div><strong className="text-sm">Week {session.week} · Day {session.day}</strong><div className="flex gap-2 mt-1 text-[10px] uppercase"><span className={session.status === 'completed' ? 'text-emerald-400' : session.status === 'partial' ? 'text-amber-400' : 'text-slate-500'}>{session.status}</span>{session.isDemo && <span className="text-slate-500">demo</span>}<span className="text-slate-500">{setCount} sets</span>{session.highlights && session.highlights.prs.length > 0 && <span className="text-amber-400">⭐ {session.highlights.prs.length} PR{session.highlights.prs.length > 1 ? 's' : ''}</span>}</div></div>{open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</button>
+            <button onClick={() => setExpanded(open ? null : session.sessionId)} className="w-full flex justify-between items-center text-left min-h-11"><div><strong className="text-sm">Week {session.week} · Day {session.day}</strong><div className="flex gap-2 mt-1 text-[10px] uppercase"><span className={session.status === 'completed' ? 'text-emerald-400' : session.status === 'partial' ? 'text-amber-400' : 'text-slate-500'}>{session.status}</span>{session.isDemo && <span className="text-slate-500">demo</span>}<span className="text-slate-500">{setCount} sets</span>{prCount > 0 && <span className="text-amber-400">⭐ {prCount} PR{prCount > 1 ? 's' : ''}</span>}</div></div>{open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</button>
             {open && <div className="border-t border-slate-800 mt-2 pt-3 space-y-2">
               {session.encouragementMessage && <p className="text-xs text-amber-300 bg-amber-950/20 rounded-xl p-2">{session.encouragementMessage}</p>}
               {session.exercises.filter((exercise) => exercise.sets.some((set) => set.completed)).map((exercise) => <div key={exercise.slotId} className="bg-slate-900 rounded-xl p-2"><strong className="text-xs">{exercise.tier} · {exercise.exerciseName}</strong>{exercise.swappedFrom && <span className="ml-1 text-[10px] text-slate-500">(swapped from {exercise.swappedFrom.exerciseName})</span>}<div className="flex flex-wrap gap-1 mt-1">{exercise.sets.filter((set) => set.completed).map((set) => <span key={set.setId} className="text-[10px] font-mono bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5">{set.actualReps}r @ {set.load}{set.unit}</span>)}</div></div>)}

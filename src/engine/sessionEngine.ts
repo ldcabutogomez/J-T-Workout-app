@@ -239,7 +239,8 @@ export function allRequiredSetsLogged(session: WorkoutSession): boolean {
 export function finalizeSession(session: WorkoutSession, now = Date.now()): WorkoutSession {
   const next = copy(session);
   const complete = allRequiredSetsLogged(next);
-  next.completedTime = now;
+  // Editing history must not move the session into the present (week goal, PR chronology).
+  next.completedTime = session.isEditingCompleted && session.completedTime ? session.completedTime : now;
   next.updatedTime = now;
   next.status = complete ? 'completed' : 'partial';
   next.isPartial = !complete;

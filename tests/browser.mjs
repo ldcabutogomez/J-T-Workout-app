@@ -87,10 +87,16 @@ try {
   await page.getByRole('button', { name: 'Finish' }).click();
   const summary = page.getByRole('dialog', { name: 'Workout summary' });
   await summary.waitFor();
-  await summary.getByText('Workout complete!').waitFor();
+  await summary.getByText('Benchmark established').waitFor();
+  assert.equal(await summary.getByText('New personal best!').count(), 0, 'a first session is never a personal best');
   await summary.getByText('First Rep').waitFor();
   await assertNoHorizontalClipping(page, 'Workout summary');
-  await summary.getByRole('button', { name: 'Done' }).click();
+  const focusInside = () => page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"]')));
+  assert.equal(await focusInside(), true, 'focus moves into the summary dialog');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await focusInside(), true, 'Tab stays trapped inside the summary dialog');
+  await page.keyboard.press('Escape');
   await summary.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Progress' }).click();
   await page.getByText('Week 1 · Day 1').waitFor();
