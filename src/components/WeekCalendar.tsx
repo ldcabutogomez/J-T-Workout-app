@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
-import type { ProfileSchedule, WorkoutSession } from '../types';
+import type { ProfileSchedule, UserProfile, WorkoutSession } from '../types';
 import { addDays, fromDateKey, mondayOf, slotDate, weekAgenda, weeksBehind, type AgendaItem, type DateKey, type Slot } from '../engine/schedule';
 import { fmtCount } from '../engine/sessionValidity';
 import { useDragMove } from '../lib/useDragMove';
 
 interface WeekCalendarProps {
   schedule: ProfileSchedule;
+  /** Used so swapped main lifts show their own names. */
+  profile?: UserProfile;
   history: WorkoutSession[];
   today: DateKey;
   onMove: (slot: Slot, date: DateKey) => void;
@@ -33,9 +35,9 @@ const statusClass = (item: AgendaItem) =>
         : 'text-muted';
 
 /** One calendar week, Monday to Sunday. Unfinished workouts drag between days; the Move button does the same without dragging. */
-export function WeekCalendar({ schedule, history, today, onMove, onOpenMove, onCatchUp }: WeekCalendarProps) {
+export function WeekCalendar({ schedule, profile, history, today, onMove, onOpenMove, onCatchUp }: WeekCalendarProps) {
   const [monday, setMonday] = useState<DateKey>(() => mondayOf(today));
-  const days = useMemo(() => weekAgenda(schedule, history, monday, today), [schedule, history, monday, today]);
+  const days = useMemo(() => weekAgenda(schedule, history, monday, today, profile), [schedule, history, monday, today, profile]);
   const behind = weeksBehind(schedule, history, today);
   const items = days.flatMap((day) => day.items);
   const programWeeks = [...new Set(items.map((item) => item.week))];

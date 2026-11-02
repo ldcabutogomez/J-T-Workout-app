@@ -1,4 +1,7 @@
-import type { UserProfile, WorkoutSession } from '../types';
+import type { AvatarColor, ColorTheme, UserProfile, WorkoutSession } from '../types';
+import { AVATAR_COLORS, AVATAR_THUMB_MAX_CHARS, isJpegDataUrl } from '../lib/avatar';
+import { isColorTheme, themeForProfile } from '../lib/theme';
+import { liftOf, nextWorkout, defaultSchedule, isWeekCode, todayKey, weekCodes } from './schedule';
 import { countResults, deriveHighlights, streakFromCounts } from './achievements';
 import { normalizeWeight } from './jnt2Engine';
 import { countsTowardStats, validCompleted, weekStart, weeklyCounts } from './sessionValidity';
@@ -27,6 +30,11 @@ export interface PartnerStats {
   daysSinceLast: number | null;
   /** When this partner's data was last pushed from their phone. Absent for local profiles. */
   syncedAt?: number;
+  avatar?: { thumb?: string; color?: AvatarColor };
+  theme?: ColorTheme;
+  workout?: LiveWorkout;
+  today?: { week: number; day: number; lift: string };
+  weekCodes?: string[];
 }
 
 export interface Leaderboard {
@@ -64,7 +72,34 @@ export interface PartnerSnapshot {
   currentDay: number;
   lastSessionAt: number | null;
   updatedAt: number;
+  // Everything below is optional so phones on an older build still read (and are read by) this snapshot.
+  /** Your picture for your partner: a 64 px thumbnail and your tile color. */
+  avatar?: { thumb?: string; color?: AvatarColor };
+  theme?: ColorTheme;
+  /** Present only while a workout is in progress. Stats only, never set-by-set logs. */
+  workout?: LiveWorkout;
+  /** The workout planned for today, or the next one coming up. */
+  today?: { week: number; day: number; lift: string };
+  /** This week, Monday first: day number plus a status letter per workout, '' for a rest day. */
+  weekCodes?: string[];
 }
+
+export interface LiveWorkout {
+  week: number;
+  day: number;
+  lift: string;
+  done: number;
+  total: number;
+  updatedAt: number;
+}
+
+/** A live workout older than this is treated as stale, so a closed app never claims you are still lifting. */
+export const LIVE_FRESH_MS = 3 * 3_600_000;
+export const isLiveFresh = (workout: LiveWorkout | undefined, now: number): workout is LiveWorkout =>
+  Boolean(workout) && now - (workout as LiveWorkout).updatedAt >= 0 && now - (workout as LiveWorkout).updatedAt <= LIVE_FRESH_MS;
+
+/** Largest snapshot we send. The server accepts 8192 bytes; the thumbnail is the first thing to go when close. */
+export const SNAPSHOT_SOFT_LIMIT = 7_500;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 export const weekKey = (weekStartMs: number): string => {
@@ -81,6 +116,7 @@ export function snapshotFromHistory(
   history: WorkoutSession[],
   now: number,
   deviceId = 'local',
+  live?: { activeSession?: WorkoutSession | null },
 ): PartnerSnapshot {
   // Partial workouts count toward volume, PRs and session totals; the weekly numbers below weight them by sets finished.
   const counted = history.filter(countsTowardStats);
@@ -107,7 +143,7 @@ export function snapshotFromHistory(
     const t = s.completedTime ?? s.startTime;
     return best === null || t > best ? t : best;
   }, null);
-  return {
+  const snapshot: PartnerSnapshot = {
     v: SNAPSHOT_VERSION,
     deviceId,
     profileId: profile.id,
@@ -124,6 +160,33 @@ export function snapshotFromHistory(
     lastSessionAt: last,
     updatedAt: now,
   };
+  if (live && profile.shareLive !== false) Object.assign(snapshot, liveFields(profile, history, now, live.activeSession ?? null));
+  // Stay well under the server's cap: the thumbnail is the one big optional piece, so it goes first.
+  if (JSON.stringify(snapshot).length > SNAPSHOT_SOFT_LIMIT && snapshot.avatar?.thumb) snapshot.avatar = { color: snapshot.avatar.color };
+  return snapshot;
+}
+
+/** What a partner may see of you beyond stats: your picture and where you are in the program. Only if sharing is on. */
+function liveFields(profile: UserProfile, history: WorkoutSession[], now: number, active: WorkoutSession | null): Partial<PartnerSnapshot> {
+  const schedule = profile.schedule ?? defaultSchedule(profile, now, history);
+  const today = todayKey(now);
+  const out: Partial<PartnerSnapshot> = { theme: themeForProfile(profile) };
+  if (profile.avatar?.thumb || profile.avatar?.color) out.avatar = { thumb: profile.avatar?.thumb, color: profile.avatar?.color };
+  const next = nextWorkout(schedule, history, today);
+  if (next) out.today = { week: next.week, day: next.day, lift: liftOf(next.week, next.day, profile).slice(0, 40) };
+  out.weekCodes = weekCodes(schedule, history, today);
+  if (active && !active.isEditingCompleted && active.status === 'active') {
+    const sets = active.exercises.flatMap((exercise) => exercise.sets);
+    out.workout = {
+      week: active.week,
+      day: active.day,
+      lift: (active.exercises[0]?.exerciseName ?? liftOf(active.week, active.day, profile)).slice(0, 40),
+      done: sets.filter((set) => set.completed).length,
+      total: sets.length,
+      updatedAt: now,
+    };
+  }
+  return out;
 }
 
 /** Compliance over the last 4 full weeks, each capped at the goal. 0-100. */
@@ -169,6 +232,7 @@ export function parseSnapshot(raw: unknown): PartnerSnapshot | null {
     if (keyToWeekStart(key) === null || count === null) return null;
     weekly[key] = count;
   }
+  const extras = parseExtras(r);
   return {
     v: SNAPSHOT_VERSION,
     deviceId: r.deviceId,
@@ -185,7 +249,50 @@ export function parseSnapshot(raw: unknown): PartnerSnapshot | null {
     currentDay: currentDay as number,
     lastSessionAt,
     updatedAt: updatedAt as number,
+    ...extras,
   };
+}
+
+const safeText = (value: unknown, max = 40): string | null =>
+  typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f<>]/.test(value) ? value : null;
+const int = (value: unknown, min: number, max: number): number | null =>
+  typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max ? value : null;
+
+/**
+ * The optional parts of a snapshot come from another phone and end up on screen (one in an <img src>), so each is
+ * checked separately: a bad piece is dropped and the stats still show, never the other way round.
+ */
+function parseExtras(r: Record<string, unknown>): Partial<PartnerSnapshot> {
+  const out: Partial<PartnerSnapshot> = {};
+  if (r.avatar && typeof r.avatar === 'object') {
+    const a = r.avatar as Record<string, unknown>;
+    const avatar: { thumb?: string; color?: AvatarColor } = {};
+    if (isJpegDataUrl(a.thumb, AVATAR_THUMB_MAX_CHARS)) avatar.thumb = a.thumb;
+    if (typeof a.color === 'string' && (AVATAR_COLORS as readonly string[]).includes(a.color)) avatar.color = a.color as AvatarColor;
+    if (avatar.thumb || avatar.color) out.avatar = avatar;
+  }
+  if (isColorTheme(r.theme)) out.theme = r.theme;
+  if (r.today && typeof r.today === 'object') {
+    const t = r.today as Record<string, unknown>;
+    const week = int(t.week, 1, 12);
+    const day = int(t.day, 1, 4);
+    const lift = safeText(t.lift);
+    if (week !== null && day !== null && lift) out.today = { week, day, lift };
+  }
+  if (r.workout && typeof r.workout === 'object') {
+    const w = r.workout as Record<string, unknown>;
+    const week = int(w.week, 1, 12);
+    const day = int(w.day, 1, 4);
+    const done = int(w.done, 0, 400);
+    const total = int(w.total, 0, 400);
+    const lift = safeText(w.lift);
+    const updatedAt = typeof w.updatedAt === 'number' && Number.isFinite(w.updatedAt) && w.updatedAt >= 0 ? w.updatedAt : null;
+    if (week !== null && day !== null && done !== null && total !== null && lift && updatedAt !== null && done <= total) {
+      out.workout = { week, day, lift, done, total, updatedAt };
+    }
+  }
+  if (Array.isArray(r.weekCodes) && r.weekCodes.length === 7 && r.weekCodes.every(isWeekCode)) out.weekCodes = r.weekCodes as string[];
+  return out;
 }
 
 export function statsFromSnapshot(snapshot: PartnerSnapshot, now: number): PartnerStats {
@@ -212,6 +319,11 @@ export function statsFromSnapshot(snapshot: PartnerSnapshot, now: number): Partn
     lastSessionAt: snapshot.lastSessionAt,
     daysSinceLast: snapshot.lastSessionAt === null ? null : Math.max(0, Math.floor((now - snapshot.lastSessionAt) / DAY_MS)),
     syncedAt: snapshot.updatedAt,
+    avatar: snapshot.avatar,
+    theme: snapshot.theme,
+    workout: snapshot.workout,
+    today: snapshot.today,
+    weekCodes: snapshot.weekCodes,
   };
 }
 

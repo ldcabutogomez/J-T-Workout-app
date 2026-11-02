@@ -57,11 +57,19 @@ Backup format version 2 validates profiles, sessions, exercises, sets, stable ID
 
 All workout records stay in the browser. Export backups regularly, especially before clearing browser storage.
 
+## Who uses this phone
+
+The first time a phone with both profiles opens, it asks **Who uses this phone?** and locks to that person, with their theme, photo and sync identity. The other profile is hidden from the header, Settings and the leaderboard. **Switch who uses this phone** in Settings (with confirmation) clears the lock and the partner link. This is a convenience, not security: the other profile's data still exists in the on-device database and in backups.
+
+## Main lift swaps
+
+Tier 1 lifts have a "Swap" dropdown like accessories (Back Squat to Belted, Safety Bar, Box or Pause Squat; Bench to Sling Shot, Pause, Spoto or Floor Press; and so on, both directions for Bench and Sling Shot Bench). The swap keeps the day's sets, reps, percentages and training max, is remembered for that slot until the program changes the lift, keeps its own PR history, and suggests your last weight for that lift when you have one. It locks once a set is logged.
+
 ## Together tab and partner sync
 
 The Together tab ranks both lifters on 4-week compliance, week streak, lifetime volume and all-time PRs, with this-week progress and days-since-last-session for accountability.
 
-With two phones, each phone pushes a **stats-only snapshot** (sessions per week, streak inputs, volume, PR count, badge count, program position, last session time) and pulls its partner's. Set-by-set logs never leave the phone. Partners are linked with a shared 10-character code (Create a code on one phone, Join on the other). Stats are recomputed on the receiving phone against its own clock, so a partner who stops training shows as inactive even if their phone never syncs again. The sync is optional: without a backend configured the tab only compares profiles on the same phone, and the rest of the app works offline as before.
+With two phones, each phone pushes a **snapshot** (sessions per week, streak inputs, volume, PR count, badge count, program position, last session time) and pulls its partner's. Unless you turn off **Share my photo and live status with my partner** in Settings, the snapshot also carries a 64 px thumbnail of your photo, your color and theme, a "Lifting now · X of Y sets" status while a workout is open (hidden after 3 hours), your next workout, and one code per weekday of this week. Set-by-set logs never leave the phone, and your photo goes to your own Supabase project, keyed by the hashed pairing code. Older builds ignore the new fields. Partners are linked with a shared 10-character code (Create a code on one phone, Join on the other). Stats are recomputed on the receiving phone against its own clock, so a partner who stops training shows as inactive even if their phone never syncs again. The sync is optional: without a backend configured the tab only compares profiles on the same phone, and the rest of the app works offline as before.
 
 ### One-time backend setup (Supabase, free tier)
 1. Create a project at supabase.com.

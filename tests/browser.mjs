@@ -24,6 +24,23 @@ async function waitForPreview() {
   throw new Error(`Production preview did not start.\n${previewLog}`);
 }
 
+/**
+ * A browser context that already belongs to one person, as after the one-time "Who uses this phone?" choice.
+ * The seed runs once per storage, so tests can still clear the lock or switch users afterwards.
+ */
+async function lockedContext(browser, profileId = 'partner-1', options = {}) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
+  await context.addInitScript((id) => {
+    try {
+      if (!localStorage.getItem('jnt2_test_seed')) {
+        localStorage.setItem('jnt2_test_seed', '1');
+        localStorage.setItem('jnt2_locked_profile', id);
+      }
+    } catch { /* storage unavailable */ }
+  }, profileId);
+  return context;
+}
+
 async function assertNoHorizontalClipping(page, label) {
   const sizes = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
@@ -36,7 +53,7 @@ let browser;
 try {
   await waitForPreview();
   browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const context = await lockedContext(browser);
   const page = await context.newPage();
   const browserErrors = [];
   page.on('pageerror', (error) => browserErrors.push(String(error)));
@@ -62,6 +79,14 @@ try {
   await page.getByLabel('Swap Single Leg Press').selectOption('hip-thrust');
   await page.getByRole('heading', { name: 'Hip Thrust' }).waitFor();
   await page.getByText('Swapped from Single Leg Press').waitFor();
+  // Main lifts swap too: same sets and warm-up ramp, different exercise, and it can be switched back before logging.
+  await page.getByLabel('Swap Back Squat').selectOption('belted-squat');
+  const belted = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Belted Squat' }) });
+  await belted.getByText('Swapped from Back Squat').waitFor();
+  await belted.getByText('Warm-up').waitFor();
+  assert.equal(await belted.getByRole('checkbox').count(), 4, 'a swapped main lift keeps its warm-up ramp');
+  await page.getByLabel('Swap Back Squat').selectOption('');
+  await page.getByRole('heading', { name: 'Back Squat' }).waitFor();
   const squat = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Back Squat' }) });
   // The workbook leaves "Find 10RM" to the lifter; the app suggests a starting load from the TM and a T1 warm-up ramp.
   await squat.getByText(/Suggested from your training max/).waitFor();
@@ -112,11 +137,12 @@ try {
   await page.getByText('completed', { exact: true }).waitFor();
   await assertNoHorizontalClipping(page, 'Progress screen');
 
-  // Together tab: both local lifters render, the leaderboard lays out, and with no backend configured the pairing panel says so.
+  // Together tab: your own row shows (the other local profile is hidden by the lock), and with no backend configured the pairing panel says so.
   await page.getByRole('button', { name: 'Together' }).click();
   await page.getByRole('heading', { name: 'Leaderboard' }).waitFor();
   await page.getByText('Partner sync is not set up').waitFor();
-  assert.ok(await page.getByText('Lauren').count() >= 1 && await page.getByText('Luis').count() >= 1, 'Together shows both partners');
+  assert.ok(await page.getByText('Lauren').count() >= 1, 'Together shows your own row');
+  assert.equal(await page.getByText('Luis').count(), 0, 'the other local profile is hidden once the phone is locked');
   await assertNoHorizontalClipping(page, 'Together screen');
   await page.getByRole('button', { name: 'Progress' }).click();
 
@@ -154,7 +180,7 @@ try {
   await context.setOffline(false);
 
   // Profile picture: upload a generated image, see it in the header, keep it across a reload, then remove it.
-  const avatarContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const avatarContext = await lockedContext(browser);
   const avatarPage = await avatarContext.newPage();
   await avatarPage.goto(origin, { waitUntil: 'networkidle' });
   await avatarPage.getByRole('button', { name: 'Settings' }).click();
@@ -174,6 +200,18 @@ try {
   });
   await avatarPage.getByText('Photo saved on this device.').waitFor();
   await avatarPage.locator('header img').first().waitFor();
+  // Choosing a photo also makes the tiny thumbnail that partners receive.
+  const thumb = await avatarPage.evaluate(() => new Promise((resolve, reject) => {
+    const open = indexedDB.open('JackedAndTan2_LocalDB');
+    open.onsuccess = () => {
+      const request = open.result.transaction('profiles').objectStore('profiles').getAll();
+      request.onsuccess = () => resolve(request.result.find((p) => p.id === 'partner-1')?.avatar?.thumb ?? null);
+      request.onerror = () => reject(request.error);
+    };
+    open.onerror = () => reject(open.error);
+  }));
+  assert.match(thumb, /^data:image\/jpeg;base64,/, 'a partner thumbnail is saved with the photo');
+  assert.ok(thumb.length < 5_500, `the thumbnail is small enough to share (${thumb.length} chars)`);
   const stored = await avatarPage.locator('img[alt="Lauren\'s profile photo"]').first().getAttribute('src');
   assert.match(stored, /^data:image\/jpeg;base64,/, 'photo is stored as a small JPEG data URL');
   assert.ok(stored.length < 80_000, 'stored photo is small');
@@ -186,38 +224,66 @@ try {
   assert.equal(await avatarPage.locator('header img').count(), 0, 'initials return after removing the photo');
   await avatarContext.close();
 
-  // Per-profile themes: Lauren is lavender, Luis is blue, and a choice in Settings applies and persists.
-  const themeContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const themePage = await themeContext.newPage();
-  const themeState = () => themePage.evaluate(() => ({
+  // Per-profile themes: Lauren's phone is lavender, Luis's phone is blue, and a choice in Settings applies and persists.
+  const themeState = (p) => p.evaluate(() => ({
     theme: document.documentElement.dataset.theme,
     accent: getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(),
     chrome: document.querySelector('meta[name="theme-color"]').getAttribute('content'),
     background: getComputedStyle(document.body).backgroundColor,
   }));
+  const picks = ({ theme, accent, chrome }) => ({ theme, accent, chrome });
+  const themeContext = await lockedContext(browser, 'partner-1');
+  const themePage = await themeContext.newPage();
   await themePage.goto(origin, { waitUntil: 'networkidle' });
   await themePage.getByText('Next scheduled session').waitFor();
-  assert.deepEqual((({ theme, accent, chrome }) => ({ theme, accent, chrome }))(await themeState()), { theme: 'lavender', accent: '#7b4fc4', chrome: '#f3eff9' });
-  await themePage.getByRole('button', { name: 'Luis' }).first().click();
-  await themePage.waitForFunction(() => document.documentElement.dataset.theme === 'blue');
-  assert.deepEqual((({ theme, accent, chrome }) => ({ theme, accent, chrome }))(await themeState()), { theme: 'blue', accent: '#1f5fbf', chrome: '#eef2f7' });
-  assert.equal((await themeState()).background, 'rgb(238, 242, 247)', 'page background follows the theme');
+  assert.deepEqual(picks(await themeState(themePage)), { theme: 'lavender', accent: '#7b4fc4', chrome: '#f3eff9' });
+  assert.equal(await themePage.getByRole('button', { name: 'Luis' }).count(), 0, 'a locked phone has no profile switcher');
   await themePage.getByRole('button', { name: 'Settings' }).click();
   await themePage.getByRole('radio', { name: 'Vermilion' }).click();
   await themePage.waitForFunction(() => document.documentElement.dataset.theme === 'vermilion');
-  assert.equal((await themeState()).accent, '#d63d16');
+  assert.equal((await themeState(themePage)).accent, '#d63d16');
   // The saved theme is applied before the app renders, so a reload never flashes the default colors.
   await themePage.reload({ waitUntil: 'domcontentloaded' });
   assert.equal(await themePage.evaluate(() => document.documentElement.dataset.theme), 'vermilion', 'theme is set before first paint');
   await themePage.waitForSelector('header');
-  assert.equal((await themeState()).theme, 'vermilion', 'the choice persists across reloads');
-  assert.equal(await themePage.locator('header button', { hasText: 'Luis' }).evaluate((el) => el.className.includes('bg-accent')), true, 'the app reopens on the last-used profile');
-  await themePage.getByRole('button', { name: 'Lauren' }).first().click();
-  await themePage.waitForFunction(() => document.documentElement.dataset.theme === 'lavender');
+  assert.equal((await themeState(themePage)).theme, 'vermilion', 'the choice persists across reloads');
   await themeContext.close();
 
+  const luisContext = await lockedContext(browser, 'partner-2');
+  const luisPage = await luisContext.newPage();
+  await luisPage.goto(origin, { waitUntil: 'networkidle' });
+  await luisPage.getByText('Next scheduled session').waitFor();
+  assert.deepEqual(picks(await themeState(luisPage)), { theme: 'blue', accent: '#1f5fbf', chrome: '#eef2f7' });
+  assert.equal((await themeState(luisPage)).background, 'rgb(238, 242, 247)', 'page background follows the theme');
+  assert.equal(await luisPage.getByLabel('Signed in as Luis').count(), 1);
+  await luisContext.close();
+
+  // Who uses this phone: asked once, then locked ("Lauren is Lauren"); switching needs a confirmation.
+  const askContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const ask = await askContext.newPage();
+  ask.on('dialog', (dialog) => dialog.accept());
+  await ask.goto(origin, { waitUntil: 'networkidle' });
+  await ask.getByRole('heading', { name: 'Who uses this phone?' }).waitFor();
+  assert.equal(await ask.getByRole('navigation', { name: 'Primary navigation' }).count(), 0, 'nothing else opens until you choose');
+  await assertNoHorizontalClipping(ask, 'Who uses this phone');
+  await ask.getByRole('button', { name: /Luis/ }).click();
+  await ask.getByText('Next scheduled session').waitFor();
+  assert.equal((await themeState(ask)).theme, 'blue', 'choosing Luis applies Luis\'s theme');
+  assert.equal(await ask.getByRole('button', { name: 'Lauren' }).count(), 0, 'the other profile is not reachable');
+  await ask.reload({ waitUntil: 'networkidle' });
+  await ask.getByText('Next scheduled session').waitFor();
+  assert.equal(await ask.getByLabel('Signed in as Luis').count(), 1, 'the lock survives a reload');
+  await ask.getByRole('button', { name: 'Settings' }).click();
+  await ask.getByText("Luis's phone").waitFor();
+  await ask.getByRole('button', { name: 'Switch who uses this phone' }).click();
+  await ask.getByRole('heading', { name: 'Who uses this phone?' }).waitFor();
+  await ask.getByRole('button', { name: /Lauren/ }).click();
+  await ask.getByLabel('Signed in as Lauren').waitFor();
+  assert.equal((await themeState(ask)).theme, 'lavender');
+  await askContext.close();
+
   // Coach card, a partial workout, and your own stats showing on Together right away (no partner needed).
-  const partialContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const partialContext = await lockedContext(browser);
   const pp = await partialContext.newPage();
   pp.on('dialog', (dialog) => dialog.accept());
   await pp.goto(origin, { waitUntil: 'networkidle' });
@@ -254,12 +320,12 @@ try {
   await ownRow.waitFor();
   assert.match(await ownRow.innerText(), /\d{1,3},\d{3}/, 'pounds from the partial workout are on the leaderboard immediately');
   await pp.getByText('1 session (1 partial)').waitFor();
-  assert.equal(await pp.getByRole('row').filter({ hasText: 'Luis' }).count(), 1, 'the other local profile is listed too');
+  assert.equal(await pp.getByRole('row').filter({ hasText: 'Luis' }).count(), 0, 'the other local profile never appears on Lauren\'s phone');
   await partialContext.close();
 
   // Calendar: drag-and-drop rescheduling with a fixed clock. The plan is created on a Monday (2024-05-13),
   // then two days pass without training, so Day 1 and Day 2 are genuinely missed on Wednesday.
-  const calContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const calContext = await lockedContext(browser);
   await calContext.clock.setFixedTime(new Date(2024, 4, 13, 12));
   const cal = await calContext.newPage();
   cal.on('dialog', (dialog) => dialog.accept());
@@ -348,7 +414,7 @@ try {
   await calContext.close();
 
   // Out of order: do Day 3 first from the Move sheet; Day 1 stays the program's next workout.
-  const oooContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const oooContext = await lockedContext(browser);
   await oooContext.clock.setFixedTime(new Date(2024, 4, 13, 12)); // Monday
   const ooo = await oooContext.newPage();
   ooo.on('dialog', (dialog) => dialog.accept());
@@ -377,7 +443,7 @@ try {
   await oooSummary.waitFor();
   await ooo.keyboard.press('Escape');
   await ooo.getByRole('button', { name: 'Settings' }).click();
-  await ooo.getByText('W1:D1').first().waitFor();
+  await ooo.getByText(/Week 1 · Day 1 · lb/).waitFor(); // the saved position is still the first workout not done
   await ooo.getByRole('button', { name: 'Program' }).click();
   assert.match(await ooo.locator('[data-slot="W1D3"]').innerText(), /Done/, 'Day 3 shows as done');
   assert.equal(await ooo.getByRole('button', { name: 'Move Week 1 Day 3' }).count(), 0, 'finished workouts cannot be moved');
@@ -385,8 +451,7 @@ try {
   await oooContext.close();
 
   // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).
-  const iosContext = await browser.newContext({
-    viewport: { width: 390, height: 844 },
+  const iosContext = await lockedContext(browser, 'partner-1', {
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
   });
   const iosPage = await iosContext.newPage();

@@ -89,6 +89,8 @@ export interface UserProfile {
   autoStartRest?: boolean;
   unlockedBadges?: UnlockedBadge[];
   avatar?: ProfileAvatar;
+  /** Share your photo and live workout status with your partner. On unless set to false. */
+  shareLive?: boolean;
 }
 
 export interface ProfileSchedule {
@@ -105,8 +107,10 @@ export type ColorTheme = 'lavender' | 'blue' | 'vermilion';
 export type AvatarColor = 'accent' | 'violet' | 'cobalt' | 'ok' | 'gold' | 'ink' | 'clay' | 'teal';
 
 export interface ProfileAvatar {
-  /** Small square JPEG data URL, stored on this device only. */
+  /** Small square JPEG data URL. */
   photo?: string;
+  /** Tiny (64 px) JPEG of the same photo, small enough to send to a partner inside a sync snapshot. */
+  thumb?: string;
   /** Tile color for the initial shown when there is no photo. */
   color?: AvatarColor;
 }

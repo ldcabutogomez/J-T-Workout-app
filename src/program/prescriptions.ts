@@ -552,7 +552,10 @@ export function getDayPrescription(week: number, day: number, profile?: UserProf
       if (customName && slot.loadBasis?.kind === 'user_selected' && slot.tier !== 'T1') {
         return { ...slot, exerciseName: customName, exerciseId: `custom-${slug(customName)}` };
       }
-      return applySwap(slot, profile.exerciseSwaps);
+      const others = original.exercises
+        .filter((other) => other.slotId !== slot.slotId && (other.status === 'work' || other.status === 'test'))
+        .map((other) => other.exerciseId);
+      return applySwap(slot, profile.exerciseSwaps, others);
     }),
   };
 }

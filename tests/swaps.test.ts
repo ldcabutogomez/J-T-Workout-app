@@ -21,8 +21,8 @@ class MemoryStorage implements Storage {
 }
 Object.defineProperty(globalThis, 'localStorage', { value: new MemoryStorage(), configurable: true });
 
-test('only grouped T2b/T2c/T3 accessory slots are swappable, within their own group', () => {
-  assert.equal(getSwapOptions(slotOf(1, 1, 'd1-t1-primary')), null);
+test('accessories swap within their own group; T2a lifts stay fixed; main lifts have their own list', () => {
+  assert.equal(getSwapOptions(slotOf(1, 1, 'd1-t1-primary'))?.group, 'main', 'Tier 1 lifts are swappable too');
   assert.equal(getSwapOptions(slotOf(1, 1, 'd1-t2a')), null);
   assert.equal(getSwapOptions(slotOf(1, 1, 'd1-t3d')), null, 'DB Hammer Curl has no swap group');
 

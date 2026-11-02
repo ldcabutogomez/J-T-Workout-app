@@ -58,7 +58,7 @@ export const ALL_SLOTS: Slot[] = Array.from({ length: 12 }, (_, w) =>
 export type DoneStatus = 'completed' | 'partial' | 'skipped';
 const RANK: Record<DoneStatus, number> = { completed: 3, partial: 2, skipped: 1 };
 
-export interface DoneInfo { status: DoneStatus; date: DateKey; credit: number }
+export interface DoneInfo { status: DoneStatus; date: DateKey; credit: number; lift?: string }
 
 /** Slots with a finished, partial or skipped session (demo sessions never count). The best status wins. */
 export function doneSlots(history: WorkoutSession[]): Map<SlotKey, DoneInfo> {
@@ -70,7 +70,7 @@ export function doneSlots(history: WorkoutSession[]): Map<SlotKey, DoneInfo> {
     const status = session.status as DoneStatus;
     const prior = done.get(key);
     if (prior && RANK[prior.status] >= RANK[status]) continue;
-    done.set(key, { status, date: todayKey(session.completedTime ?? session.startTime), credit: sessionCredit(session) });
+    done.set(key, { status, date: todayKey(session.completedTime ?? session.startTime), credit: sessionCredit(session), lift: session.exercises[0]?.exerciseName });
   }
   return done;
 }
@@ -164,22 +164,22 @@ export interface AgendaDay {
 /** Day 1 (squat) and Day 3 (front squat or deadlift) are the lower-body days. */
 export const groupOfDay = (day: number): 'legs' | 'upper' => (day === 1 || day === 3 ? 'legs' : 'upper');
 
-export function liftOf(week: number, day: number): string {
-  return getDayPrescription(week, day).exercises[0]?.exerciseName ?? `Day ${day}`;
+export function liftOf(week: number, day: number, profile?: UserProfile): string {
+  return getDayPrescription(week, day, profile).exercises[0]?.exerciseName ?? `Day ${day}`;
 }
 
-function itemFor(slot: Slot, date: DateKey, today: DateKey, done: Map<SlotKey, DoneInfo>): AgendaItem {
+function itemFor(slot: Slot, date: DateKey, today: DateKey, done: Map<SlotKey, DoneInfo>, profile?: UserProfile): AgendaItem {
   const key = slotKey(slot.week, slot.day);
   const info = done.get(key);
   const status: AgendaStatus = info ? info.status : date < today ? 'missed' : date === today ? 'today' : 'upcoming';
-  return { week: slot.week, day: slot.day, key, lift: liftOf(slot.week, slot.day), group: groupOfDay(slot.day), status, credit: info?.credit, date };
+  return { week: slot.week, day: slot.day, key, lift: info?.lift ?? liftOf(slot.week, slot.day, profile), group: groupOfDay(slot.day), status, credit: info?.credit, date };
 }
 
 /**
  * Seven rows, Monday to Sunday. Finished workouts appear on the day they were done; everything else
  * appears on its scheduled date, so history never moves when the plan does.
  */
-export function weekAgenda(schedule: ProfileSchedule, history: WorkoutSession[], monday: DateKey, today: DateKey): AgendaDay[] {
+export function weekAgenda(schedule: ProfileSchedule, history: WorkoutSession[], monday: DateKey, today: DateKey, profile?: UserProfile): AgendaDay[] {
   const done = doneSlots(history);
   const days: AgendaDay[] = Array.from({ length: 7 }, (_, i) => {
     const date = addDays(monday, i);
@@ -189,7 +189,7 @@ export function weekAgenda(schedule: ProfileSchedule, history: WorkoutSession[],
   for (const slot of ALL_SLOTS) {
     const info = done.get(slotKey(slot.week, slot.day));
     const date = info ? info.date : slotDate(schedule, slot.week, slot.day);
-    byDate.get(date)?.items.push(itemFor(slot, date, today, done));
+    byDate.get(date)?.items.push(itemFor(slot, date, today, done, profile));
   }
   return days;
 }
@@ -262,6 +262,18 @@ export function catchUp(schedule: ProfileSchedule, history: WorkoutSession[], to
 export function withTrainingDays(schedule: ProfileSchedule, days: number[]): ProfileSchedule {
   return { ...schedule, days: days.slice(0, 4) };
 }
+
+const STATUS_CODE: Record<AgendaStatus, string> = { completed: 'c', partial: 'p', skipped: 's', missed: 'm', today: 't', upcoming: 'u' };
+
+/**
+ * This week as seven short codes, Monday first, for sharing with a partner: each workout is its day number
+ * plus a status letter (c completed, p partial, s skipped, m missed, t today, u upcoming), '' for a rest day.
+ */
+export function weekCodes(schedule: ProfileSchedule, history: WorkoutSession[], today: DateKey): string[] {
+  return weekAgenda(schedule, history, mondayOf(today), today).map((day) => day.items.map((item) => `${item.day}${STATUS_CODE[item.status]}`).join(''));
+}
+
+export const isWeekCode = (value: unknown): value is string => typeof value === 'string' && /^(?:[1-4][cpsmtu]){0,8}$/.test(value);
 
 export type NextReason = 'today' | 'upcoming' | 'missed';
 export interface NextWorkout extends Slot { date: DateKey; reason: NextReason }

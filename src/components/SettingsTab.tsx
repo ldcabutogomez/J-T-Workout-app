@@ -3,7 +3,7 @@ import type { EncouragementTone, UserProfile, WeightUnit, WorkoutSession } from 
 import { convertProfileUnit } from '../engine/jnt2Engine';
 import { Download, Upload, Users } from 'lucide-react';
 import { canVibrate, feedback, haptic } from '../lib/feedback';
-import { AVATAR_COLORS, defaultAvatarColor, fileToAvatarPhoto } from '../lib/avatar';
+import { AVATAR_COLORS, defaultAvatarColor, fileToAvatar } from '../lib/avatar';
 import { COLOR_THEMES, THEMES, themeForProfile } from '../lib/theme';
 import { WEEKDAY_LABELS, defaultSchedule, normalizeDays, withTrainingDays } from '../engine/schedule';
 import { Avatar, AVATAR_TILE } from './Avatar';
@@ -12,13 +12,14 @@ interface SettingsTabProps {
   profiles: UserProfile[];
   activeProfileId: string;
   activeSession: WorkoutSession | null;
-  onSelectProfile: (id: string) => void;
+  /** Asks who uses this phone again. Confirmation happens in the caller. */
+  onSwitchUser: () => void;
   onUpdateProfile: (profile: UserProfile) => void;
   onExportBackup: () => void;
   onImportBackup: (json: string, replace: boolean) => Promise<{ success: boolean; message: string }>;
 }
 
-export function SettingsTab({ profiles, activeProfileId, activeSession, onSelectProfile, onUpdateProfile, onExportBackup, onImportBackup }: SettingsTabProps) {
+export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitchUser, onUpdateProfile, onExportBackup, onImportBackup }: SettingsTabProps) {
   const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0];
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
@@ -52,14 +53,28 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSelect
   return (
     <div className="space-y-4">
       <section className="card p-5 space-y-3">
-        <div className="flex items-center gap-2"><Users className="w-5 h-5 text-accent-ink" /><h1 className="text-xl font-black">Training partners</h1></div>
-        <p className="text-xs text-muted">Profiles keep independent TMs, units, active drafts, history, and program positions.</p>
-        <div className="grid grid-cols-2 gap-2">{profiles.map((item) => <button key={item.id} onClick={() => onSelectProfile(item.id)} className={`p-3 rounded-2xl border text-left ${item.id === profile.id ? 'border-accent bg-accent/10' : 'border-line bg-paper'}`}><span className="flex items-center gap-2"><Avatar profile={item} size={28} decorative /><strong className="block">{item.name}</strong></span><span className="text-xs text-muted">W{item.currentWeek}:D{item.currentDay} · {item.unit}{item.cycleCompleted ? ' · complete' : ''}</span></button>)}</div>
+        <div className="flex items-center gap-2"><Users className="w-5 h-5 text-accent-ink" /><h1 className="text-xl font-black">This phone</h1></div>
+        <div className="flex items-center gap-3">
+          <Avatar profile={profile} size={44} decorative />
+          <div className="min-w-0">
+            <p className="font-black text-ink">{profile.name}'s phone</p>
+            <p className="text-xs text-muted">Week {profile.currentWeek} · Day {profile.currentDay} · {profile.unit}{profile.cycleCompleted ? ' · complete' : ''}</p>
+          </div>
+        </div>
+        <p className="text-xs text-muted">Your workouts, theme and partner link stay with you. Lending the phone to someone else? Switch who uses it.</p>
+        <button type="button" onClick={onSwitchUser} className="btn-secondary min-h-11 text-sm">Switch who uses this phone</button>
       </section>
 
       <section className="card p-5 space-y-4">
         <h2 className="text-lg font-black">Profile preferences</h2>
         <AvatarEditor profile={profile} onUpdateProfile={onUpdateProfile} />
+        <label className="flex items-start gap-3 text-sm">
+          <input type="checkbox" checked={profile.shareLive !== false} onChange={(event) => onUpdateProfile({ ...profile, shareLive: event.target.checked })} className="mt-1 h-5 w-5 shrink-0 accent-[var(--color-accent)]" />
+          <span>
+            <strong className="block text-ink">Share my photo and live status with my partner</strong>
+            <span className="text-xs text-muted">Your partner sees your picture, whether you are lifting right now, today's workout and this week's calendar. Set-by-set logs never leave this phone.</span>
+          </span>
+        </label>
         <ThemePicker profile={profile} onUpdateProfile={onUpdateProfile} />
         <TrainingDays profile={profile} onUpdateProfile={onUpdateProfile} />
         <label className="block text-xs uppercase font-bold text-muted">Lifter name<input value={profile.name} onChange={(event) => onUpdateProfile({ ...profile, name: event.target.value })} className="block w-full mt-1 min-h-11 bg-paper border border-line rounded-xl px-3 text-sm normal-case text-ink" /></label>
@@ -127,8 +142,8 @@ function AvatarEditor({ profile, onUpdateProfile }: { profile: UserProfile; onUp
     if (!file) return;
     setBusy(true);
     try {
-      const photo = await fileToAvatarPhoto(file);
-      onUpdateProfile({ ...profile, avatar: { ...profile.avatar, photo } });
+      const { photo, thumb } = await fileToAvatar(file);
+      onUpdateProfile({ ...profile, avatar: { ...profile.avatar, photo, thumb } });
       setMessage({ text: 'Photo saved on this device.' });
     } catch (error) {
       setMessage({ text: (error as Error).message, error: true });
@@ -138,7 +153,7 @@ function AvatarEditor({ profile, onUpdateProfile }: { profile: UserProfile; onUp
   };
 
   const removePhoto = () => {
-    const { photo: _photo, ...rest } = profile.avatar ?? {};
+    const { photo: _photo, thumb: _thumb, ...rest } = profile.avatar ?? {};
     onUpdateProfile({ ...profile, avatar: rest });
     setMessage({ text: 'Photo removed.' });
   };

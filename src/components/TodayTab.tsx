@@ -125,7 +125,7 @@ export function TodayTab({
                     <strong className="text-sm text-ink">{slot.exerciseName}</strong>
                     {slot.status !== 'work' && <span className="text-xs uppercase text-muted">{slot.status}</span>}
                   </div>
-                  <ExerciseSwap slot={slot} onSwap={onSwapExercise} />
+                  <ExerciseSwap slot={slot} siblings={prescription.exercises.filter((other) => other.slotId !== slot.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} onSwap={onSwapExercise} />
                   <p className="text-xs text-muted mt-1">
                     {slot.status === 'work' || slot.status === 'test'
                       ? slot.setType === 'mrs'
@@ -191,7 +191,7 @@ export function TodayTab({
               <h2 className="font-black text-ink">{exercise.exerciseName}</h2>
               {exercise.status !== 'work' && <span className="text-xs uppercase text-muted">{exercise.status}</span>}
             </div>
-            <ExerciseSwap slot={exercise} locked={activeSession.isEditingCompleted || exercise.sets.some((set) => set.completed)} lockedReason={activeSession.isEditingCompleted ? 'Swaps are disabled while editing history.' : 'Undo logged sets to swap this exercise.'} onSwap={onSwapExercise} />
+            <ExerciseSwap slot={exercise} siblings={activeSession.exercises.filter((other) => other.slotId !== exercise.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} locked={activeSession.isEditingCompleted || exercise.sets.some((set) => set.completed)} lockedReason={activeSession.isEditingCompleted ? 'Swaps are disabled while editing history.' : 'Undo logged sets to swap this exercise.'} onSwap={onSwapExercise} />
             {exercise.notes && <p className="text-xs text-muted mt-1">{exercise.notes}</p>}
           </div>
 
@@ -229,13 +229,15 @@ export function TodayTab({
   );
 }
 
-function ExerciseSwap({ slot, locked = false, lockedReason, onSwap }: {
+function ExerciseSwap({ slot, siblings = [], locked = false, lockedReason, onSwap }: {
   slot: SwappableSlot;
+  /** Exercises already in the day's other slots, hidden from the choices so none repeats. */
+  siblings?: string[];
   locked?: boolean;
   lockedReason?: string;
   onSwap: (slotId: string, originalExerciseId: string, alternativeId: string) => void;
 }) {
-  const options = getSwapOptions(slot);
+  const options = getSwapOptions(slot, siblings);
   if (!options) return null;
   return (
     <div className="mt-2">

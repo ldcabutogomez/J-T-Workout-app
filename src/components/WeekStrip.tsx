@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
-import type { ProfileSchedule, WorkoutSession } from '../types';
+import type { ProfileSchedule, UserProfile, WorkoutSession } from '../types';
 import { mondayOf, weekAgenda, type DateKey } from '../engine/schedule';
 
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 /** This week at a glance on Today: one cell per day, a dot per workout. Tap to open the full calendar. */
-export function WeekStrip({ schedule, history, today, onOpen }: { schedule: ProfileSchedule; history: WorkoutSession[]; today: DateKey; onOpen: () => void }) {
-  const days = useMemo(() => weekAgenda(schedule, history, mondayOf(today), today), [schedule, history, today]);
+export function WeekStrip({ schedule, profile, history, today, onOpen }: { schedule: ProfileSchedule; profile?: UserProfile; history: WorkoutSession[]; today: DateKey; onOpen: () => void }) {
+  const days = useMemo(() => weekAgenda(schedule, history, mondayOf(today), today, profile), [schedule, history, today, profile]);
   return (
     <button
       type="button"

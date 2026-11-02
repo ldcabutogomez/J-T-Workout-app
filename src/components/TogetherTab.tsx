@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Trophy, Users } from 'lucide-react';
-import type { Leaderboard, LeaderboardCategory, PartnerStats } from '../engine/leaderboard';
+import { isLiveFresh, type Leaderboard, type LeaderboardCategory, type PartnerStats } from '../engine/leaderboard';
 import { ProgressRing } from './ProgressRing';
 import { fmtCount } from '../engine/sessionValidity';
 import { StreakLabel } from './StreakLabel';
@@ -23,10 +23,6 @@ export interface SyncDiagnostics {
   keyType: string;
   deviceId: string;
   pairedAs: string | null;
-  trainingAs: string | null;
-  trainingAsId: string | null;
-  /** This phone is paired as one profile but a different one is being used. */
-  mismatch: boolean;
   connection: { state: 'idle' | 'testing' | 'ok' | 'error'; message?: string };
 }
 
@@ -34,16 +30,14 @@ export interface PairingUi {
   /** False when the build has no backend configured. The tab then shows only this device's profiles. */
   configured: boolean;
   code: string | null;
-  profiles: { id: string; name: string }[];
   status: SyncStatus;
-  onCreate: (meId: string) => void;
+  onCreate: () => void;
   /** Returns an error message, or null on success. */
-  onJoin: (code: string, meId: string) => string | null;
+  onJoin: (code: string) => string | null;
   onUnlink: () => void;
   onSyncNow: () => void;
   diagnostics?: SyncDiagnostics;
   onTestConnection: () => void;
-  onRepairAs: (profileId: string) => void;
 }
 
 interface TogetherTabProps {
@@ -51,7 +45,7 @@ interface TogetherTabProps {
   /** The lifter who is "you" on this phone. */
   youId: string;
   pairing: PairingUi;
-  /** Local profiles, used to show profile pictures. Photos never leave this phone. */
+  /** Local profiles, used to show your own picture. A partner's picture comes from what their phone shared. */
   profiles?: UserProfile[];
 }
 
@@ -63,8 +57,7 @@ function ago(ms: number, now = Date.now()): string {
   return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
 }
 
-function PairingPanel({ pairing, defaultMeId }: { pairing: PairingUi; defaultMeId: string }) {
-  const [meId, setMeId] = useState(defaultMeId);
+function PairingPanel({ pairing }: { pairing: PairingUi }) {
   const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -113,17 +106,12 @@ function PairingPanel({ pairing, defaultMeId }: { pairing: PairingUi; defaultMeI
     <section className="card p-4 space-y-3">
       <div>
         <p className="font-black text-ink text-sm">Link your partner's phone</p>
-        <p className="text-xs text-muted mt-1">Only stats are shared (sessions per week, streak, volume, PRs), never your set-by-set logs.</p>
+        <p className="text-xs text-muted mt-1">Shared with your partner: your stats (sessions per week, streak, volume, PRs), your photo, and live status (lifting now, today's workout, this week). Set-by-set logs never leave this phone. You can turn photo and live status off in Settings.</p>
       </div>
-      <label className="block text-xs text-muted">I am
-        <select value={meId} onChange={(e) => setMeId(e.target.value)} className={`${input} ml-2`}>
-          {pairing.profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </label>
-      <button onClick={() => { setError(null); pairing.onCreate(meId); }} className={`${button} bg-accent text-on-accent w-full`}>Create a code</button>
+      <button onClick={() => { setError(null); pairing.onCreate(); }} className={`${button} bg-accent text-on-accent w-full`}>Create a code</button>
       <div className="flex gap-2">
         <input value={joinCode} onChange={(e) => setJoinCode(e.target.value)} placeholder="Or enter partner's code" autoCapitalize="characters" autoCorrect="off" spellCheck={false} className={`${input} flex-1 min-w-0 font-mono`} aria-label="Partner code" />
-        <button onClick={() => setError(pairing.onJoin(joinCode, meId))} className={`${button} bg-sunk text-ink`}>Join</button>
+        <button onClick={() => setError(pairing.onJoin(joinCode))} className={`${button} bg-sunk text-ink`}>Join</button>
       </div>
       {error && <p role="alert" className="text-xs text-bad">{error}</p>}
     </section>
@@ -156,18 +144,46 @@ function SyncDetails({ pairing }: { pairing: PairingUi }) {
         {pairing.code && row('Partner phones found', String(status.remoteCount ?? 0))}
       </dl>
       {status.state === 'error' && <p role="alert" className="alert-bad mb-2 text-xs">{status.error}</p>}
-      {d.mismatch && d.trainingAsId && (
-        <div className="alert-warn mb-2 text-xs">
-          This phone is linked as {d.pairedAs} but you are training as {d.trainingAs}, so {d.trainingAs}'s workouts are not being sent.
-          <button onClick={() => pairing.onRepairAs(d.trainingAsId as string)} className="mt-2 block min-h-11 rounded-xl bg-accent px-3 text-xs font-black text-on-accent">Link as {d.trainingAs}</button>
-        </div>
-      )}
       <div className="flex flex-wrap gap-2 pb-3">
         <button onClick={pairing.onTestConnection} disabled={d.connection.state === 'testing'} className="btn-secondary min-h-11 text-xs">{d.connection.state === 'testing' ? 'Testing…' : 'Test connection'}</button>
         {pairing.code && <button onClick={pairing.onSyncNow} disabled={status.state === 'syncing'} className="btn-secondary min-h-11 text-xs">{status.state === 'syncing' ? 'Syncing…' : 'Sync now'}</button>}
       </div>
       {d.connection.message && <p role="status" className={`pb-3 text-xs ${d.connection.state === 'error' ? 'text-bad' : 'text-ok'}`}>{d.connection.message}</p>}
     </details>
+  );
+}
+
+const STATUS_STYLE: Record<string, string> = {
+  c: 'bg-ok text-on-accent', p: 'bg-ok/30 text-ok', s: 'bg-sunk text-muted', m: 'bg-bad/15 text-bad', t: 'bg-accent text-on-accent', u: 'bg-sunk text-ink-2',
+};
+const WEEKDAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+/** What a partner chose to share beyond stats: lifting now, today's workout, and their week. */
+function PartnerLive({ stats }: { stats: PartnerStats }) {
+  const live = isLiveFresh(stats.workout, Date.now()) ? stats.workout : undefined;
+  if (!live && !stats.today && !stats.weekCodes) return null;
+  return (
+    <div className="mt-2 w-full space-y-1.5 border-t border-line pt-2 text-left">
+      {live && (
+        <p className="flex items-center gap-1.5 text-xs font-bold text-accent-ink">
+          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden />
+          Lifting now · {live.done} of {live.total} sets
+        </p>
+      )}
+      {!live && stats.today && <p className="text-xs text-ink-2">Next: Day {stats.today.day} · {stats.today.lift}</p>}
+      {stats.weekCodes && (
+        <ol className="flex justify-between gap-0.5" aria-label="This week">
+          {stats.weekCodes.map((code, index) => (
+            <li key={index} className="flex flex-1 flex-col items-center gap-0.5">
+              <span className="text-xs text-muted">{WEEKDAY_LETTERS[index]}</span>
+              {code === '' ? <span className="h-4 w-1.5 rounded-full bg-line" aria-hidden /> : (code.match(/[1-4][cpsmtu]/g) ?? []).map((part) => (
+                <span key={part} className={`rounded px-1 text-xs font-bold leading-4 ${STATUS_STYLE[part[1]]}`}>D{part[0]}</span>
+              ))}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
 }
 
@@ -186,12 +202,12 @@ function lastTrained(s: PartnerStats): { text: string; warn: boolean } {
 }
 
 export function TogetherTab({ board, youId, pairing, profiles }: TogetherTabProps) {
-  const personFor = (s: PartnerStats) => profiles?.find((p) => p.id === s.profileId) ?? { id: s.profileId, name: s.name };
+  const personFor = (s: PartnerStats) => profiles?.find((p) => p.id === s.profileId)
+    ?? { id: s.profileId, name: s.name, colorTheme: s.theme, avatar: s.avatar ? { photo: s.avatar.thumb, color: s.avatar.color } : undefined };
   if (!board) return <p className="text-sm text-muted p-4">Loading partners…</p>;
-  const defaultMeId = pairing.profiles.find((p) => p.id === youId)?.id ?? pairing.profiles[0]?.id ?? '';
   return (
     <div className="space-y-4">
-      <PairingPanel pairing={pairing} defaultMeId={defaultMeId} />
+      <PairingPanel pairing={pairing} />
       <SyncDetails pairing={pairing} />
       <section className="grid grid-cols-2 gap-3">
         {board.ranked.map((s) => {
@@ -212,6 +228,7 @@ export function TogetherTab({ board, youId, pairing, profiles }: TogetherTabProp
               </p>
               <p className={`text-xs mt-1 ${last.warn ? 'text-bad' : 'text-muted'}`}>{last.text}</p>
               {s.syncedAt !== undefined && <p className="text-xs text-muted mt-0.5">synced {ago(s.syncedAt)}</p>}
+              <PartnerLive stats={s} />
               <p className="text-xs text-muted mt-1">{s.sessionsCompleted + s.partialSessions} session{s.sessionsCompleted + s.partialSessions === 1 ? '' : 's'}{s.partialSessions > 0 ? ` (${s.partialSessions} partial)` : ''}</p>
               <p className="text-xs text-muted mt-1 font-mono">Wk {s.currentWeek} · Day {s.currentDay}</p>
             </div>

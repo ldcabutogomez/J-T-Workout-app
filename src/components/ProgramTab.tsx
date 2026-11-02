@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { LoadBasis, SourceReference, TrainingMaxKey, UserProfile } from '../types';
 import { getDayPrescription, REQUIRED_TRAINING_MAXES } from '../engine/jnt2Engine';
 import { WORKBOOK_AMBIGUITIES } from '../program/prescriptions';
-import { findAlternative } from '../program/swapOptions';
+import { exerciseNameFor } from '../program/swapOptions';
 import { AlertCircle, Check, Sliders } from 'lucide-react';
 
 interface ProgramTabProps {
@@ -111,10 +111,10 @@ export function ProgramTab({ profile, onUpdateProfile }: ProgramTabProps) {
 
       {Object.keys(profile.exerciseSwaps ?? {}).length > 0 && (
         <section className="card p-5 space-y-2">
-          <div className="flex items-center justify-between gap-3"><h2 className="font-black">Swapped accessories</h2><button onClick={() => onUpdateProfile({ ...profile, exerciseSwaps: {} })} className="px-3 py-2 rounded-xl bg-sunk text-xs font-bold">Reset all</button></div>
+          <div className="flex items-center justify-between gap-3"><h2 className="font-black">Swapped exercises</h2><button onClick={() => onUpdateProfile({ ...profile, exerciseSwaps: {} })} className="px-3 py-2 rounded-xl bg-sunk text-xs font-bold">Reset all</button></div>
           {Object.entries(profile.exerciseSwaps ?? {}).map(([key, alternativeId]) => {
             const [slotId, original] = key.split('::');
-            return <div key={key} className="flex items-center justify-between gap-3 bg-paper border border-line rounded-2xl p-3 text-xs"><span className="min-w-0"><strong className="text-ink">{findAlternative(alternativeId)?.alternative.name ?? alternativeId}</strong><span className="block text-muted">replaces {original} · {slotId}</span></span><button onClick={() => { const next = { ...profile.exerciseSwaps }; delete next[key]; onUpdateProfile({ ...profile, exerciseSwaps: next }); }} className="px-3 py-2 rounded-xl text-accent-ink font-bold">Reset</button></div>;
+            return <div key={key} className="flex items-center justify-between gap-3 bg-paper border border-line rounded-2xl p-3 text-xs"><span className="min-w-0"><strong className="text-ink">{exerciseNameFor(alternativeId)}</strong><span className="block text-muted">replaces {exerciseNameFor(original)} · {slotId}</span></span><button onClick={() => { const next = { ...profile.exerciseSwaps }; delete next[key]; onUpdateProfile({ ...profile, exerciseSwaps: next }); }} className="px-3 py-2 rounded-xl text-accent-ink font-bold">Reset</button></div>;
           })}
         </section>
       )}

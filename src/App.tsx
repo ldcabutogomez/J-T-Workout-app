@@ -35,6 +35,9 @@ import { ToastStack, type ToastItem } from './components/Toast';
 import { WorkoutSummary, type WorkoutSummaryData } from './components/WorkoutSummary';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { Avatar } from './components/Avatar';
+import { WhoUsesPhone } from './components/WhoUsesPhone';
+import { makeAvatarThumb } from './lib/avatar';
+import { clearLock, readLock, resolveLock, writeLock } from './lib/lock';
 import { nudgeMessage, postWorkoutMessage, todayCandidates, type NudgeKind } from './engine/coach';
 import { loadSeen, markSeen } from './lib/coachSeen';
 import { applyTheme, defaultThemeForId, themeForProfile } from './lib/theme';
@@ -42,8 +45,6 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp, Users } from 'lucide-react';
 
 type Tab = 'today' | 'program' | 'progress' | 'together' | 'settings' | 'verify';
-
-const ACTIVE_PROFILE_KEY = 'jnt2_active_profile';
 
 function blankProfile(id: string, name: string): UserProfile {
   return {
@@ -64,7 +65,7 @@ function blankProfile(id: string, name: string): UserProfile {
 export default function App() {
   const [tab, setTab] = useState<Tab>('today');
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState('');
+  const [lockedId, setLockedId] = useState<string | null>(() => readLock());
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const activeSessionRef = useRef<WorkoutSession | null>(null);
   const [history, setHistory] = useState<WorkoutSession[]>([]);
@@ -87,9 +88,11 @@ export default function App() {
   const [restRequest, setRestRequest] = useState<RestRequest | null>(null);
   const toastId = useRef(0);
 
+  // Whose phone this is. With no valid lock the chooser shows and no profile is open.
+  const lock = useMemo(() => (profiles.length ? resolveLock(profiles.map((item) => item.id), lockedId) : null), [profiles, lockedId]);
   const profile = useMemo(
-    () => profiles.find((item) => item.id === activeProfileId) ?? profiles[0] ?? null,
-    [profiles, activeProfileId],
+    () => (lock?.state === 'locked' ? profiles.find((item) => item.id === lock.id) ?? null : null),
+    [profiles, lock],
   );
 
   const showBanner = (text: string, error = false) => {
@@ -105,8 +108,9 @@ export default function App() {
 
   useEffect(() => {
     if (!profile) return;
-    try { localStorage.setItem(ACTIVE_PROFILE_KEY, profile.id); } catch { /* remembering is best effort */ }
-  }, [profile?.id]);
+    // A phone with exactly one profile has nothing to choose, so it locks to it.
+    if (readLock() !== profile.id && profiles.length === 1) writeLock(profile.id);
+  }, [profile?.id, profiles.length]);
 
   useEffect(() => {
     if (profile) applyTheme(themeForProfile(profile));
@@ -146,13 +150,6 @@ export default function App() {
           return withSchedule;
         }));
         setProfiles(stored);
-        // Reopen on whoever used the app last, so each person's theme and data come back as they left them.
-        let initialId = stored[0].id;
-        try {
-          const saved = localStorage.getItem(ACTIVE_PROFILE_KEY);
-          if (saved && stored.some((item) => item.id === saved)) initialId = saved;
-        } catch { /* falls back to the first profile */ }
-        setActiveProfileId(initialId);
       } catch (error) {
         showBanner((error as Error).message, true);
       }
@@ -190,7 +187,7 @@ export default function App() {
     let cancelled = false;
     void (async () => {
       try {
-        const entries = await Promise.all(profiles.map(async (item) => [item.id, await dbService.getSessionHistory(item.id, false)] as const));
+        const entries = await Promise.all(profiles.filter((item) => item.id === profile?.id).map(async (item) => [item.id, await dbService.getSessionHistory(item.id, false)] as const));
         if (!cancelled) setPartnerHistory(Object.fromEntries(entries));
       } catch (error) {
         if (!cancelled) showBanner((error as Error).message, true);
@@ -199,7 +196,8 @@ export default function App() {
     return () => { cancelled = true; };
   }, [tab, profiles, history]);
 
-  const meId = profiles.find((item) => item.id === pairing.profileId)?.id ?? null;
+  // This phone's lifter is who it is locked to, so syncing never disagrees with the profile in use.
+  const meId = profile?.id ?? null;
   const paired = Boolean(cloudConfig && pairing.code && meId);
   const latest = useRef({ profiles, code: pairing.code, meId });
   latest.current = { profiles, code: pairing.code, meId };
@@ -215,7 +213,17 @@ export default function App() {
     try {
       const myHistory = await dbService.getSessionHistory(mine.id, false);
       const now = Date.now();
-      const snapshot = snapshotFromHistory(mine, myHistory, now, deviceId);
+      // A photo chosen before partners could see it has no thumbnail yet: make it once and keep it on the profile.
+      let me = mine;
+      if (me.shareLive !== false && me.avatar?.photo && !me.avatar.thumb) {
+        const thumb = await makeAvatarThumb(me.avatar.photo);
+        if (thumb) {
+          me = { ...me, avatar: { ...me.avatar, thumb } };
+          await dbService.saveProfile(me);
+          setProfiles((items) => items.map((item) => (item.id === me.id ? me : item)));
+        }
+      }
+      const snapshot = snapshotFromHistory(me, myHistory, now, deviceId, { activeSession: activeSessionRef.current });
       await pushSnapshot(cloudConfig, code, snapshot);
       const lastPushed = { volumeLb: snapshot.volumeLb, sessions: snapshot.sessionsCompleted, partial: snapshot.partialSessions ?? 0, weekCount: snapshot.weekly[weekKey(weekStart(now))] ?? 0 };
       setSyncStatus((prev) => ({ ...prev, lastPushAt: now, lastPushed }));
@@ -240,6 +248,24 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [paired, pairing.code, meId, history, profiles]);
 
+  // Tell your partner when a workout starts or ends, and as it progresses, at most once every 20 seconds.
+  const liveKey = activeSession && !activeSession.isEditingCompleted
+    ? `${activeSession.sessionId}:${activeSession.exercises.flatMap((exercise) => exercise.sets).filter((set) => set.completed).length}`
+    : 'idle';
+  const lastLive = useRef({ key: liveKey, at: 0 });
+  useEffect(() => {
+    if (!paired || profile?.shareLive === false) return;
+    const previous = lastLive.current;
+    if (previous.key === liveKey) return;
+    const edge = previous.key === 'idle' || liveKey === 'idle';
+    const wait = edge ? 1500 : Math.max(5000, 20_000 - (Date.now() - previous.at));
+    const timer = window.setTimeout(() => {
+      lastLive.current = { key: liveKey, at: Date.now() };
+      void syncNow();
+    }, wait);
+    return () => window.clearTimeout(timer);
+  }, [liveKey, paired, profile?.shareLive]);
+
   // Refresh when the app returns to the foreground or the network comes back, and poll while the Together tab is open.
   useEffect(() => {
     if (!paired) return;
@@ -257,25 +283,26 @@ export default function App() {
   const leaderboard = useMemo(() => {
     if (!partnerHistory) return null;
     // Your own row always comes from local history, so it shows right after a workout, paired or not.
-    return composeBoard({ profiles, historyByProfile: partnerHistory, pairedProfileId: paired ? meId : null, remote });
-  }, [profiles, partnerHistory, paired, meId, remote]);
+    return composeBoard({ profiles, historyByProfile: partnerHistory, pairedProfileId: meId, remote });
+  }, [profiles, partnerHistory, meId, remote]);
 
   const pairingUi = {
     configured: Boolean(cloudConfig),
     code: paired ? pairing.code : null,
-    profiles: profiles.map((item) => ({ id: item.id, name: item.name })),
     status: syncStatus,
-    onCreate: (me: string) => {
+    onCreate: () => {
+      if (!meId) return;
       const code = generatePairCode();
-      savePairing(code, me);
-      setPairing({ code, profileId: me });
+      savePairing(code, meId);
+      setPairing({ code, profileId: meId });
       setRemote([]);
     },
-    onJoin: (input: string, me: string) => {
+    onJoin: (input: string) => {
       const code = normalizePairCode(input);
       if (!code) return 'That code does not look right. It is 10 letters and numbers.';
-      savePairing(code, me);
-      setPairing({ code, profileId: me });
+      if (!meId) return 'Choose who uses this phone first.';
+      savePairing(code, meId);
+      setPairing({ code, profileId: meId });
       setRemote([]);
       return null;
     },
@@ -290,10 +317,7 @@ export default function App() {
       host: (() => { try { return new URL(cloudConfig.url).host; } catch { return cloudConfig.url; } })(),
       keyType: describeKey(cloudConfig.anonKey),
       deviceId,
-      pairedAs: profiles.find((item) => item.id === pairing.profileId)?.name ?? null,
-      trainingAs: profile?.name ?? null,
-      trainingAsId: profile?.id ?? null,
-      mismatch: Boolean(paired && profile && profile.id !== meId),
+      pairedAs: profile?.name ?? null,
       connection,
     } : undefined,
     onTestConnection: async () => {
@@ -305,11 +329,6 @@ export default function App() {
       } catch (error) {
         setConnection({ state: 'error', message: (error as Error).message });
       }
-    },
-    onRepairAs: (profileId: string) => {
-      saveSyncProfile(profileId);
-      setPairing((current) => ({ ...current, profileId }));
-      setRemote([]);
     },
   };
 
@@ -330,10 +349,10 @@ export default function App() {
   const missed = useMemo(() => (schedule && historyReady ? missedCount(schedule, history, today) : 0), [schedule, history, historyReady, today]);
   const sheetData = useMemo(() => {
     if (!moveSlot || !schedule) return null;
-    const days = weekAgenda(schedule, history, mondayOf(slotDate(schedule, moveSlot.week, moveSlot.day)), today);
+    const days = weekAgenda(schedule, history, mondayOf(slotDate(schedule, moveSlot.week, moveSlot.day)), today, profile ?? undefined);
     const item = days.flatMap((day) => day.items).find((entry) => entry.week === moveSlot.week && entry.day === moveSlot.day);
     return item ? { item, days } : null;
-  }, [moveSlot, schedule, history, today]);
+  }, [moveSlot, schedule, history, today, profile]);
 
   // The Today coach card: welcome back, phase milestone, weekly recap, or the day's pre-workout line.
   const coachQueue = useMemo(() => {
@@ -683,8 +702,37 @@ export default function App() {
   const refreshAfterImport = async () => {
     const refreshed = await dbService.getProfiles();
     setProfiles(refreshed);
-    if (!refreshed.some((item) => item.id === activeProfileId)) setActiveProfileId(refreshed[0]?.id ?? '');
+    // An import never changes who owns this phone; if their profile is gone, the chooser asks again.
   };
+
+  const chooseUser = (profileId: string) => {
+    writeLock(profileId);
+    setLockedId(profileId);
+    // Syncing follows the owner of the phone. A link made while the phone belonged to someone else is dropped.
+    if (pairing.profileId && pairing.profileId !== profileId) {
+      clearPairing();
+      setPairing({ code: null, profileId: null });
+      setRemote([]);
+      setSyncStatus({ state: 'idle' });
+    } else if (pairing.code) {
+      saveSyncProfile(profileId);
+      setPairing((current) => ({ ...current, profileId }));
+    }
+    setTab('today');
+  };
+
+  const switchUser = () => {
+    const name = profile?.name ?? 'the current user';
+    if (!window.confirm(`Switch who uses this phone? ${name}'s partner link on this phone will be removed (their workouts stay saved). You will pick who is using it next.`)) return;
+    clearLock();
+    setLockedId(null);
+    clearPairing();
+    setPairing({ code: null, profileId: null });
+    setRemote([]);
+    setSyncStatus({ state: 'idle' });
+  };
+
+  if (lock?.state === 'choose') return <WhoUsesPhone profiles={profiles} onPick={chooseUser} />;
 
   return (
     <div className="min-h-screen bg-paper text-ink flex flex-col font-sans selection:bg-accent selection:text-on-accent">
@@ -692,14 +740,12 @@ export default function App() {
       <header className="sticky top-0 z-30 bg-surface border-b border-line px-3 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-display font-black text-lg text-accent-ink whitespace-nowrap">J&amp;T 2.0</span>
-          <div className="flex items-center bg-paper border border-line rounded-xl p-0.5 overflow-x-auto max-w-[62vw]">
-            {profiles.map((item) => (
-              <button key={item.id} onClick={() => setActiveProfileId(item.id)} className={`flex items-center gap-1.5 py-1 pl-1 pr-2.5 text-xs font-bold rounded-lg whitespace-nowrap ${item.id === profile?.id ? 'bg-accent text-on-accent' : 'text-muted'}`}>
-                <span className={`flex rounded-full ${item.id === profile?.id ? 'ring-2 ring-on-accent' : ''}`}><Avatar profile={item} size={22} decorative /></span>
-                {item.name}
-              </button>
-            ))}
-          </div>
+          {profile && (
+            <div className="flex items-center gap-1.5 rounded-xl bg-accent py-1 pl-1 pr-3 text-xs font-bold text-on-accent" aria-label={`Signed in as ${profile.name}`}>
+              <span className="flex rounded-full ring-2 ring-on-accent"><Avatar profile={profile} size={22} decorative /></span>
+              {profile.name}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <PWAInstallButton activeWorkout={Boolean(activeSession)} />
@@ -712,10 +758,10 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
       <main key={tab} className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full animate-fade-in">
-        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} history={history} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={history} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && (
           <div className="space-y-4">
-            {schedule && <WeekCalendar schedule={schedule} history={history} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
+            {schedule && <WeekCalendar schedule={schedule} profile={profile ?? undefined} history={history} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
             <ProgramTab profile={profile} onUpdateProfile={updateProfile} />
           </div>
         )}
@@ -728,7 +774,7 @@ export default function App() {
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
         {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} />}
-        {tab === 'settings' && <SettingsTab profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSelectProfile={setActiveProfileId} onUpdateProfile={updateProfile} onExportBackup={async () => {
+        {tab === 'settings' && <SettingsTab profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
             const blob = new Blob([await dbService.exportBackup()], { type: 'application/json' });
             const url = URL.createObjectURL(blob);

@@ -40,6 +40,11 @@ function suggestedLoad(
   if (set.type !== 'rm_target' && set.type !== 'test') return null;
   if (set.loadBasis.kind !== 'user_selected') return null;
   if (set.suggestFrom) {
+    // A swapped main lift (Belted Squat for Back Squat) has its own history: use it when there is one.
+    if (slot.swappedFrom) {
+      const own = suggestFromHistory(slot.exerciseId, set.prescribedReps, history, profile.unit, profile.equipmentIncrement);
+      if (own !== null) return { load: own, source: 'history' };
+    }
     const load = suggestRmLoadFor(profile, set.suggestFrom, set.prescribedReps);
     return load === null ? null : { load, source: 'tm' };
   }
