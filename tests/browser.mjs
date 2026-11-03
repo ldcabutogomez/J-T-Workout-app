@@ -54,6 +54,9 @@ try {
   await waitForPreview();
   browser = await chromium.launch({ headless: true });
   const context = await lockedContext(browser);
+  // The scheduler picks the next workout from the calendar, so pin the clock to a Monday: Week 1 Day 1 is then
+  // always "next", whatever day this test runs. Timers keep running; only Date is fixed.
+  await context.clock.setFixedTime(new Date('2024-05-13T09:00:00'));
   const page = await context.newPage();
   const browserErrors = [];
   page.on('pageerror', (error) => browserErrors.push(String(error)));

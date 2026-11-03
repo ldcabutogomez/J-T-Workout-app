@@ -48,6 +48,8 @@ export function useAppUpdate() {
   }, [watch]);
 
   const check = useCallback(async (): Promise<UpdateCheck> => {
+    // Offline there is nothing to find out, and the failed requests would only add noise.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'failed';
     lastCheck.current = Date.now();
     // The version file is the primary signal: it works even when the service worker is slow to notice a new build.
     const newer = await serverHasNewerBuild();
