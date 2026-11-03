@@ -114,8 +114,8 @@ try {
   await inputPage.getByText('Workout in progress').waitFor();
   assert.equal(await inputPage.getByLabel('Workout note').inputValue(), 'Left knee twinge on the second set');
   await inputPage.getByRole('button', { name: 'Progress' }).click();
-  await inputPage.getByRole('heading', { name: 'Trends' }).waitFor();
-  await inputPage.getByText('Finish a workout and your trends will start here.').waitFor();
+  await inputPage.getByRole('heading', { name: 'Training trends' }).waitFor();
+  await inputPage.getByText('Complete a workout in this time range and the chart will appear here.').waitFor();
   await assertNoHorizontalClipping(inputPage, 'Progress with trends');
   await inputContext.close();
 
@@ -198,7 +198,7 @@ try {
   process.exitCode = 1;
 } finally {
   await browser?.close().catch(() => {});
-  stopPreview();
+  await stopPreview();
   // Exit explicitly: a lingering handle must never keep a finished test run alive (CI would wait for the job limit).
   process.exit(process.exitCode ?? 0);
 }
