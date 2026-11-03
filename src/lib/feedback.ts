@@ -137,11 +137,13 @@ export const canVibrate = () =>
  */
 export const installTapHaptics = (): (() => void) => {
   if (typeof document === 'undefined') return () => undefined;
-  const selector = 'button, [role="tab"], [role="checkbox"], select, summary, input[type="checkbox"], input[type="range"]';
+  // Not `select`: opening a native picker must be left completely alone (a swap already ticks when the choice is made).
+  const selector = 'button, [role="tab"], [role="checkbox"], summary, input[type="checkbox"], input[type="range"]';
   const handler = (event: Event) => {
     const target = event.target as Element | null;
     const el = target?.closest?.(selector) as (HTMLElement & { disabled?: boolean }) | null;
-    if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return;
+    // The hidden iOS switch is clicked by haptic() itself, so its own click must never trigger another tick.
+    if (!el || el.disabled || el.hasAttribute('switch') || el.getAttribute('aria-disabled') === 'true') return;
     haptic(el.matches('[data-haptic="step"]') ? 'step' : 'select');
   };
   const type = typeof navigator !== 'undefined' && 'vibrate' in navigator ? 'pointerdown' : 'click';
