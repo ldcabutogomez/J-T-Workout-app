@@ -42,16 +42,16 @@ test('accessories swap within their own group; T2a lifts stay fixed; main lifts 
 
 test('a swap changes identity but keeps sets, reps, and source references', () => {
   const original = slotOf(1, 1, 'd1-t2b');
-  const p = profile({ exerciseSwaps: { [swapKey('d1-t2b', original.exerciseId)]: 'hip-thrust' } });
+  const p = profile({ exerciseSwaps: { [swapKey('d1-t2b', original.exerciseId)]: 'bulgarian-split-squat' } });
   const swapped = slotOf(1, 1, 'd1-t2b', p);
-  assert.equal(swapped.exerciseId, 'hip-thrust');
-  assert.equal(swapped.exerciseName, 'Hip Thrust');
+  assert.equal(swapped.exerciseId, 'bulgarian-split-squat');
+  assert.equal(swapped.exerciseName, 'Bulgarian Split Squat');
   assert.deepEqual(swapped.swappedFrom, { exerciseId: original.exerciseId, exerciseName: original.exerciseName });
   assert.equal(swapped.setCount, original.setCount);
   assert.equal(swapped.repTarget, original.repTarget);
   assert.deepEqual(swapped.prescribedSets, original.prescribedSets);
   assert.deepEqual(swapped.sourceRefs, original.sourceRefs);
-  assert.equal(getSwapOptions(swapped)!.selectedId, 'hip-thrust');
+  assert.equal(getSwapOptions(swapped)!.selectedId, 'bulgarian-split-squat');
 });
 
 test('bodyweight alternatives carry a load hint', () => {
@@ -103,11 +103,11 @@ test('swapExercise refuses after a set is logged and allows it again after undo'
   const p = profile();
   let session = createWorkoutSession(p, getDayPrescription(1, 1, p), 10);
   const exercise = session.exercises.find((e) => e.slotId === 'd1-t2b')!;
-  const swappedProfile = profile({ exerciseSwaps: { [swapKey('d1-t2b', exercise.exerciseId)]: 'hip-thrust' } });
+  const swappedProfile = profile({ exerciseSwaps: { [swapKey('d1-t2b', exercise.exerciseId)]: 'bulgarian-split-squat' } });
   session = logSet(session, 'd1-t2b', exercise.sets[0].setId, 15, 100, 2, 20);
-  assert.throws(() => swapExercise(session, 'd1-t2b', swappedProfile), /Undo/);
+  assert.throws(() => swapExercise(session, 'd1-t2b', swappedProfile), /Completed sets stay attached/);
   session = undoSet(session, 'd1-t2b', exercise.sets[0].setId);
-  assert.equal(swapExercise(session, 'd1-t2b', swappedProfile).exercises.find((e) => e.slotId === 'd1-t2b')!.exerciseId, 'hip-thrust');
+  assert.equal(swapExercise(session, 'd1-t2b', swappedProfile).exercises.find((e) => e.slotId === 'd1-t2b')!.exerciseId, 'bulgarian-split-squat');
   assert.throws(() => swapExercise({ ...session, isEditingCompleted: true }, 'd1-t2b', swappedProfile), /editing/);
 });
 
@@ -150,8 +150,23 @@ test('swapped and original exercises keep separate PR history', () => {
     return finalizeSession(s, time);
   };
   const history = [make('old', original.exerciseId, 200, 1000)];
-  const swappedNow = make('now', 'hip-thrust', 100, 2000);
+  const swappedNow = make('now', 'bulgarian-split-squat', 100, 2000);
   assert.equal(findComparableResult(swappedNow, history), null, 'no cross-exercise comparison');
   const sameAgain = make('again', original.exerciseId, 220, 3000);
   assert.equal(findComparableResult(sameAgain, history)?.kind, 'all_time_pr');
+});
+
+test('alternatives are limited to the slots they fit and carry a fit class', () => {
+  const fly = getSwapOptions(slotOf(1, 2, 'd2-t3c'))!;
+  assert.equal(fly.original.exerciseId, 'pec-flye');
+  assert.ok(['cable-fly', 'db-fly'].every((id) => fly.alternatives.some((a) => a.id === id)));
+  assert.ok(!fly.alternatives.some((a) => a.id === 'cable-chest-press'), 'a press is not a fly alternative');
+  const incline = getSwapOptions(slotOf(1, 2, 'd2-t2b'))!;
+  assert.ok(incline.alternatives.some((a) => a.id === 'cable-chest-press' && a.fit === 'conditional'));
+  assert.ok(!incline.alternatives.some((a) => a.id === 'cable-fly'));
+  const lateral = getSwapOptions(slotOf(1, 2, 'd2-t3a'))!;
+  assert.equal(lateral.group, 'shoulder');
+  assert.ok(lateral.alternatives.some((a) => a.id === 'cable-lateral-raise'));
+  const legPress = getSwapOptions(slotOf(1, 1, 'd1-t2b'))!;
+  assert.equal(legPress.alternatives.find((a) => a.id === 'hip-abduction')?.fit, 'different');
 });

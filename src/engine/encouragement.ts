@@ -1,3 +1,4 @@
+import { cycleOf } from './cycles';
 import type { EncouragementTone, LoggedExercise, SessionResult, WorkoutSession } from '../types';
 import { normalizeWeight } from './jnt2Engine';
 import { countsTowardStats, fmtCount, sessionCredit, validCompleted, weekStart, weeklyCounts } from './sessionValidity';
@@ -116,7 +117,9 @@ export function priorContext(
  */
 export function isVerifiedCycleComplete(current: WorkoutSession, history: WorkoutSession[]): boolean {
   if (!validCompleted(current)) return false;
-  const pairs = (sessions: WorkoutSession[]) => new Set(sessions.filter(validCompleted).map((item) => `${item.week}:${item.day}`));
+  // Only this session's own cycle counts: a second run through the program has to reach all 48 again.
+  const cycle = cycleOf(current);
+  const pairs = (sessions: WorkoutSession[]) => new Set(sessions.filter((item) => validCompleted(item) && cycleOf(item) === cycle).map((item) => `${item.week}:${item.day}`));
   const before = pairs(history.filter((item) => item.sessionId !== current.sessionId));
   const after = pairs([...history.filter((item) => item.sessionId !== current.sessionId), current]);
   return after.size === 48 && before.size < 48

@@ -5,6 +5,7 @@ import { Download, Upload, Users } from 'lucide-react';
 import { canVibrate, feedback, haptic } from '../lib/feedback';
 import { AVATAR_COLORS, defaultAvatarColor, fileToAvatar } from '../lib/avatar';
 import { COLOR_THEMES, THEMES, themeForProfile } from '../lib/theme';
+import { wakeLockSupported } from '../lib/wakeLock';
 import { FLAIRS, PERK_UNLOCKS, TAUNT_LEVEL, THEME_UNLOCK_LEVEL, flairUnlocked, themeUnlocked } from '../lib/perks';
 import { WEEKDAY_LABELS, defaultSchedule, normalizeDays, withTrainingDays } from '../engine/schedule';
 import { Avatar, AVATAR_TILE } from './Avatar';
@@ -15,6 +16,10 @@ interface SettingsTabProps {
   activeSession: WorkoutSession | null;
   /** Asks who uses this phone again. Confirmation happens in the caller. */
   onSwitchUser: () => void;
+  /** Starts the setup wizard for another lifter who shares this phone. */
+  onAddProfile?: () => void;
+  /** Opens the new-cycle flow. Undefined while a workout is in progress. */
+  onStartNewCycle?: () => void;
   onUpdateProfile: (profile: UserProfile) => void;
   onExportBackup: () => void;
   onImportBackup: (json: string, replace: boolean) => Promise<{ success: boolean; message: string }>;
@@ -31,7 +36,7 @@ interface SettingsTabProps {
   };
 }
 
-export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitchUser, onUpdateProfile, onExportBackup, onImportBackup, level = 1, extra, backupInfo }: SettingsTabProps) {
+export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitchUser, onAddProfile, onStartNewCycle, onUpdateProfile, onExportBackup, onImportBackup, level = 1, extra, backupInfo }: SettingsTabProps) {
   const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0];
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
@@ -83,6 +88,8 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitch
         </div>
         <p className="text-xs text-muted">Your workouts, theme and partner link stay with you. Lending the phone to someone else? Switch who uses it.</p>
         <button type="button" onClick={onSwitchUser} className="btn-secondary min-h-11 text-sm">Switch who uses this phone</button>
+        {onStartNewCycle && <button type="button" onClick={() => { if (window.confirm(profile.cycleCompleted ? 'Start the next cycle?' : 'Start a new cycle now? The current one is closed where it stands. Nothing is deleted.')) onStartNewCycle(); }} className="btn-secondary min-h-11 text-sm">Start a new cycle</button>}
+        {onAddProfile && <button type="button" onClick={onAddProfile} className="btn-secondary min-h-11 text-sm">Add another lifter</button>}
       </section>
 
       <section className="card p-5 space-y-4">
@@ -113,6 +120,8 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitch
         <h2 className="text-lg font-black">Feedback &amp; rewards</h2>
         <Toggle label="Vibration" hint={canVibrate() ? 'Buzz on set logged, PRs, and rest end. On iPhone (iOS 17.4+) this is a light tick, and only when you tap something.' : 'Not supported on this device or browser.'} checked={profile.hapticsEnabled ?? true} onChange={(hapticsEnabled) => { onUpdateProfile({ ...profile, hapticsEnabled }); if (hapticsEnabled) window.setTimeout(() => haptic('pr'), 50); }} />
         <Toggle label="Sounds" hint="Short chimes for PRs, finishing, and rest end." checked={profile.soundEnabled ?? true} onChange={(soundEnabled) => { onUpdateProfile({ ...profile, soundEnabled }); if (soundEnabled) window.setTimeout(() => feedback('badge'), 50); }} />
+        {wakeLockSupported() && <Toggle label="Keep screen on during workouts" hint="Stops the phone from locking between sets. Turns itself off when you finish." checked={profile.keepScreenOn ?? true} onChange={(keepScreenOn) => onUpdateProfile({ ...profile, keepScreenOn })} />}
+        <Toggle label="Large gym mode" hint="Bigger numbers and buttons when logging a set, easier to read and tap mid-lift." checked={profile.largeGymMode ?? false} onChange={(largeGymMode) => onUpdateProfile({ ...profile, largeGymMode })} />
         <Toggle label="Auto-start rest timer" hint="Start a tier-based countdown after each logged set." checked={profile.autoStartRest ?? false} onChange={(autoStartRest) => onUpdateProfile({ ...profile, autoStartRest })} />
         <div>
           <p className="text-xs uppercase font-bold text-muted mb-1">Preview</p>

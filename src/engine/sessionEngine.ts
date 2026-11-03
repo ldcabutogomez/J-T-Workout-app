@@ -1,3 +1,4 @@
+import { stampFor } from './cycles';
 import type {
   DayPrescription,
   LoggedExercise,
@@ -7,6 +8,7 @@ import type {
 } from '../types';
 import { calculateSetLoad, getDayPrescription, resolveTrainingMax, roundLoad } from './jnt2Engine';
 import { suggestFromHistory, suggestRmLoadFor } from './suggestions';
+import { loadNotationFor } from '../program/loadNotation';
 
 function copy<T>(value: T): T {
   return typeof structuredClone === 'function'
@@ -18,7 +20,7 @@ export function missingTrainingMaxes(prescription: DayPrescription, profile: Use
   const missing = new Set<string>();
   for (const exercise of prescription.exercises) {
     for (const set of exercise.prescribedSets) {
-      if (set.loadBasis.kind !== 'training_max') continue;
+      if (set.loadBasis.kind !== 'training_max' || set.loadBasis.variationId) continue; // a variation's loads stay unset until its TM is entered
       if (resolveTrainingMax(profile, set.loadBasis.key, set.loadBasis.block).value === null) {
         missing.add(`${set.loadBasis.block === 1 ? 'Block 1' : 'Block 2'} ${set.loadBasis.key.replace('_', ' ')} TM`);
       }
@@ -49,6 +51,7 @@ function suggestedLoad(
     return load === null ? null : { load, source: 'tm' };
   }
   const load = suggestFromHistory(slot.exerciseId, set.prescribedReps, history, profile.unit, profile.equipmentIncrement);
+  // Only this exercise's own history counts. Nothing is converted from a different exercise.
   return load === null ? null : { load, source: 'history' };
 }
 
@@ -73,6 +76,8 @@ export function createWorkoutSession(
     sourceRefs: copy(slot.sourceRefs),
     loadBasis: slot.loadBasis ? copy(slot.loadBasis) : undefined,
     swappedFrom: slot.swappedFrom ? { ...slot.swappedFrom } : undefined,
+    ...(slot.swapReview ? { swapReview: { ...slot.swapReview } } : {}),
+    loadNotation: loadNotationFor(slot.exerciseId, slot.exerciseName),
     sets: slot.prescribedSets.map((set) => {
       const computed = calculateSetLoad(set, profile);
       const suggestion = computed === null ? suggestedLoad(slot, set, profile, history) : null;
@@ -93,6 +98,7 @@ export function createWorkoutSession(
 
   return {
     sessionId: `session-${profile.id}-w${prescription.week}-d${prescription.dayNumber}-${now}`,
+    ...stampFor(profile),
     profileId: profile.id,
     week: prescription.week,
     day: prescription.dayNumber,
@@ -116,14 +122,16 @@ export function createWorkoutSession(
 }
 
 /**
- * Re-applies the profile's current swap for one slot. Swapped slots share the original's set
- * structure (they are all user-selected MRS accessories), so only the identity fields change.
- * Refuses once a set is logged so achieved-RM data is never left pointing at a different lift.
+ * Replaces the exercise in a slot with whatever the profile's swaps now say (or reverts it). Nothing logged is ever
+ * relabeled: once any set in the slot is completed the swap is refused. Every unlogged load is cleared, including
+ * values the lifter typed, because they belonged to the previous exercise; the new exercise is reseeded from its own history.
  */
-export function swapExercise(session: WorkoutSession, slotId: string, profile: UserProfile): WorkoutSession {
+export function swapExercise(session: WorkoutSession, slotId: string, profile: UserProfile, history: WorkoutSession[] = []): WorkoutSession {
   if (session.isEditingCompleted) throw new Error('Exercises cannot be swapped while editing a completed session.');
   const exercise = findExercise(session, slotId);
-  if (exercise.sets.some((set) => set.completed)) throw new Error("Undo this exercise's logged sets before swapping it.");
+  if (exercise.sets.some((set) => set.completed)) {
+    throw new Error(`Completed sets stay attached to ${exercise.exerciseName}. Undo them, or finish this workout, before replacing it.`);
+  }
   const slot = getDayPrescription(session.week, session.day, profile).exercises.find((item) => item.slotId === slotId);
   if (!slot) throw new Error(`Unknown exercise slot: ${slotId}`);
 
@@ -133,14 +141,42 @@ export function swapExercise(session: WorkoutSession, slotId: string, profile: U
   logged.exerciseName = slot.exerciseName;
   logged.notes = slot.notes;
   logged.swappedFrom = slot.swappedFrom ? { ...slot.swappedFrom } : undefined;
-  const snapshot = next.prescriptionSnapshot.exercises.find((item) => item.slotId === slotId);
-  if (snapshot) {
-    snapshot.exerciseId = slot.exerciseId;
-    snapshot.exerciseName = slot.exerciseName;
-    snapshot.notes = slot.notes;
-    snapshot.swappedFrom = slot.swappedFrom ? { ...slot.swappedFrom } : undefined;
+  logged.swapReview = slot.swapReview ? { ...slot.swapReview } : undefined;
+  logged.loadNotation = loadNotationFor(slot.exerciseId, slot.exerciseName);
+  logged.loadBasis = slot.loadBasis ? copy(slot.loadBasis) : undefined;
+  logged.targetRM = slot.repTarget ?? undefined;
+  logged.manualBackoffLoad = undefined;
+  logged.manualLoadDecisionPending = undefined;
+  logged.rmMismatchWarning = undefined;
+  logged.achievedRMWeight = undefined;
+  logged.achievedRMReps = undefined;
+  for (const set of logged.sets) {
+    const prescribed = slot.prescribedSets.find((item) => `${slot.slotId}-s${item.setNumber}` === set.setId);
+    if (!prescribed) continue;
+    set.prescribedReps = prescribed.prescribedReps;
+    set.userLoadOverride = undefined;
+    const computed = calculateSetLoad(prescribed, profile);
+    const suggestion = computed === null ? suggestedLoad(slot, prescribed, profile, history) : null;
+    set.load = computed ?? suggestion?.load ?? null;
+    set.suggested = suggestion?.source;
   }
+  const snapshot = next.prescriptionSnapshot.exercises.find((item) => item.slotId === slotId);
+  if (snapshot) Object.assign(snapshot, copy(slot));
   next.settingsSnapshot.exerciseSwaps = copy(profile.exerciseSwaps);
+  next.updatedTime = Date.now();
+  return next;
+}
+
+/** Starts the slot's unlogged sets blank, for when the equipment changes and old loads no longer apply. */
+export function clearSuggestedLoads(session: WorkoutSession, slotId: string): WorkoutSession {
+  const next = copy(session);
+  const exercise = findExercise(next, slotId);
+  for (const set of exercise.sets) {
+    if (set.completed) continue;
+    set.load = null;
+    set.suggested = undefined;
+    set.userLoadOverride = undefined;
+  }
   next.updatedTime = Date.now();
   return next;
 }
@@ -302,4 +338,33 @@ export function nextProgramPosition(profile: UserProfile): Pick<UserProfile, 'cu
     return { currentWeek: profile.currentWeek + 1, currentDay: 1, cycleCompleted: false };
   }
   return { currentWeek: profile.currentWeek, currentDay: profile.currentDay + 1, cycleCompleted: false };
+}
+
+export const NOTE_MAX = 500;
+
+/** A note as it is stored: control characters removed (so pasted text can't break the layout) and capped at NOTE_MAX. */
+export function cleanNote(text: string): string {
+  return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').slice(0, NOTE_MAX);
+}
+
+/** Sets or clears the lifter's note on one exercise. An empty or all-space note removes the field. */
+export function setExerciseNote(session: WorkoutSession, slotId: string, text: string, now = Date.now()): WorkoutSession {
+  findExercise(session, slotId);
+  const note = cleanNote(text);
+  return {
+    ...session,
+    updatedTime: now,
+    exercises: session.exercises.map((exercise) => {
+      if (exercise.slotId !== slotId) return exercise;
+      const { userNote: _old, ...rest } = exercise;
+      return note.trim() ? { ...rest, userNote: note } : rest;
+    }),
+  };
+}
+
+/** Sets or clears the note for the whole workout. */
+export function setSessionNote(session: WorkoutSession, text: string, now = Date.now()): WorkoutSession {
+  const note = cleanNote(text);
+  const { note: _old, ...rest } = session;
+  return note.trim() ? { ...rest, note, updatedTime: now } : { ...rest, updatedTime: now };
 }

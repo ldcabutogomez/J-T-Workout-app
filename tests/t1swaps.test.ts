@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getDayPrescription } from '../src/program/prescriptions';
-import { exerciseNameFor, findAlternative, getSwapOptions, swapKey } from '../src/program/swapOptions';
+import { exerciseNameFor, getSwapOptions, swapKey } from '../src/program/swapOptions';
 import { createWorkoutSession, finalizeSession, logSet, swapExercise, undoSet } from '../src/engine/sessionEngine';
 import { findAllComparableResults } from '../src/engine/encouragement';
 import { suggestRmLoad } from '../src/engine/suggestions';
@@ -16,13 +16,14 @@ const withSwap = (slotId: string, original: string, alternative: string, extra =
 const names = (options: ReturnType<typeof getSwapOptions>) => options?.alternatives.map((a) => a.name);
 
 test('every main lift offers its own alternatives, in work and test weeks alike', () => {
-  assert.deepEqual(names(getSwapOptions(slotOf(1, 1, 'd1-t1-primary'))), ['Belted Squat', 'Safety Bar Squat', 'Box Squat', 'Pause Squat']);
-  assert.deepEqual(names(getSwapOptions(slotOf(1, 2, 'd2-t1-primary'))), ['Sling Shot Bench', 'Pause Bench Press', 'Spoto Press', 'Floor Press']);
+  assert.deepEqual(names(getSwapOptions(slotOf(1, 1, 'd1-t1-primary'))), ['Pause Squat', 'Belted Squat', 'Safety Bar Squat', 'Box Squat']);
+  assert.deepEqual(names(getSwapOptions(slotOf(1, 2, 'd2-t1-primary'))), ['Pause Bench Press', 'Spoto Press', 'Sling Shot Bench', 'Floor Press']);
   assert.deepEqual(names(getSwapOptions(slotOf(1, 3, 'd3-t1-primary'))), ['Zercher Squat', 'Safety Bar Squat']);
-  assert.deepEqual(names(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))), ['Sumo Deadlift', 'Trap Bar Deadlift', 'Rack Pull', 'Romanian Deadlift', 'Leg Press', 'Hack Squat', 'Hip Thrust', 'Bulgarian Split Squat', 'Walking Lunge']);
+  assert.deepEqual(names(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))), ['Sumo Deadlift', 'Trap Bar Deadlift', 'Rack Pull'], 'no leg exercises or hinges inherit the deadlift cycle');
   assert.deepEqual(names(getSwapOptions(slotOf(1, 4, 'd4-t1-secondary'))), ['Bench Press', 'Pause Bench Press', 'Floor Press']);
   for (const week of [1, 6, 7, 12]) assert.equal(getSwapOptions(slotOf(week, 1, 'd1-t1-primary'))?.group, 'main', `week ${week}`);
   assert.equal(getSwapOptions(slotOf(6, 2, 'd2-t1-primary'))?.alternatives.length, 4, 'test weeks too');
+  assert.ok(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))!.alternatives.every((item) => item.fit === 'direct' || item.fit === 'conditional'));
 });
 
 test('Bench Press and Sling Shot Bench swap with each other in both directions', () => {
@@ -36,24 +37,31 @@ test('Bench Press and Sling Shot Bench swap with each other in both directions',
   assert.equal(getSwapOptions(toBench)!.original.exerciseName, 'Sling Shot Bench', 'the program lift stays reachable');
 });
 
-test('a swapped main lift keeps its sets, reps, percentages, load basis and training max', () => {
+test('a swapped main lift keeps its sets, reps and percentages, but never the program lift\'s training max', () => {
   for (const [week, day, slotId, original, alt] of [[1, 1, 'd1-t1-primary', 'back-squat', 'belted-squat'], [3, 2, 'd2-t1-primary', 'bench-press', 'pause-bench-press'], [8, 3, 'd3-t1-primary', 'deadlift', 'sumo-deadlift'], [6, 1, 'd1-t1-primary', 'back-squat', 'box-squat']] as const) {
     const base = slotOf(week, day, slotId);
     const swapped = slotOf(week, day, slotId, withSwap(slotId, original, alt));
     assert.notEqual(swapped.exerciseId, base.exerciseId);
-    assert.deepEqual(swapped.prescribedSets, base.prescribedSets, `Week ${week} Day ${day}: sets and loads are untouched`);
+    assert.deepEqual(swapped.prescribedSets.map((set) => [set.type, set.prescribedReps, set.percentage]), base.prescribedSets.map((set) => [set.type, set.prescribedReps, set.percentage]), `Week ${week} Day ${day}: sets, reps and percentages are untouched`);
     assert.equal(swapped.setCount, base.setCount);
     assert.deepEqual(swapped.sourceRefs, base.sourceRefs);
     assert.equal(swapped.loadBasis?.kind, base.loadBasis?.kind);
-    assert.match(swapped.notes ?? '', /training max/);
+    for (const set of swapped.prescribedSets) {
+      if (set.loadBasis.kind === 'training_max') assert.equal(set.loadBasis.variationId, alt, 'a TM basis belongs to the variation');
+      assert.ok(!set.suggestFrom || set.suggestFrom.variationId === alt, 'the top set is never seeded from the program lift');
+    }
   }
-  // Back-off loads come from the same training max: Week 1 Day 1 squat is 140 either way.
+  // Block 1: back-offs stay unset until the variation has its own TM. 140 would be the Back Squat TM talking.
   const p = withSwap('d1-t1-primary', 'back-squat', 'belted-squat');
   const session = createWorkoutSession(p, getDayPrescription(1, 1, p), 1_000);
   const squat = session.exercises.find((e) => e.slotId === 'd1-t1-primary')!;
   assert.equal(squat.exerciseName, 'Belted Squat');
-  assert.equal(squat.sets[1].load, 140);
-  assert.equal(squat.sets[0].load, suggestRmLoad(200, 10, 5), 'the first set is suggested from the training max');
+  assert.deepEqual(squat.sets.map((set) => set.load), [null, null, null, null]);
+  const withTm = { ...p, variationTrainingMaxes: { 'belted-squat:1': 150 } };
+  const seeded = createWorkoutSession(withTm, getDayPrescription(1, 1, withTm), 1_000).exercises.find((e) => e.slotId === 'd1-t1-primary')!;
+  assert.equal(seeded.sets[1].load, 105, '70% of the Belted Squat TM');
+  assert.equal(seeded.sets[0].load, suggestRmLoad(150, 10, 5), 'the first set is suggested from the variation TM');
+  assert.equal(seeded.sets[0].suggested, 'tm');
 });
 
 test('Block 2 swaps keep achieved-RM back-offs, and a swap does not carry over when the program changes the lift', () => {
@@ -71,19 +79,22 @@ test('Block 2 swaps keep achieved-RM back-offs, and a swap does not carry over w
   assert.equal(after.achievedRMWeight, 300);
 });
 
-test('alternatives already in the same day are hidden, so one workout never repeats an exercise', () => {
+test('an alternative already in the same day is unavailable, and the prescription path agrees', () => {
   // Block 1 Day 4 has Push Press as an accessory, so it is not offered for Military Press that week.
   const press = getDayPrescription(1, 4).exercises.find((e) => e.slotId === 'd4-t1-primary')!;
   const others = getDayPrescription(1, 4).exercises.filter((e) => e !== press && e.status === 'work').map((e) => e.exerciseId);
   assert.ok(others.includes('push-press'));
-  assert.deepEqual(names(getSwapOptions(press, others)), ['Seated Military Press']);
-  assert.deepEqual(names(getSwapOptions(press, [])), ['Seated Military Press', 'Push Press'], 'without the duplicate it is offered');
-  // Through the real prescription path: asking for Push Press is ignored when it would repeat.
-  const ignored = slotOf(1, 4, 'd4-t1-primary', withSwap('d4-t1-primary', 'military-press', 'push-press'));
-  assert.equal(ignored.exerciseId, 'military-press');
-  // The one already selected always stays listed.
+  const blocked = getSwapOptions(press, others)!.alternatives.find((item) => item.id === 'push-press')!;
+  assert.match(blocked.disabledReason ?? '', /already in this workout/);
+  assert.equal(getSwapOptions(press, [])!.alternatives.find((item) => item.id === 'push-press')!.disabledReason, undefined, 'without the duplicate it is available');
+  // Through the real prescription path the stored swap is flagged, never silently applied or dropped.
+  const flagged = slotOf(1, 4, 'd4-t1-primary', withSwap('d4-t1-primary', 'military-press', 'push-press'));
+  assert.equal(flagged.exerciseId, 'military-press');
+  assert.equal(flagged.swapReview?.reason, 'duplicate');
+  assert.equal(flagged.swapReview?.storedId, 'push-press');
+  // The one already selected always stays selectable.
   const selected = { ...press, exerciseId: 'push-press', exerciseName: 'Push Press', swappedFrom: { exerciseId: 'military-press', exerciseName: 'Military Press' } };
-  assert.ok(names(getSwapOptions(selected, others))!.includes('Push Press'));
+  assert.equal(getSwapOptions(selected, others)!.alternatives.find((item) => item.id === 'push-press')!.disabledReason, undefined);
 });
 
 test('a swapped lift has its own PR history, and the program lift\'s history is untouched', () => {
@@ -97,11 +108,12 @@ test('a swapped lift has its own PR history, and the program lift\'s history is 
   assert.equal(result.kind, 'benchmark', 'the first Belted Squat is a benchmark, not compared with Back Squat');
 });
 
-test('a swapped lift suggests its own last weight when there is history, else the training max', () => {
+test('a swapped lift suggests its own last weight when there is history, and otherwise nothing', () => {
   const p = withSwap('d1-t1-primary', 'back-squat', 'belted-squat');
   const first = createWorkoutSession(p, getDayPrescription(1, 1, p), 1_000);
   const top = first.exercises.find((e) => e.slotId === 'd1-t1-primary')!;
-  assert.equal(top.sets[0].suggested, 'tm');
+  assert.equal(top.sets[0].load, null, 'no Belted Squat history or TM: no load from the Back Squat TM');
+  assert.equal(top.sets[0].suggested, undefined);
   const logged = finalizeSession(logSet(first, 'd1-t1-primary', top.sets[0].setId, 10, 180, 2, 2_000), 3_000);
   const next = createWorkoutSession(p, getDayPrescription(2, 1, p), 10_000, false, [logged]);
   const second = next.exercises.find((e) => e.slotId === 'd1-t1-primary')!;
@@ -112,18 +124,22 @@ test('a swapped lift suggests its own last weight when there is history, else th
   assert.equal(plain.exercises.find((e) => e.slotId === 'd1-t1-primary')!.sets[0].suggested, 'tm');
 });
 
-test('swapping a main lift during a workout works until a set is logged', () => {
+test('swapping a main lift during a workout works until a set is logged, and clears loads that belonged to the old lift', () => {
   const base = profile();
-  const session = createWorkoutSession(base, getDayPrescription(1, 1, base), 1_000);
+  let session = createWorkoutSession(base, getDayPrescription(1, 1, base), 1_000);
+  const original = session.exercises.find((e) => e.slotId === 'd1-t1-primary')!;
+  assert.equal(original.sets[1].load, 140);
+  session = logSet(session, 'd1-t1-primary', original.sets[0].setId, 10, 130, 2, 1_500);
+  session = undoSet(session, 'd1-t1-primary', original.sets[0].setId);
   const swappedProfile = withSwap('d1-t1-primary', 'back-squat', 'belted-squat');
   const swapped = swapExercise(session, 'd1-t1-primary', swappedProfile);
   const exercise = swapped.exercises.find((e) => e.slotId === 'd1-t1-primary')!;
   assert.equal(exercise.exerciseName, 'Belted Squat');
-  assert.deepEqual(exercise.sets.map((s) => s.load), session.exercises[0].sets.map((s) => s.load), 'loads are unchanged');
+  assert.deepEqual(exercise.sets.map((s) => s.load), [null, null, null, null], 'the Back Squat loads are gone');
   assert.equal(swapped.prescriptionSnapshot.exercises.find((e) => e.slotId === 'd1-t1-primary')!.exerciseId, 'belted-squat');
 
   const logged = logSet(swapped, 'd1-t1-primary', exercise.sets[0].setId, 10, 160, 2, 2_000);
-  assert.throws(() => swapExercise(logged, 'd1-t1-primary', base), /Undo/);
+  assert.throws(() => swapExercise(logged, 'd1-t1-primary', base), /Completed sets stay attached to Belted Squat/);
   const undone = undoSet(logged, 'd1-t1-primary', exercise.sets[0].setId);
   assert.equal(swapExercise(undone, 'd1-t1-primary', base).exercises.find((e) => e.slotId === 'd1-t1-primary')!.exerciseId, 'back-squat');
 });
@@ -145,14 +161,13 @@ test('names resolve from ids, including main-lift alternatives', () => {
   assert.equal(exerciseNameFor('back-squat'), 'Back Squat');
   assert.equal(exerciseNameFor('hip-thrust'), 'Hip Thrust');
   assert.equal(exerciseNameFor('some-new-lift'), 'Some New Lift');
-  assert.equal(findAlternative('rack-pull')?.group, 'main');
-  assert.equal(findAlternative('dips')?.group, 'chest');
+  assert.equal(exerciseNameFor('rack-pull'), 'Rack Pull');
+  assert.equal(exerciseNameFor('dips'), 'Dips');
 });
 
-test('the deadlift offers leg exercises and keeps its training max when swapped', () => {
+test('the deadlift no longer offers leg exercises or hinges as automatic replacements', () => {
   const slot = { slotId: 'd1-t1-primary', tier: 'T1' as const, status: 'work' as const, exerciseId: 'deadlift', exerciseName: 'Deadlift' };
-  const options = getSwapOptions(slot);
-  const ids = options!.alternatives.map((item) => item.id);
-  for (const id of ['leg-press', 'hack-squat', 'romanian-deadlift', 'hip-thrust', 'bulgarian-split-squat', 'walking-lunge']) assert.ok(ids.includes(id), id);
-  assert.ok(!getSwapOptions(slot, ['leg-press'])!.alternatives.some((item) => item.id === 'leg-press'), 'no repeats in one day');
+  const ids = getSwapOptions(slot)!.alternatives.map((item) => item.id);
+  assert.deepEqual(ids, ['sumo-deadlift', 'trap-bar-deadlift', 'rack-pull']);
+  for (const id of ['leg-press', 'hack-squat', 'romanian-deadlift', 'hip-thrust', 'bulgarian-split-squat', 'walking-lunge']) assert.ok(!ids.includes(id), id);
 });

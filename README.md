@@ -61,9 +61,16 @@ All workout records stay in the browser. Export backups regularly, especially be
 
 The first time a phone with both profiles opens, it asks **Who uses this phone?** and locks to that person, with their theme, photo and sync identity. The other profile is hidden from the header, Settings and the leaderboard. **Switch who uses this phone** in Settings (with confirmation) clears the lock and the partner link. This is a convenience, not security: the other profile's data still exists in the on-device database and in backups.
 
-## Main lift swaps
+## Exercise swaps
 
-Tier 1 lifts have a "Swap" dropdown like accessories (Back Squat to Belted, Safety Bar, Box or Pause Squat; Bench to Sling Shot, Pause, Spoto or Floor Press; and so on, both directions for Bench and Sling Shot Bench). The swap keeps the day's sets, reps, percentages and training max, is remembered for that slot until the program changes the lift, keeps its own PR history, and suggests your last weight for that lift when you have one. It locks once a set is logged.
+Swaps are explicit pairs: each program exercise lists the replacements it supports, labeled **Same job**, **Changes the emphasis**, or **Different job**. Different-job pairs (for example Leg Curl to Hip Thrust, or a press to a fly) are shown but cannot be applied until custom prescriptions exist. Nothing is offered just because it shares a body-part group.
+
+- **Main lifts** keep the day's sets, reps and percentages, but never the program lift's training max. In Block 1 a swapped lift has its own training max (entered under the swap picker); until you enter it the back-offs stay blank. In Block 2 the top set is yours to choose and the back-offs follow the target-RM set you actually log. The deadlift offers only Sumo, Trap Bar and Rack Pull, so leg exercises and hinges cannot inherit its heavy singles or test week.
+- **Loads** are never converted between different exercises. A swapped-in exercise suggests a load only from its own logged history, shown as an estimate beside the last actual load and reps. Machine and cable history applies to the same setup; "Start blank" clears the suggestion when you change machines.
+- **Reps are never changed silently.** If a replacement runs a different rep range than the slot's target that week, it is unavailable with the reason shown.
+- **Duplicates**: a swap that would repeat another exercise in the same workout is unavailable. If two stored swaps collide, the later one keeps the program exercise and shows "Replacement needs review". The same review state appears when a stored swap stops applying.
+- **Load notation** (per dumbbell, machine stack, cable stack, added bodyweight, total barbell) is shown for each exercise. Sessions logged before this was tracked read as "notation not recorded" and are never reinterpreted.
+- A swap is remembered per slot until the program changes the lift, keeps its own PR history, and locks once a set is logged: completed sets stay attached to the exercise they were logged on. Removing a swap never changes finished workouts or their calendar labels.
 
 ## Together tab and partner sync
 

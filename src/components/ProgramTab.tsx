@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { LoadBasis, SourceReference, TrainingMaxKey, UserProfile } from '../types';
 import { getDayPrescription, REQUIRED_TRAINING_MAXES } from '../engine/jnt2Engine';
 import { WORKBOOK_AMBIGUITIES } from '../program/prescriptions';
-import { exerciseNameFor } from '../program/swapOptions';
+import { exerciseNameFor, isSwapSupported } from '../program/swapOptions';
 import { AlertCircle, Check, Sliders } from 'lucide-react';
 
 interface ProgramTabProps {
@@ -114,7 +114,8 @@ export function ProgramTab({ profile, onUpdateProfile }: ProgramTabProps) {
           <div className="flex items-center justify-between gap-3"><h2 className="font-black">Swapped exercises</h2><button onClick={() => onUpdateProfile({ ...profile, exerciseSwaps: {} })} className="px-3 py-2 rounded-xl bg-sunk text-xs font-bold">Reset all</button></div>
           {Object.entries(profile.exerciseSwaps ?? {}).map(([key, alternativeId]) => {
             const [slotId, original] = key.split('::');
-            return <div key={key} className="flex items-center justify-between gap-3 bg-paper border border-line rounded-2xl p-3 text-xs"><span className="min-w-0"><strong className="text-ink">{exerciseNameFor(alternativeId)}</strong><span className="block text-muted">replaces {exerciseNameFor(original)} · {slotId}</span></span><button onClick={() => { const next = { ...profile.exerciseSwaps }; delete next[key]; onUpdateProfile({ ...profile, exerciseSwaps: next }); }} className="px-3 py-2 rounded-xl text-accent-ink font-bold">Reset</button></div>;
+            const supported = isSwapSupported(original, alternativeId);
+            return <div key={key} className="flex items-center justify-between gap-3 bg-paper border border-line rounded-2xl p-3 text-xs"><span className="min-w-0"><strong className="text-ink">{exerciseNameFor(alternativeId)}</strong><span className="block text-muted">replaces {exerciseNameFor(original)} · {slotId}</span>{!supported && <span className="block font-bold text-bad">Replacement needs review: it no longer applies, so the program exercise runs.</span>}</span><button onClick={() => { const next = { ...profile.exerciseSwaps }; delete next[key]; onUpdateProfile({ ...profile, exerciseSwaps: next }); }} className="px-3 py-2 rounded-xl text-accent-ink font-bold">Reset</button></div>;
           })}
         </section>
       )}

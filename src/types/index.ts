@@ -12,7 +12,8 @@ export interface SourceReference {
 }
 
 export type LoadBasis =
-  | { kind: 'training_max'; key: TrainingMaxKey; block: 1 | 2 }
+  /** `variationId` set: the training max of that variation only, never the program lift's. */
+  | { kind: 'training_max'; key: TrainingMaxKey; block: 1 | 2; variationId?: string }
   | { kind: 'achieved_rm'; slotId: string }
   | { kind: 'user_selected' };
 
@@ -25,7 +26,7 @@ export interface ProgramSetPrescription {
   percentage?: number;
   loadBasis: LoadBasis;
   /** For a lifter-chosen RM set: which training max the app may use to suggest a starting load. */
-  suggestFrom?: { key: TrainingMaxKey; block: 1 | 2 };
+  suggestFrom?: { key: TrainingMaxKey; block: 1 | 2; variationId?: string };
   sourceRefs: SourceReference[];
 }
 
@@ -33,6 +34,17 @@ export interface SwappedFrom {
   exerciseId: string;
   exerciseName: string;
 }
+
+/** A remembered replacement that no longer applies to this slot. The program exercise runs until the lifter reviews it. */
+export interface SwapReview {
+  storedId: string;
+  storedName: string;
+  reason: 'ineligible' | 'reps' | 'duplicate';
+  detail: string;
+}
+
+/** What a logged load means. Sessions logged before this was tracked stay 'unspecified' and are never reinterpreted. */
+export type LoadNotation = 'barbell_total' | 'per_dumbbell' | 'machine_stack' | 'cable_stack' | 'added_bodyweight' | 'unspecified';
 
 export interface ExerciseSlotPrescription {
   slotId: string;
@@ -54,6 +66,7 @@ export interface ExerciseSlotPrescription {
   notes?: string;
   ambiguity?: string;
   swappedFrom?: SwappedFrom;
+  swapReview?: SwapReview;
 }
 
 export interface DayPrescription {
@@ -80,6 +93,8 @@ export interface UserProfile {
   exerciseCustomizations?: Record<string, string>;
   /** Remembered accessory swaps: `${slotId}::${programExerciseId}` -> alternative exercise id. */
   exerciseSwaps?: Record<string, string>;
+  /** Training max per swapped-in variation, keyed `${exerciseId}:${block}`. Never shared with the program lift's TM. */
+  variationTrainingMaxes?: Record<string, number>;
   colorTheme?: ColorTheme;
   /** Where each program workout sits on the calendar. Optional; created on first load. */
   schedule?: ProfileSchedule;
@@ -101,6 +116,19 @@ export interface UserProfile {
   shareLive?: boolean;
   /** Version of the stored data shape this profile was last written with (see storage/schema.ts). */
   schemaVersion?: number;
+  /** The cycle (one run through the 12 weeks) in progress. Missing means the first, 'c1'. */
+  cycleId?: string;
+  /** Every cycle started so far, oldest first. Created when a second cycle begins. */
+  cycles?: CycleRecord[];
+}
+
+export interface CycleRecord {
+  id: string;
+  number: number;
+  startedAt: number;
+  endedAt?: number;
+  /** True when all 48 workouts were reached; false when the cycle was ended early. */
+  finished?: boolean;
 }
 
 export interface ProfileSchedule {
@@ -197,15 +225,23 @@ export interface LoggedExercise {
   manualBackoffLoad?: number;
   sets: LoggedSet[];
   notes?: string;
+  /** The lifter's own note for this exercise (technique, pain, equipment). Separate from `notes`, the program's note. */
+  userNote?: string;
   sourceRefs: SourceReference[];
   loadBasis?: LoadBasis;
   swappedFrom?: SwappedFrom;
+  swapReview?: SwapReview;
+  loadNotation?: LoadNotation;
   /** Warm-up steps ticked off (T1 main lifts only). Warm-ups never count as work sets. */
   warmupsDone?: string[];
 }
 
 export interface WorkoutSession {
   sessionId: string;
+  /** The lifter's note for the whole workout. */
+  note?: string;
+  /** Which cycle this workout belongs to. Missing means the first, 'c1'. */
+  cycleId?: string;
   profileId: string;
   week: number;
   day: number;

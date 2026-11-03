@@ -70,7 +70,7 @@ export function doneSlots(history: WorkoutSession[]): Map<SlotKey, DoneInfo> {
     const status = session.status as DoneStatus;
     const prior = done.get(key);
     if (prior && RANK[prior.status] >= RANK[status]) continue;
-    done.set(key, { status, date: todayKey(session.completedTime ?? session.startTime), credit: sessionCredit(session), lift: session.exercises[0]?.exerciseName });
+    done.set(key, { status, date: todayKey(session.completedTime ?? session.startTime), credit: sessionCredit(session), lift: session.exercises[0]?.exerciseName ?? session.prescriptionSnapshot?.exercises[0]?.exerciseName });
   }
   return done;
 }
@@ -172,7 +172,7 @@ function itemFor(slot: Slot, date: DateKey, today: DateKey, done: Map<SlotKey, D
   const key = slotKey(slot.week, slot.day);
   const info = done.get(key);
   const status: AgendaStatus = info ? info.status : date < today ? 'missed' : date === today ? 'today' : 'upcoming';
-  return { week: slot.week, day: slot.day, key, lift: info?.lift ?? liftOf(slot.week, slot.day, profile), group: groupOfDay(slot.day), status, credit: info?.credit, date };
+  return { week: slot.week, day: slot.day, key, lift: info ? (info.lift ?? liftOf(slot.week, slot.day)) : liftOf(slot.week, slot.day, profile), group: groupOfDay(slot.day), status, credit: info?.credit, date };
 }
 
 /**

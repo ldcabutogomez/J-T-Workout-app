@@ -38,7 +38,13 @@ export function resolveTrainingMax(
   profile: UserProfile,
   key: TrainingMaxKey,
   block: 1 | 2,
+  variationId?: string,
 ): { value: number | null; defaulted: boolean } {
+  // A swapped-in variation has its own training max. It never borrows the program lift's.
+  if (variationId) {
+    const own = profile.variationTrainingMaxes?.[`${variationId}:${block}`];
+    return validTm(own) ? { value: own, defaulted: false } : { value: null, defaulted: false };
+  }
   const own = (block === 1 ? profile.trainingMaxes : profile.block2ConfirmedTMs)?.[key];
   if (validTm(own)) return { value: own, defaulted: false };
   if (block === 2 && validTm(profile.trainingMaxes?.[key])) return { value: profile.trainingMaxes[key] as number, defaulted: true };
@@ -46,7 +52,7 @@ export function resolveTrainingMax(
 }
 
 export function getTrainingMax(profile: UserProfile, basis: Extract<LoadBasis, { kind: 'training_max' }>): number | null {
-  return resolveTrainingMax(profile, basis.key, basis.block).value;
+  return resolveTrainingMax(profile, basis.key, basis.block, basis.variationId).value;
 }
 
 export function calculateSetLoad(

@@ -8,16 +8,22 @@ import {
   finalizeSession,
   logSet,
   makeSkippedSession,
+  setExerciseNote,
+  setSessionNote,
   swapExercise,
+  clearSuggestedLoads,
   undoSet,
 } from './engine/sessionEngine';
 import { findAllComparableResults, generateSessionEncouragement, isVerifiedCycleComplete } from './engine/encouragement';
-import { findAlternative, swapKey } from './program/swapOptions';
+import { exerciseNameFor, swapKey } from './program/swapOptions';
 import { BADGES, computeHighlights, computeStreak, evaluateBadges, evaluateDuoBadges, newlyUnlocked } from './engine/achievements';
 import { levelBadges, levelFor } from './engine/xp';
 import { batteryDebuff } from './engine/debuff';
 import { useWakeLock } from './lib/wakeLock';
 import { AppPrompts } from './components/AppPrompts';
+import { NewCycleFlow } from './components/NewCycleFlow';
+import { historyForCycle, profileCycleId } from './engine/cycles';
+import { Onboarding } from './components/Onboarding';
 import { StorageRecovery } from './components/StorageRecovery';
 import { exportTextFile } from './lib/exportFile';
 import { backupDue, clearImportSnapshot, lastBackupAt, loadImportSnapshot, recordBackup, saveImportSnapshot, snoozeBackupNudge } from './lib/backupStatus';
@@ -56,23 +62,10 @@ import { applyTheme, defaultThemeForId, themeForProfile } from './lib/theme';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp, Users } from 'lucide-react';
 
-type Tab = 'today' | 'program' | 'progress' | 'together' | 'settings' | 'verify';
+/** Coach messages are remembered per cycle, so a phase milestone can be celebrated again in the next run. */
+const coachKey = (profile: UserProfile) => (profileCycleId(profile) === 'c1' ? profile.id : `${profile.id}:${profileCycleId(profile)}`);
 
-function blankProfile(id: string, name: string): UserProfile {
-  return {
-    id,
-    name,
-    unit: 'lb',
-    equipmentIncrement: 5,
-    barbellWeight: 45,
-    tone: 'warm',
-    currentWeek: 1,
-    currentDay: 1,
-    trainingMaxes: {},
-    weeklyGoalSessions: 4,
-    colorTheme: defaultThemeForId(id),
-  };
-}
+type Tab = 'today' | 'program' | 'progress' | 'together' | 'settings' | 'verify';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('today');
@@ -88,6 +81,10 @@ export default function App() {
   // Storage that cannot be opened gets a recovery screen, not an endless "Loading…". `initAttempt` re-runs the open.
   const [initError, setInitError] = useState<string | null>(null);
   const [initAttempt, setInitAttempt] = useState(0);
+  // A phone with no profiles shows the setup wizard; `profilesLoaded` tells "none yet" apart from "still loading".
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
+  const [addingProfile, setAddingProfile] = useState(false);
+  const [newCycleOpen, setNewCycleOpen] = useState(false);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [backupAt, setBackupAt] = useState<number | null>(() => lastBackupAt());
   const [backupNudgeHidden, setBackupNudgeHidden] = useState(false);
@@ -156,10 +153,6 @@ export default function App() {
         let stored = await dbService.getProfiles();
         const aside = dbService.quarantinedCount();
         if (aside > 0) showBanner(`${aside} unreadable profile${aside === 1 ? ' was' : 's were'} set aside. Your other data is fine.`, true);
-        if (!stored.length) {
-          stored = [blankProfile('partner-1', 'Lauren'), blankProfile('partner-2', 'Luis')];
-          await Promise.all(stored.map((item) => dbService.saveProfile(item)));
-        }
         // One-time rename of the old placeholder names; any name the user chose is left alone.
         const renames: Record<string, [string, string]> = { 'partner-1': ['Partner 1', 'Lauren'], 'partner-2': ['Partner 2', 'Luis'] };
         stored = await Promise.all(stored.map(async (item) => {
@@ -178,6 +171,7 @@ export default function App() {
           return withSchedule;
         }));
         setProfiles(stored);
+        setProfilesLoaded(true);
       } catch (error) {
         setInitError((error as Error).message || 'The local database could not be opened.');
       }
@@ -425,27 +419,30 @@ export default function App() {
     const timer = window.setInterval(refresh, 60_000);
     return () => { document.removeEventListener('visibilitychange', refresh); window.clearInterval(timer); };
   }, []);
+  // The calendar, "next up" and missed counts only know the cycle in progress; earlier cycles stay in History.
+  const cycleId = profile ? profileCycleId(profile) : 'c1';
+  const cycleHistory = useMemo(() => historyForCycle(history, cycleId), [history, cycleId]);
   const schedule = useMemo(() => (profile ? profile.schedule ?? defaultSchedule(profile) : null), [profile]);
   const nextSlot: NextWorkout | null = useMemo(() => {
     if (!profile || !schedule) return null;
     // Until history has loaded, trust the saved pointer so the screen never flashes Week 1.
     if (!historyReady) return profile.cycleCompleted ? null : { week: profile.currentWeek, day: profile.currentDay, date: today, reason: 'upcoming' };
-    return nextWorkout(schedule, history, today);
-  }, [profile, schedule, history, historyReady, today]);
-  const missed = useMemo(() => (schedule && historyReady ? missedCount(schedule, history, today) : 0), [schedule, history, historyReady, today]);
+    return nextWorkout(schedule, cycleHistory, today);
+  }, [profile, schedule, cycleHistory, historyReady, today]);
+  const missed = useMemo(() => (schedule && historyReady ? missedCount(schedule, cycleHistory, today) : 0), [schedule, cycleHistory, historyReady, today]);
   const sheetData = useMemo(() => {
     if (!moveSlot || !schedule) return null;
-    const days = weekAgenda(schedule, history, mondayOf(slotDate(schedule, moveSlot.week, moveSlot.day)), today, profile ?? undefined);
+    const days = weekAgenda(schedule, cycleHistory, mondayOf(slotDate(schedule, moveSlot.week, moveSlot.day)), today, profile ?? undefined);
     const item = days.flatMap((day) => day.items).find((entry) => entry.week === moveSlot.week && entry.day === moveSlot.day);
     return item ? { item, days } : null;
-  }, [moveSlot, schedule, history, today, profile]);
+  }, [moveSlot, schedule, cycleHistory, today, profile]);
 
   // The Today coach card: welcome back, phase milestone, weekly recap, or the day's pre-workout line.
   const coachQueue = useMemo(() => {
     if (!profile || activeSession || profile.cycleCompleted || !nextSlot) return [];
     const prescription = getDayPrescription(nextSlot.week, nextSlot.day, profile);
-    const seen = loadSeen(profile.id);
-    const finishedInWeek = [...doneSlots(history).keys()].some((key) => key.startsWith(`W${nextSlot.week}D`));
+    const seen = loadSeen(coachKey(profile));
+    const finishedInWeek = [...doneSlots(cycleHistory).keys()].some((key) => key.startsWith(`W${nextSlot.week}D`));
     return todayCandidates({
       now: Date.now(),
       tone: profile.tone,
@@ -463,7 +460,7 @@ export default function App() {
   const coachMessage = coachQueue[0] ?? null;
   // Dismissing clears everything queued for now, so one tap makes the card go away instead of showing the next message.
   const dismissCoach = () => {
-    if (profile) coachQueue.forEach((message) => markSeen(profile.id, message.id));
+    if (profile) coachQueue.forEach((message) => markSeen(coachKey(profile), message.id));
     setCoachTick((value) => value + 1);
   };
 
@@ -591,14 +588,53 @@ export default function App() {
     const updatedProfile = { ...profile, exerciseSwaps: swaps };
     try {
       const current = activeSessionRef.current;
-      if (current) await persistActive(swapExercise(current, slotId, updatedProfile));
+      if (current) await persistActive(swapExercise(current, slotId, updatedProfile, history));
       await updateProfile(updatedProfile);
       haptic('select');
-      const name = alternativeId ? findAlternative(alternativeId)?.alternative.name : undefined;
+      const name = alternativeId ? exerciseNameFor(alternativeId) : undefined;
       showToast(name ? `Swapped to ${name}` : 'Back to the program exercise');
     } catch (error) {
       showBanner((error as Error).message, true);
     }
+  };
+
+  // A swapped-in variation's own training max. Nothing is ever copied from the program lift's.
+  const handleSetVariationTm = async (exerciseId: string, block: 1 | 2, value: number | null) => {
+    if (!profile) return;
+    const key = `${exerciseId}:${block}`;
+    const maxes = { ...(profile.variationTrainingMaxes ?? {}) };
+    if (value !== null && Number.isFinite(value) && value > 0) maxes[key] = value; else delete maxes[key];
+    const updatedProfile = { ...profile, variationTrainingMaxes: maxes };
+    try {
+      const current = activeSessionRef.current;
+      const slot = current?.exercises.find((exercise) => exercise.exerciseId === exerciseId);
+      if (current && slot && !slot.sets.some((set) => set.completed)) await persistActive(swapExercise(current, slot.slotId, updatedProfile, history));
+      await updateProfile(updatedProfile);
+    } catch (error) {
+      showBanner((error as Error).message, true);
+    }
+  };
+
+  const handleClearLoads = async (slotId: string) => {
+    const current = activeSessionRef.current;
+    if (!current) return;
+    try {
+      await persistActive(clearSuggestedLoads(current, slotId));
+    } catch (error) {
+      showBanner((error as Error).message, true);
+    }
+  };
+
+  const handleExerciseNote = async (slotId: string, text: string) => {
+    const current = activeSessionRef.current;
+    if (!current) return;
+    try { await persistActive(setExerciseNote(current, slotId, text)); } catch { /* persistActive already told the person */ }
+  };
+
+  const handleSessionNote = async (text: string) => {
+    const current = activeSessionRef.current;
+    if (!current) return;
+    try { await persistActive(setSessionNote(current, text)); } catch { /* persistActive already told the person */ }
   };
 
   const handleToggleWarmup = async (slotId: string, stepId: string) => {
@@ -663,7 +699,7 @@ export default function App() {
       if (note) completed.encouragementMessage = note;
     }
     try {
-      const result = await dbService.completeAndAdvance(completed, profile, positionAfter(history, completed));
+      const result = await dbService.completeAndAdvance(completed, profile, positionAfter(cycleHistory, completed));
       let savedProfile = result.profile;
       activeSessionRef.current = null;
       setActiveSession(null);
@@ -737,7 +773,7 @@ export default function App() {
     try {
       const skipped = makeSkippedSession(profile, getDayPrescription(slot.week, slot.day, profile));
       skipped.encouragementMessage = generateSessionEncouragement({ tone: profile.tone, history, currentSession: skipped });
-      const result = await dbService.completeAndAdvance(skipped, profile, positionAfter(history, skipped));
+      const result = await dbService.completeAndAdvance(skipped, profile, positionAfter(cycleHistory, skipped));
       setProfiles((items) => items.map((item) => item.id === result.profile.id ? result.profile : item));
       setHistory(await dbService.getSessionHistory(profile.id, true));
       showBanner('Skipped workout recorded.');
@@ -783,7 +819,7 @@ export default function App() {
 
   const handleMoveWorkout = async (slot: Slot, date: string) => {
     if (!profile || !schedule) return;
-    const result = moveWorkout(schedule, history, slot, date, today);
+    const result = moveWorkout(schedule, cycleHistory, slot, date, today);
     if (!result.ok) {
       showBanner(result.reason, true);
       return;
@@ -795,7 +831,7 @@ export default function App() {
 
   const handleCatchUp = async () => {
     if (!profile || !schedule) return;
-    await updateProfile({ ...profile, schedule: catchUp(schedule, history, today) });
+    await updateProfile({ ...profile, schedule: catchUp(schedule, cycleHistory, today) });
     showToast('Plan moved to this week.');
   };
 
@@ -843,6 +879,37 @@ export default function App() {
     );
   }
 
+  // First run, or adding another lifter: the setup wizard saves the profile only when it is finished.
+  if ((profilesLoaded && profiles.length === 0) || addingProfile) {
+    return (
+      <Onboarding
+        onCancel={addingProfile ? () => setAddingProfile(false) : undefined}
+        onDone={async (created) => {
+          await dbService.saveProfile(created);
+          setProfiles((items) => [...items, created]);
+          setAddingProfile(false);
+        }}
+      />
+    );
+  }
+
+  if (newCycleOpen && profile) {
+    return (
+      <NewCycleFlow
+        profile={profile}
+        history={history}
+        onCancel={() => setNewCycleOpen(false)}
+        onStart={async (next) => {
+          await dbService.startNewCycle(next, profileCycleId(profile));
+          setProfiles((items) => items.map((item) => (item.id === next.id ? next : item)));
+          setNewCycleOpen(false);
+          setTab('today');
+          showToast(`Cycle ${next.cycles?.[next.cycles.length - 1]?.number ?? ''} started`);
+        }}
+      />
+    );
+  }
+
   if (lock?.state === 'choose') return <WhoUsesPhone profiles={profiles} onPick={chooseUser} />;
 
   return (
@@ -870,10 +937,10 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[calc(57px+env(safe-area-inset-top))] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
       <main key={tab} className="flex-1 p-3 sm:p-4 pb-[calc(7rem+env(safe-area-inset-bottom))] max-w-xl mx-auto w-full animate-fade-in">
-        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={history} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'today' && <TodayTab onExerciseNote={handleExerciseNote} onSessionNote={handleSessionNote} onStartNewCycle={() => setNewCycleOpen(true)} profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onSetVariationTm={handleSetVariationTm} onClearLoads={handleClearLoads} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && (
           <div className="space-y-4">
-            {schedule && <WeekCalendar schedule={schedule} profile={profile ?? undefined} history={history} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
+            {schedule && <WeekCalendar schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
             <ProgramTab profile={profile} onUpdateProfile={updateProfile} />
           </div>
         )}
@@ -886,7 +953,7 @@ export default function App() {
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
         {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} />}
-        {tab === 'settings' && <SettingsTab level={myLevel} extra={<>{profile && <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} />}<UpdateCard updateReady={appUpdate.updateReady} checking={appUpdate.checking} onCheck={appUpdate.check} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} /></>} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onUpdateProfile={updateProfile} onExportBackup={async () => {
+        {tab === 'settings' && <SettingsTab level={myLevel} extra={<>{profile && <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} />}<UpdateCard updateReady={appUpdate.updateReady} checking={appUpdate.checking} onCheck={appUpdate.check} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} /></>} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onAddProfile={() => setAddingProfile(true)} onStartNewCycle={activeSession ? undefined : () => setNewCycleOpen(true)} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
             const outcome = await exportTextFile(`jnt2-backup-${new Date().toISOString().slice(0, 10)}.json`, await dbService.exportBackup());
             if (outcome !== 'cancelled') { recordBackup(); setBackupAt(Date.now()); showToast(outcome === 'shared' ? 'Backup shared' : 'Backup saved'); }

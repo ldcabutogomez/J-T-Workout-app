@@ -34,6 +34,17 @@ const OPTIONAL_PROFILE_FIELDS: Record<string, Clean> = {
   block2ConfirmedAt: (value) => (finite(value) && value >= 0 ? value : undefined),
   exerciseCustomizations: (value) => (isStringRecord(value) ? value : undefined),
   weeklyGoalSessions: (value) => (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 14 ? value : undefined),
+  cycleId: (value) => (typeof value === 'string' && /^c[1-9][0-9]{0,2}$/.test(value) ? value : undefined),
+  cycles: (value) => {
+    if (!Array.isArray(value)) return undefined;
+    const kept = value.filter((item): item is Record<string, unknown> => isObject(item) && typeof item.id === 'string' && /^c[1-9][0-9]{0,2}$/.test(item.id)
+      && Number.isInteger(item.number) && finite(item.startedAt));
+    return kept.map((item) => ({
+      id: item.id, number: item.number, startedAt: item.startedAt,
+      ...(finite(item.endedAt) ? { endedAt: item.endedAt } : {}),
+      ...(typeof item.finished === 'boolean' ? { finished: item.finished } : {}),
+    }));
+  },
   flair: (value) => (typeof value === 'string' && value.length > 0 && value.length <= 40 ? value : undefined),
   taunt: (value) => (isObject(value) && Number.isInteger(value.id) && Number(value.id) >= 0 && finite(value.at) ? { id: value.id, at: value.at } : undefined),
   unlockedBadges: (value) => {

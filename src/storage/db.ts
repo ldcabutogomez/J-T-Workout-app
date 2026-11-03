@@ -57,6 +57,7 @@ function validateExercise(value: unknown): value is LoggedExercise {
     && ['T1', 'T2a', 'T2b', 'T2c', 'T3a', 'T3b', 'T3c', 'T3d'].includes(String(value.tier))
     && typeof value.exerciseName === 'string' && value.exerciseName.trim().length > 0
     && ['work', 'rest', 'test', 'omitted'].includes(String(value.status))
+    && (value.userNote === undefined || (typeof value.userNote === 'string' && value.userNote.length <= 500))
     && Array.isArray(value.sets)
     && value.sets.every(validateSet)
     && uniqueIds(value.sets as LoggedSet[], (item) => item.setId)
@@ -124,6 +125,8 @@ function validateSession(value: unknown, profileIds: Set<string>): value is Work
   if (!isObject(value)) return false;
   return typeof value.sessionId === 'string'
     && typeof value.profileId === 'string'
+    && (value.note === undefined || (typeof value.note === 'string' && value.note.length <= 500))
+    && (value.cycleId === undefined || (typeof value.cycleId === 'string' && /^c[1-9][0-9]{0,2}$/.test(value.cycleId)))
     && profileIds.has(value.profileId)
     && Number.isInteger(value.week) && Number(value.week) >= 1 && Number(value.week) <= 12
     && Number.isInteger(value.day) && Number(value.day) >= 1 && Number(value.day) <= 4
@@ -156,6 +159,7 @@ function validateProfile(value: unknown): value is UserProfile {
     && validateTmRecord(value.trainingMaxes)
     && (value.block2ConfirmedTMs === undefined || validateTmRecord(value.block2ConfirmedTMs))
     && (value.exerciseSwaps === undefined || validateStringRecord(value.exerciseSwaps))
+    && (value.variationTrainingMaxes === undefined || (isObject(value.variationTrainingMaxes) && Object.values(value.variationTrainingMaxes).every((tm) => typeof tm === 'number' && Number.isFinite(tm) && tm > 0)))
     && (value.avatar === undefined || isValidAvatar(value.avatar))
     && (value.colorTheme === undefined || isColorTheme(value.colorTheme))
     && (value.schedule === undefined || isValidSchedule(value.schedule));
@@ -339,6 +343,17 @@ export class StorageService {
         transaction.onerror = () => reject(new Error(`Profile save failed: ${transaction.error?.message ?? 'unknown error'}`));
       });
     });
+  }
+
+  /**
+   * Saves the profile of a lifter who is starting their next cycle. Refuses if the stored cycle is no longer the one
+   * the screen was built from (a double tap, or the cycle was already started somewhere else).
+   */
+  async startNewCycle(next: UserProfile, expectedCycleId: string): Promise<void> {
+    const stored = (await this.getProfiles()).find((item) => item.id === next.id);
+    if (!stored) throw new Error('That profile no longer exists.');
+    if ((stored.cycleId ?? 'c1') !== expectedCycleId) throw new Error('This cycle was already started. Reload the app to continue.');
+    await this.saveProfile(next);
   }
 
   async getActiveSession(profileId: string): Promise<WorkoutSession | null> {

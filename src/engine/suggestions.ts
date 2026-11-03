@@ -1,4 +1,4 @@
-import type { ProgramSetPrescription, TrainingMaxKey, UserProfile, WeightUnit, WorkoutSession } from '../types';
+import type { LoadNotation, ProgramSetPrescription, TrainingMaxKey, UserProfile, WeightUnit, WorkoutSession } from '../types';
 import { normalizeWeight, resolveTrainingMax, roundLoad } from './jnt2Engine';
 
 /** Epley estimate: the load you could lift for `reps`, given a one-rep max. */
@@ -19,7 +19,7 @@ export function suggestRmLoadFor(
   suggestFrom: NonNullable<ProgramSetPrescription['suggestFrom']>,
   targetReps: number,
 ): number | null {
-  const { value } = resolveTrainingMax(profile, suggestFrom.key as TrainingMaxKey, suggestFrom.block);
+  const { value } = resolveTrainingMax(profile, suggestFrom.key as TrainingMaxKey, suggestFrom.block, suggestFrom.variationId);
   return value === null ? null : suggestRmLoad(value, targetReps, profile.equipmentIncrement);
 }
 
@@ -53,6 +53,30 @@ export function suggestFromHistory(
       const load = normalizeWeight(top.load, top.unit, unit);
       const oneRm = load * (1 + top.actualReps / 30);
       return roundLoad(loadForReps(oneRm, Math.max(1, targetReps)), increment);
+    }
+  }
+  return null;
+}
+
+/** What was actually logged last time for this exact exercise: the facts, not an estimate. */
+export interface LastLogged {
+  load: number;
+  reps: number;
+  unit: WeightUnit;
+  completedAt: number;
+  /** As recorded with the session; sessions from before notation was tracked are 'unspecified'. */
+  notation: LoadNotation;
+}
+
+export function lastLoggedFor(exerciseId: string, history: WorkoutSession[]): LastLogged | null {
+  for (const session of usableHistory(history)) {
+    for (const exercise of session.exercises) {
+      if (exercise.exerciseId !== exerciseId) continue;
+      const top = exercise.sets.find((set) => set.completed
+        && (set.type === 'rm_target' || set.type === 'test')
+        && set.load !== null && set.actualReps !== null && set.actualReps > 0 && set.load > 0);
+      if (!top || top.load === null || top.actualReps === null) continue;
+      return { load: top.load, reps: top.actualReps, unit: top.unit, completedAt: session.completedTime ?? session.startTime, notation: exercise.loadNotation ?? 'unspecified' };
     }
   }
   return null;

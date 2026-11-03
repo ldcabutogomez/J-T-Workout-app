@@ -1,53 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
-
-const origin = 'http://127.0.0.1:4173';
-const externalServer = process.env.JNT2_EXTERNAL_SERVER === '1';
-const preview = externalServer ? null : spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'preview'], {
-  stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, NO_COLOR: '1' },
-});
-let previewLog = '';
-preview?.stdout.on('data', (chunk) => { previewLog += String(chunk); });
-preview?.stderr.on('data', (chunk) => { previewLog += String(chunk); });
-
-async function waitForPreview() {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(origin);
-      if (response.ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  throw new Error(`Production preview did not start.\n${previewLog}`);
-}
-
-/**
- * A browser context that already belongs to one person, as after the one-time "Who uses this phone?" choice.
- * The seed runs once per storage, so tests can still clear the lock or switch users afterwards.
- */
-async function lockedContext(browser, profileId = 'partner-1', options = {}) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
-  await context.addInitScript((id) => {
-    try {
-      if (!localStorage.getItem('jnt2_test_seed')) {
-        localStorage.setItem('jnt2_test_seed', '1');
-        localStorage.setItem('jnt2_locked_profile', id);
-      }
-    } catch { /* storage unavailable */ }
-  }, profileId);
-  return context;
-}
-
-async function assertNoHorizontalClipping(page, label) {
-  const sizes = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    document: document.documentElement.scrollWidth,
-  }));
-  assert.ok(sizes.document <= sizes.viewport + 1, `${label} clipped horizontally: ${JSON.stringify(sizes)}`);
-}
+import { assertNoHorizontalClipping, lockedContext, origin, preview, seedPhone, waitForPreview } from './browserHelpers.mjs';
 
 let browser;
 try {
@@ -79,8 +32,8 @@ try {
   await page.getByRole('button', { name: 'Today' }).click();
   await page.getByRole('button', { name: 'Start workout' }).click();
   await page.getByText('Workout in progress').waitFor();
-  await page.getByLabel('Swap Single Leg Press').selectOption('hip-thrust');
-  await page.getByRole('heading', { name: 'Hip Thrust' }).waitFor();
+  await page.getByLabel('Swap Single Leg Press').selectOption('bulgarian-split-squat');
+  await page.getByRole('heading', { name: 'Bulgarian Split Squat' }).waitFor();
   await page.getByText('Swapped from Single Leg Press').waitFor();
   // Main lifts swap too: same sets and warm-up ramp, different exercise, and it can be switched back before logging.
   await page.getByLabel('Swap Back Squat').selectOption('belted-squat');
@@ -263,6 +216,7 @@ try {
 
   // Who uses this phone: asked once, then locked ("Lauren is Lauren"); switching needs a confirmation.
   const askContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await seedPhone(askContext, null);
   const ask = await askContext.newPage();
   ask.on('dialog', (dialog) => dialog.accept());
   await ask.goto(origin, { waitUntil: 'networkidle' });
@@ -333,7 +287,16 @@ try {
   const cal = await calContext.newPage();
   cal.on('dialog', (dialog) => dialog.accept());
   const rowOf = (date) => cal.locator(`li[data-date="${date}"]`);
-  const dayOnRow = async (date) => (await rowOf(date).locator('[data-slot]').evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-slot'))));
+  const readRow = async (date) => (await rowOf(date).locator('[data-slot]').evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-slot'))));
+  // The calendar fills in just after its heading appears, so wait (briefly) for a row to settle before judging it.
+  const dayOnRow = async (date) => {
+    let rows = await readRow(date);
+    for (let attempt = 0; attempt < 25 && rows.length === 0; attempt += 1) {
+      await cal.waitForTimeout(200);
+      rows = await readRow(date);
+    }
+    return rows;
+  };
   const dragSlot = async (slot, date) => {
     const card = cal.locator(`[data-slot="${slot}"]`);
     await card.scrollIntoViewIfNeeded();
@@ -469,44 +432,6 @@ try {
   await iosPage.keyboard.press('Escape');
   await iosDialog.waitFor({ state: 'detached' });
   await iosContext.close();
-
-  // Storage that cannot be opened shows a recovery screen with real choices, not an endless "Loading".
-  const brokenContext = await lockedContext(browser);
-  await brokenContext.addInitScript(() => {
-    Object.defineProperty(window, 'indexedDB', { value: { open() { throw new Error('simulated storage failure'); } }, configurable: true });
-  });
-  const brokenPage = await brokenContext.newPage();
-  await brokenPage.goto(origin, { waitUntil: 'networkidle' });
-  await brokenPage.getByRole('heading', { name: "Can't open your data" }).waitFor();
-  await brokenPage.getByText('simulated storage failure').waitFor();
-  for (const name of ['Try again', 'Save a copy of my data', 'Start fresh']) await brokenPage.getByRole('button', { name }).waitFor();
-  await assertNoHorizontalClipping(brokenPage, 'storage recovery screen');
-  await brokenPage.getByRole('button', { name: 'Try again' }).click();
-  await brokenPage.getByRole('heading', { name: "Can't open your data" }).waitFor();
-  await brokenContext.close();
-
-  // Reps must be whole numbers: the problem is said next to the field and logging is disabled.
-  const inputContext = await lockedContext(browser);
-  await inputContext.clock.setFixedTime(new Date('2024-05-13T09:00:00'));
-  const inputPage = await inputContext.newPage();
-  await inputPage.goto(origin, { waitUntil: 'networkidle' });
-  await inputPage.getByRole('button', { name: 'Program' }).click();
-  const tmBlock = inputPage.locator('section').filter({ has: inputPage.getByRole('heading', { name: 'Block 1 training maxes' }) });
-  await tmBlock.getByRole('button', { name: /Edit/ }).click();
-  for (const [index, value] of ['200', '180', '300', '120', '160'].entries()) await tmBlock.locator('input[type="number"]').nth(index).fill(value);
-  await tmBlock.getByRole('button', { name: /Save/ }).click();
-  await inputPage.getByText('Block 1 TMs confirmed').waitFor();
-  await inputPage.getByRole('button', { name: 'Today' }).click();
-  await inputPage.getByRole('button', { name: 'Start workout' }).click();
-  await inputPage.getByText('Workout in progress').waitFor();
-  const logButton = inputPage.getByRole('button', { name: 'Log set' }).first();
-  const setRow = logButton.locator('..').locator('..');
-  await setRow.locator('input').nth(1).fill('5.5');
-  await inputPage.getByText('Reps must be a whole number.').waitFor();
-  assert.equal(await logButton.isDisabled(), true, 'fractional reps cannot be logged');
-  await setRow.locator('input').nth(1).fill('5');
-  await inputPage.getByText('Reps must be a whole number.').waitFor({ state: 'detached' });
-  await inputContext.close();
 
   assert.deepEqual(browserErrors, [], `browser console/page errors: ${browserErrors.join('\n')}`);
   console.log('PASS: production mobile-width workflow, refresh/resume, completion/history, and offline logging/reload.');

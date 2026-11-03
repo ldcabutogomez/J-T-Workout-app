@@ -9,7 +9,7 @@ import type {
   UserProfile,
 } from '../types';
 import { slug } from '../lib/slug';
-import { applySwap } from './swapOptions';
+import { resolveDaySwaps } from './swapOptions';
 
 type WeekColumns = { exercise: string; weight: string; reps: string; sets: string };
 
@@ -545,19 +545,16 @@ export function getOriginalDayPrescription(week: number, day: number): DayPrescr
 export function getDayPrescription(week: number, day: number, profile?: UserProfile): DayPrescription {
   const original = getOriginalDayPrescription(week, day);
   if (!profile?.exerciseCustomizations && !profile?.exerciseSwaps) return original;
-  return {
-    ...original,
-    exercises: original.exercises.map((slot) => {
-      const customName = profile.exerciseCustomizations?.[slot.slotId]?.trim();
-      if (customName && slot.loadBasis?.kind === 'user_selected' && slot.tier !== 'T1') {
-        return { ...slot, exerciseName: customName, exerciseId: `custom-${slug(customName)}` };
-      }
-      const others = original.exercises
-        .filter((other) => other.slotId !== slot.slotId && (other.status === 'work' || other.status === 'test'))
-        .map((other) => other.exerciseId);
-      return applySwap(slot, profile.exerciseSwaps, others);
-    }),
-  };
+  const customized = original.exercises.map((slot) => {
+    const customName = profile.exerciseCustomizations?.[slot.slotId]?.trim();
+    if (customName && slot.loadBasis?.kind === 'user_selected' && slot.tier !== 'T1') {
+      return { ...slot, exerciseName: customName, exerciseId: `custom-${slug(customName)}` };
+    }
+    return slot;
+  });
+  // A customized slot keeps its custom name; swaps are settled together so no two end up on the same exercise.
+  const isCustom = (slot: { exerciseId: string }) => slot.exerciseId.startsWith('custom-');
+  return { ...original, exercises: resolveDaySwaps(customized, profile.exerciseSwaps, isCustom) };
 }
 
 export const PRESCRIPTION_DATASET: DayPrescription[] = Array.from({ length: 12 }, (_, weekIndex) =>

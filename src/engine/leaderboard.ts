@@ -5,6 +5,7 @@ import { liftOf, nextWorkout, defaultSchedule, fromDateKey, isWeekCode, todayKey
 import { countResults, deriveHighlights, streakFromCounts } from './achievements';
 import { normalizeWeight } from './jnt2Engine';
 import { levelFor } from './xp';
+import { historyForCycle, profileCycleId } from './cycles';
 import { batteryDebuff } from './debuff';
 import { flairById, tauntText, type Taunt } from '../lib/perks';
 import { countsTowardStats, validCompleted, weekStart, weeklyCounts } from './sessionValidity';
@@ -192,13 +193,15 @@ export function snapshotFromHistory(
 
 /** What a partner may see of you beyond stats: your picture and where you are in the program. Only if sharing is on. */
 function liveFields(profile: UserProfile, history: WorkoutSession[], now: number, active: WorkoutSession | null): Partial<PartnerSnapshot> {
-  const schedule = profile.schedule ?? defaultSchedule(profile, now, history);
+  // The calendar only knows the cycle in progress; an earlier run through the program must not fill its slots.
+  const cycleHistory = historyForCycle(history, profileCycleId(profile));
+  const schedule = profile.schedule ?? defaultSchedule(profile, now, cycleHistory);
   const today = todayKey(now);
   const out: Partial<PartnerSnapshot> = { theme: themeForProfile(profile) };
   if (profile.avatar?.thumb || profile.avatar?.color) out.avatar = { thumb: profile.avatar?.thumb, color: profile.avatar?.color };
-  const next = nextWorkout(schedule, history, today);
+  const next = nextWorkout(schedule, cycleHistory, today);
   if (next) out.today = { week: next.week, day: next.day, lift: liftOf(next.week, next.day, profile).slice(0, 40) };
-  out.weekCodes = weekCodes(schedule, history, today);
+  out.weekCodes = weekCodes(schedule, cycleHistory, today);
   if (active && !active.isEditingCompleted && active.status === 'active') {
     const sets = active.exercises.flatMap((exercise) => exercise.sets);
     out.workout = {

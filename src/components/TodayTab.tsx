@@ -1,5 +1,6 @@
+import { PlateCalculatorModal } from './PlateCalculatorModal';
 import { setInputProblem } from '../lib/setInput';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { LoggedExercise, LoggedSet, SourceReference, UserProfile, WorkoutSession } from '../types';
 import { getDayPrescription } from '../engine/jnt2Engine';
 import { missingTrainingMaxes } from '../engine/sessionEngine';
@@ -9,6 +10,9 @@ import { useDialog } from '../lib/useDialog';
 import { warmupSets } from '../engine/warmup';
 import type { StreakInfo } from '../engine/achievements';
 import { getSwapOptions, SWAP_GROUP_LABELS, type SwappableSlot } from '../program/swapOptions';
+import { NOTATION_LABEL, isSetupSpecific, loadNotationFor } from '../program/loadNotation';
+import { lastLoggedFor } from '../engine/suggestions';
+import type { LoadNotation, SwapReview } from '../types';
 import { ProgressRing } from './ProgressRing';
 import { StreakLabel } from './StreakLabel';
 import { fmtCount } from '../engine/sessionValidity';
@@ -19,6 +23,8 @@ import { fromDateKey, type NextWorkout } from '../engine/schedule';
 import type { CoachMessage } from '../engine/coach';
 
 interface TodayTabProps {
+  /** Opens the new-cycle flow; offered once the 12 weeks are done. */
+  onStartNewCycle?: () => void;
   profile: UserProfile | null;
   activeSession: WorkoutSession | null;
   onStartWorkout: () => void;
@@ -30,6 +36,11 @@ interface TodayTabProps {
   onSkipSession: () => void;
   onSwapExercise: (slotId: string, originalExerciseId: string, alternativeId: string) => void;
   onToggleWarmup: (slotId: string, stepId: string) => void;
+  /** Save the lifter's note for one exercise, or for the whole workout. */
+  onExerciseNote?: (slotId: string, text: string) => void;
+  onSessionNote?: (text: string) => void;
+  onSetVariationTm?: (exerciseId: string, block: 1 | 2, value: number | null) => void;
+  onClearLoads?: (slotId: string) => void;
   coach?: CoachMessage | null;
   onDismissCoach?: (id: string) => void;
   /** The workout to do next, from the calendar. Falls back to the saved program position. */
@@ -49,6 +60,7 @@ function formatSources(refs: SourceReference[]): string {
 }
 
 export function TodayTab({
+  onStartNewCycle,
   profile,
   activeSession,
   onStartWorkout,
@@ -59,7 +71,11 @@ export function TodayTab({
   onDiscardActiveWorkout,
   onSkipSession,
   onSwapExercise,
+  onSetVariationTm,
+  onClearLoads,
   onToggleWarmup,
+  onExerciseNote,
+  onSessionNote,
   coach,
   onDismissCoach,
   next,
@@ -71,6 +87,8 @@ export function TodayTab({
   history,
 }: TodayTabProps) {
   const [showHelp, setShowHelp] = useState(false);
+  // The weight the plate calculator is open for, or null when it is closed.
+  const [plateTarget, setPlateTarget] = useState<number | null>(null);
   const [reopened, setReopened] = useState<Record<string, boolean>>({});
   // The load currently typed into each T1 exercise's first (RM) set, so the warm-up ramp follows it.
   const [topDraft, setTopDraft] = useState<Record<string, number | ''>>({});
@@ -99,7 +117,10 @@ export function TodayTab({
           </div>
 
           {done ? (
-            <div className="mt-4 p-3 rounded-2xl border border-ok/40 bg-ok/10 text-sm text-ok">This profile is at the end of Week 12. The app will not silently restart or duplicate cycle completion.</div>
+            <div className="mt-4 space-y-3 p-3 rounded-2xl border border-ok/40 bg-ok/10 text-sm text-ok">
+              <p>Cycle complete. All 12 weeks are done. Nothing restarts on its own, so your finished cycle stays exactly as you left it.</p>
+              {onStartNewCycle && <button type="button" onClick={onStartNewCycle} className="btn-primary w-full">Start the next cycle</button>}
+            </div>
           ) : missing.length > 0 ? (
             <div role="alert" className="mt-4 p-3 rounded-2xl border border-bad/40 bg-bad/10 text-sm text-bad">
               <strong className="block">Personal setup required</strong>
@@ -130,7 +151,7 @@ export function TodayTab({
                     <strong className="text-sm text-ink">{slot.exerciseName}</strong>
                     {slot.status !== 'work' && <span className="text-xs uppercase text-muted">{slot.status}</span>}
                   </div>
-                  <ExerciseSwap slot={slot} siblings={prescription.exercises.filter((other) => other.slotId !== slot.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} onSwap={onSwapExercise} />
+                  <ExerciseSwap slot={slot} profile={profile} history={history} onSetVariationTm={onSetVariationTm} siblings={prescription.exercises.filter((other) => other.slotId !== slot.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} onSwap={onSwapExercise} />
                   <p className="text-xs text-muted mt-1">
                     {slot.status === 'work' || slot.status === 'test'
                       ? slot.setType === 'mrs'
@@ -199,7 +220,7 @@ export function TodayTab({
               <h2 className="font-black text-ink">{exercise.exerciseName}</h2>
               {exercise.status !== 'work' && <span className="text-xs uppercase text-muted">{exercise.status}</span>}
             </div>
-            <ExerciseSwap slot={exercise} siblings={activeSession.exercises.filter((other) => other.slotId !== exercise.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} locked={activeSession.isEditingCompleted || exercise.sets.some((set) => set.completed)} lockedReason={activeSession.isEditingCompleted ? 'Swaps are disabled while editing history.' : 'Undo logged sets to swap this exercise.'} onSwap={onSwapExercise} />
+            <ExerciseSwap slot={exercise} profile={profile} history={history} onSetVariationTm={onSetVariationTm} onClearLoads={onClearLoads} siblings={activeSession.exercises.filter((other) => other.slotId !== exercise.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} locked={activeSession.isEditingCompleted || exercise.sets.some((set) => set.completed)} lockedReason={activeSession.isEditingCompleted ? 'Swaps are disabled while editing history.' : 'Completed sets stay attached to this exercise, so it cannot be replaced now. Undo them to swap it.'} onSwap={onSwapExercise} />
             {exercise.notes && <p className="text-xs text-muted mt-1">{exercise.notes}</p>}
           </div>
 
@@ -220,12 +241,15 @@ export function TodayTab({
           {exercise.sets.length === 0 ? (
             <div className="rounded-2xl bg-paper/60 border border-line p-3 text-xs text-muted">No logged sets for this {exercise.status} slot.</div>
           ) : exercise.sets.map((set, index) => (
-            <SetRow key={set.setId} set={set} setNumber={index + 1} unit={set.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} onLoadChange={index === 0 && exercise.tier === 'T1' ? (value) => setTopDraft((drafts) => (drafts[exercise.slotId] === value ? drafts : { ...drafts, [exercise.slotId]: value })) : undefined} isCurrent={set.setId === currentSetId} context={set.completed || (set.type !== 'rm_target' && set.type !== 'test') ? undefined : contextLine(exercise.exerciseId, set.prescribedReps, history, set.unit, activeSession.sessionId)} disabled={Boolean(exercise.manualLoadDecisionPending && set.type === 'backoff')} onLog={(reps, load, rir, declined) => onLogSet(exercise.slotId, set.setId, reps, load, rir, declined)} onUndo={() => onUndoSet(exercise.slotId, set.setId)} />
+            <SetRow key={set.setId} large={profile.largeGymMode === true} onPlates={setPlateTarget} set={set} setNumber={index + 1} unit={set.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} onLoadChange={index === 0 && exercise.tier === 'T1' ? (value) => setTopDraft((drafts) => (drafts[exercise.slotId] === value ? drafts : { ...drafts, [exercise.slotId]: value })) : undefined} isCurrent={set.setId === currentSetId} context={set.completed || (set.type !== 'rm_target' && set.type !== 'test') ? undefined : contextLine(exercise.exerciseId, set.prescribedReps, history, set.unit, activeSession.sessionId)} disabled={Boolean(exercise.manualLoadDecisionPending && set.type === 'backoff')} onLog={(reps, load, rir, declined) => onLogSet(exercise.slotId, set.setId, reps, load, rir, declined)} onUndo={() => onUndoSet(exercise.slotId, set.setId)} />
           ))}
+          {onExerciseNote && <NoteField label="Exercise note" value={exercise.userNote ?? ''} onSave={(text) => onExerciseNote(exercise.slotId, text)} />}
           <SourceDetails refs={exercise.sourceRefs} />
         </section>
         );
       })}
+
+      {onSessionNote && <section className="card p-4"><NoteField label="Workout note" value={activeSession.note ?? ''} onSave={onSessionNote} /></section>}
 
       <section className="grid grid-cols-3 gap-2">
         <button onClick={onDiscardActiveWorkout} className="min-h-12 bg-surface border border-line rounded-2xl text-xs font-bold text-bad">Discard draft</button>
@@ -233,38 +257,123 @@ export function TodayTab({
         <button onClick={onCompleteWorkout} className="min-h-12 bg-ok text-on-accent rounded-2xl text-xs font-black uppercase">{activeSession.isEditingCompleted ? 'Save edits' : 'Finish'}</button>
       </section>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      <PlateCalculatorModal isOpen={plateTarget !== null} onClose={() => setPlateTarget(null)} targetWeight={plateTarget ?? 0} barbellWeight={activeSession.settingsSnapshot.barbellWeight} unit={activeSession.settingsSnapshot.unit} />
     </div>
   );
 }
 
-function ExerciseSwap({ slot, siblings = [], locked = false, lockedReason, onSwap }: {
-  slot: SwappableSlot;
-  /** Exercises already in the day's other slots, hidden from the choices so none repeats. */
+type SwapSlot = SwappableSlot & { swapReview?: SwapReview; loadNotation?: LoadNotation };
+
+function ExerciseSwap({ slot, profile, history, siblings = [], locked = false, lockedReason, onSwap, onSetVariationTm, onClearLoads }: {
+  slot: SwapSlot;
+  profile: UserProfile;
+  history: WorkoutSession[];
+  /** The final exercises in the day's other slots, so a swap that would repeat one is shown as unavailable. */
   siblings?: string[];
   locked?: boolean;
   lockedReason?: string;
   onSwap: (slotId: string, originalExerciseId: string, alternativeId: string) => void;
+  onSetVariationTm?: (exerciseId: string, block: 1 | 2, value: number | null) => void;
+  onClearLoads?: (slotId: string) => void;
 }) {
   const options = getSwapOptions(slot, siblings);
-  if (!options) return null;
+  const review = slot.swapReview;
+  const notation = slot.loadNotation ?? loadNotationFor(slot.exerciseId, slot.exerciseName);
+  const last = lastLoggedFor(slot.exerciseId, history);
+  const variation = slot.tier === 'T1' && slot.swappedFrom && slot.loadBasis?.kind === 'training_max' ? slot.loadBasis : null;
+  if (!options && !review) return null;
+  const selected = options?.alternatives.find((item) => item.id === options.selectedId);
+  const reasonOf = (item: { disabledReason?: string; fit: string }) => (item.fit === 'different' ? 'different job, not available yet' : item.disabledReason ? 'unavailable' : '');
   return (
     <div className="mt-2">
-      <label className="flex items-center gap-2 text-xs uppercase font-bold tracking-wider text-muted">
-        <span className="shrink-0">Swap · {SWAP_GROUP_LABELS[options.group]}</span>
-        <select
-          aria-label={`Swap ${options.original.exerciseName}`}
-          value={options.selectedId}
-          disabled={locked}
-          onChange={(event) => onSwap(slot.slotId, options.original.exerciseId, event.target.value)}
-          className="min-w-0 flex-1 min-h-9 bg-paper disabled:opacity-50 border border-line rounded-xl px-2 text-xs normal-case font-bold text-accent-ink"
-        >
-          <option value="">Program: {options.original.exerciseName}</option>
-          {options.alternatives.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-      </label>
+      {review && (
+        <div role="alert" className="mb-2 rounded-xl border border-bad/50 bg-bad/10 p-2 text-xs text-ink">
+          <strong>Replacement needs review.</strong> Your saved replacement, {review.storedName}, does not apply here: {review.detail} Today shows the program exercise, {slot.exerciseName}. Pick another replacement below, or keep it.
+        </div>
+      )}
+      {options && (
+        <label className="flex items-center gap-2 text-xs uppercase font-bold tracking-wider text-muted">
+          <span className="shrink-0">Swap · {SWAP_GROUP_LABELS[options.group]}</span>
+          <select
+            aria-label={`Swap ${options.original.exerciseName}`}
+            value={options.selectedId}
+            disabled={locked}
+            onChange={(event) => onSwap(slot.slotId, options.original.exerciseId, event.target.value)}
+            className="min-w-0 flex-1 min-h-9 bg-paper disabled:opacity-50 border border-line rounded-xl px-2 text-xs normal-case font-bold text-accent-ink"
+          >
+            <option value="">Program: {options.original.exerciseName}</option>
+            {(['direct', 'conditional', 'different'] as const).map((fit) => {
+              const items = options.alternatives.filter((item) => item.fit === fit);
+              if (items.length === 0) return null;
+              const label = fit === 'direct' ? 'Same job' : fit === 'conditional' ? 'Changes the emphasis' : 'Different job (not available yet)';
+              return (
+                <optgroup key={fit} label={label}>
+                  {items.map((item) => {
+                    const why = reasonOf(item);
+                    return <option key={item.id} value={item.id} disabled={Boolean(item.disabledReason)} title={item.disabledReason}>{item.name}{why ? ` (${why})` : ''}</option>;
+                  })}
+                </optgroup>
+              );
+            })}
+          </select>
+        </label>
+      )}
       {locked && lockedReason && <p className="mt-1 text-xs text-muted">{lockedReason}</p>}
-      {slot.swappedFrom && !locked && <p className="mt-1 text-xs text-muted">Swapped from {slot.swappedFrom.exerciseName}. Remembered for this slot while it is the same program exercise.</p>}
+      {options && options.alternatives.some((item) => item.disabledReason && item.fit !== 'different') && (
+        <ul className="mt-1 space-y-0.5 text-xs text-muted">
+          {options.alternatives.filter((item) => item.disabledReason && item.fit !== 'different').map((item) => <li key={item.id}>{item.name}: {item.disabledReason}</li>)}
+        </ul>
+      )}
+      {selected?.note && <p className="mt-1 text-xs text-muted">{selected.note}</p>}
+      {slot.swappedFrom && !locked && <p className="mt-1 text-xs text-muted">Swapped from {slot.swappedFrom.exerciseName}. Remembered for this slot while it is the same program exercise. Loads here come only from {slot.exerciseName}'s own history.</p>}
+      {variation && onSetVariationTm && (
+        <label className="mt-2 flex items-center gap-2 text-xs font-bold text-ink">
+          <span className="shrink-0">{slot.exerciseName} training max ({profile.unit}, block {variation.block})</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step="any"
+            defaultValue={profile.variationTrainingMaxes?.[`${slot.exerciseId}:${variation.block}`] ?? ''}
+            key={`${slot.exerciseId}:${variation.block}:${profile.variationTrainingMaxes?.[`${slot.exerciseId}:${variation.block}`] ?? ''}`}
+            onBlur={(event) => onSetVariationTm(slot.exerciseId, variation.block, event.target.value === '' ? null : Number(event.target.value))}
+            placeholder="Required for loads"
+            aria-label={`${slot.exerciseName} training max`}
+            className="min-w-0 flex-1 min-h-9 rounded-xl border border-line bg-paper px-2 text-xs"
+          />
+        </label>
+      )}
+      <p className="mt-1 text-xs text-muted">Load: {NOTATION_LABEL[notation]}.{isSetupSpecific(notation) ? ' History applies to the same machine or setup.' : ''}</p>
+      {last && (
+        <p className="mt-1 text-xs text-muted">
+          Last logged {slot.exerciseName}: {Number(last.load.toFixed(2))} {last.unit} × {last.reps} ({NOTATION_LABEL[last.notation]}). A suggested load is an estimate from that set, not measured ability.
+        </p>
+      )}
+      {onClearLoads && isSetupSpecific(notation) && !locked && (
+        <button type="button" onClick={() => onClearLoads(slot.slotId)} className="mt-1 min-h-9 rounded-xl bg-sunk px-3 text-xs font-bold text-ink-2">Different machine? Start blank</button>
+      )}
     </div>
+  );
+}
+
+/** A note the lifter writes for themselves: technique cues, pain, equipment. Saved when the field is left. */
+function NoteField({ label, value, onSave }: { label: string; value: string; onSave: (text: string) => void }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <details open={value.length > 0} className="group">
+      <summary className="flex min-h-9 cursor-pointer items-center text-xs font-bold uppercase tracking-wider text-muted">{value ? `${label} (saved)` : `Add ${label.toLowerCase()}`}</summary>
+      <textarea
+        aria-label={label}
+        value={text}
+        maxLength={500}
+        rows={2}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={() => { if (text !== value) onSave(text); }}
+        placeholder="Technique, pain, equipment, how it felt…"
+        className="field mt-1 min-h-16 py-2 text-sm"
+      />
+    </details>
   );
 }
 
@@ -313,7 +422,7 @@ function SessionProgress({ session }: { session: WorkoutSession }) {
   );
 }
 
-function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context, onLoadChange, onLog, onUndo }: {
+function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context, large = false, onPlates, onLoadChange, onLog, onUndo }: {
   set: LoggedSet;
   setNumber: number;
   unit: 'lb' | 'kg';
@@ -321,6 +430,10 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
   disabled: boolean;
   isCurrent: boolean;
   context?: string;
+  /** Large gym mode: bigger numbers and tap targets. */
+  large?: boolean;
+  /** Opens the plate calculator for the typed load. */
+  onPlates?: (weight: number) => void;
   onLoadChange?: (value: number | '') => void;
   onLog: (reps: number, load: number, rir: number, declined?: boolean) => void;
   onUndo: () => void;
@@ -328,6 +441,16 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
   const [load, setLoad] = useState<number | ''>(set.load ?? '');
   const [reps, setReps] = useState<number | ''>(set.actualReps ?? (set.type === 'mrs' ? '' : set.prescribedReps));
   const [rir, setRir] = useState(set.rir ?? 2);
+  // When logging a set makes this one the next, bring it into view so the lifter never has to hunt for it.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const wasCurrent = useRef(isCurrent);
+  useEffect(() => {
+    if (isCurrent && !wasCurrent.current) {
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      rootRef.current?.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
+    }
+    wasCurrent.current = isCurrent;
+  }, [isCurrent]);
   useEffect(() => { onLoadChange?.(load); }, [load]);
   useEffect(() => {
     setLoad(set.load ?? '');
@@ -347,7 +470,7 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
   const problem = setInputProblem(load, reps);
   const canLog = !disabled && load !== '' && reps !== '' && problem === null;
   return (
-    <div className={`rounded-2xl p-3 border ${isCurrent ? 'bg-paper border-accent/70 ring-1 ring-accent/30' : 'bg-paper/40 border-line/70'} ${disabled ? 'opacity-50' : ''}`}>
+    <div ref={rootRef} className={`rounded-2xl p-3 border ${isCurrent ? 'bg-paper border-accent/70 ring-1 ring-accent/30' : 'bg-paper/40 border-line/70'} ${disabled ? 'opacity-50' : ''}`}>
       {isCurrent && <p className="mb-1 text-xs font-black uppercase tracking-wider text-accent-ink">Up next</p>}
       {context && <p className="mb-2 text-xs text-muted">{context}</p>}
       <div className="flex justify-between gap-2 items-center mb-2">
@@ -355,29 +478,32 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
         {set.isAmrap && <span className="text-xs px-2 py-0.5 rounded bg-bad/10 text-bad">optional rep-out</span>}
       </div>
       <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
-        <Stepper label={`Load (${unit})`} value={load} step={increment} onChange={setLoad} />
-        <Stepper label="Achieved reps" value={reps} step={1} onChange={setReps} />
+        <Stepper large={large} label={`Load (${unit})`} value={load} step={increment} onChange={setLoad} />
+        <Stepper large={large} label="Achieved reps" value={reps} step={1} onChange={setReps} />
         <label className="text-xs uppercase font-bold text-muted">RIR<select value={rir} onChange={(event) => setRir(Number(event.target.value))} className="block mt-1 min-h-10 bg-surface border border-line rounded-xl px-2 text-xs text-accent-ink"><option value={0}>0</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3+</option></select></label>
       </div>
+      {onPlates && load !== '' && Number(load) > 0 && (
+        <button type="button" onClick={() => onPlates(Number(load))} className="mt-2 min-h-9 rounded-xl bg-sunk px-3 text-xs font-bold text-accent-ink">Plates for {Number(load)} {unit}</button>
+      )}
       {problem && <p role="alert" className="mt-2 text-xs font-bold text-bad">{problem}</p>}
       {set.suggested && load !== '' && Number(load) === set.load && (
         <p className="mt-2 text-xs font-semibold text-accent-ink">{set.suggested === 'tm' ? 'Suggested from your training max. Adjust to what you can do today.' : 'Suggested from last time. Adjust to what you can do today.'}</p>
       )}
       <div className="flex gap-2 mt-3">
-        <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), rir)} className={`flex-1 bg-ok disabled:bg-sunk disabled:text-muted text-on-accent rounded-xl font-black uppercase active:scale-[0.98] transition ${isCurrent ? 'min-h-12 text-sm' : 'min-h-11 text-xs'}`}>Log set</button>
+        <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), rir)} className={`flex-1 bg-ok disabled:bg-sunk disabled:text-muted text-on-accent rounded-xl font-black uppercase active:scale-[0.98] transition ${large ? 'min-h-16 text-lg' : isCurrent ? 'min-h-12 text-sm' : 'min-h-11 text-xs'}`}>Log set</button>
         {set.isAmrap && <button disabled={disabled || load === '' || (problem !== null && Number(load) < 0)} onClick={() => onLog(set.prescribedReps, Number(load), rir, true)} className="px-3 min-h-11 bg-sunk rounded-xl text-xs font-bold">Log prescribed reps, no AMRAP</button>}
       </div>
     </div>
   );
 }
 
-function Stepper({ label, value, step, onChange }: { label: string; value: number | ''; step: number; onChange: (value: number | '') => void }) {
+function Stepper({ label, value, step, onChange, large = false }: { label: string; value: number | ''; step: number; onChange: (value: number | '') => void; large?: boolean }) {
   return (
     <label className="text-xs uppercase font-bold text-muted min-w-0">{label}
- <div className="flex mt-1 min-h-11 bg-surface border border-line rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-accent">
-        <button type="button" data-haptic="step" onClick={() => onChange(Math.max(0, Number(value || 0) - step))} className="px-3 min-w-9 bg-sunk" aria-label={`Decrease ${label}`}><Minus className="w-3 h-3" /></button>
-        <input type="number" step={step} value={value} onChange={(event) => onChange(event.target.value === '' ? '' : Number(event.target.value))} className="w-full min-w-0 bg-transparent text-center text-sm font-mono text-ink outline-none" />
-        <button type="button" data-haptic="step" onClick={() => onChange(Number(value || 0) + step)} className="px-3 min-w-9 bg-sunk" aria-label={`Increase ${label}`}><Plus className="w-3 h-3" /></button>
+ <div className={`flex mt-1 ${large ? 'min-h-16' : 'min-h-11'} bg-surface border border-line rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-accent`}>
+        <button type="button" data-haptic="step" onClick={() => onChange(Math.max(0, Number(value || 0) - step))} className={`${large ? 'px-4 min-w-14' : 'px-3 min-w-9'} bg-sunk`} aria-label={`Decrease ${label}`}><Minus className={large ? 'w-5 h-5' : 'w-3 h-3'} /></button>
+        <input type="number" step={step} value={value} onChange={(event) => onChange(event.target.value === '' ? '' : Number(event.target.value))} className={`w-full min-w-0 bg-transparent text-center font-mono text-ink outline-none ${large ? 'text-2xl font-black' : 'text-sm'}`} />
+        <button type="button" data-haptic="step" onClick={() => onChange(Number(value || 0) + step)} className={`${large ? 'px-4 min-w-14' : 'px-3 min-w-9'} bg-sunk`} aria-label={`Increase ${label}`}><Plus className={large ? 'w-5 h-5' : 'w-3 h-3'} /></button>
       </div>
     </label>
   );
