@@ -15,6 +15,8 @@ import { findAllComparableResults, generateSessionEncouragement, isVerifiedCycle
 import { findAlternative, swapKey } from './program/swapOptions';
 import { BADGES, computeHighlights, computeStreak, evaluateBadges, evaluateDuoBadges, newlyUnlocked } from './engine/achievements';
 import { levelBadges, levelFor } from './engine/xp';
+import { batteryDebuff } from './engine/debuff';
+import { useWakeLock } from './lib/wakeLock';
 import { AppPrompts } from './components/AppPrompts';
 import { StorageRecovery } from './components/StorageRecovery';
 import { exportTextFile } from './lib/exportFile';
@@ -23,7 +25,7 @@ import { UpdateCard } from './components/UpdateCard';
 import { useAppUpdate } from './lib/appUpdate';
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { notifyPartner } from './sync/push';
-import { TAUNT_COOLDOWN_MS, TAUNT_FRESH_MS, TAUNT_LEVEL, perksBetween, tauntText, tauntUnlocked } from './lib/perks';
+import { TAUNT_COOLDOWN_MS, TAUNT_FRESH_MS, TAUNT_LEVEL, perksBetween, tauntText, tauntUnlocked, BATTERY_FLAIR } from './lib/perks';
 import { haptic, installTapHaptics, setFeedbackPrefs } from './lib/feedback';
 import { feedback } from './lib/feedback';
 import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, prRewardKey } from './lib/rewards';
@@ -314,11 +316,13 @@ export default function App() {
   }, [profiles, partnerHistory, meId, remote, today]);
 
   const appUpdate = useAppUpdate();
+  useWakeLock(Boolean(activeSession) && profile?.keepScreenOn !== false);
   const openNotifications = () => {
     setTab('settings');
     window.setTimeout(() => document.getElementById('notifications')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
   };
 
+  const battery = useMemo(() => (profile ? batteryDebuff(history, profile.weeklyGoalSessions ?? 4) : null), [history, profile?.weeklyGoalSessions]);
   const myLevel = useMemo(() => (profile ? levelFor(history, profile).level : 1), [history, profile]);
 
   // A taunt is a canned line chosen on one phone and shown on the other, carried in the sync snapshot.
@@ -845,12 +849,12 @@ export default function App() {
     <div className="min-h-screen bg-paper text-ink flex flex-col font-sans selection:bg-accent selection:text-on-accent">
       <OfflineIndicator />
       <AppPrompts updateReady={appUpdate.updateReady} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} paired={Boolean(cloudConfig && pairing.code)} onOpenNotifications={openNotifications} backupDue={!backupNudgeHidden && backupDue(history, backupAt)} onBackupNow={() => { setBackupNudgeHidden(true); setTab('settings'); }} onSnoozeBackup={() => { snoozeBackupNudge(); setBackupNudgeHidden(true); }} />
-      <header className="sticky top-0 z-30 bg-surface border-b border-line px-3 py-3 flex items-center justify-between gap-2">
+      <header className="sticky top-0 z-30 bg-surface border-b border-line px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-display font-black text-lg text-accent-ink whitespace-nowrap">J&amp;T 2.0</span>
           {profile && (
             <div className="flex items-center gap-1.5 rounded-xl bg-accent py-1 pl-1 pr-3 text-xs font-bold text-on-accent" aria-label={`Signed in as ${profile.name}`}>
-              <span className="flex rounded-full ring-2 ring-on-accent"><Avatar profile={profile} size={22} decorative /></span>
+              <span className="flex rounded-full ring-2 ring-on-accent"><Avatar profile={battery?.active ? { ...profile, flair: BATTERY_FLAIR } : profile} size={22} decorative /></span>
               {profile.name}
             </div>
           )}
@@ -863,10 +867,10 @@ export default function App() {
         </div>
       </header>
 
-      {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[57px] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
+      {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[calc(57px+env(safe-area-inset-top))] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
-      <main key={tab} className="flex-1 p-3 sm:p-4 pb-28 max-w-xl mx-auto w-full animate-fade-in">
-        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={history} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+      <main key={tab} className="flex-1 p-3 sm:p-4 pb-[calc(7rem+env(safe-area-inset-bottom))] max-w-xl mx-auto w-full animate-fade-in">
+        {tab === 'today' && <TodayTab profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={history} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && (
           <div className="space-y-4">
             {schedule && <WeekCalendar schedule={schedule} profile={profile ?? undefined} history={history} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
@@ -903,7 +907,7 @@ export default function App() {
         {tab === 'verify' && <VerificationTab />}
       </main>
 
-      <RestTimer restRequest={restRequest} setsLogged={activeSession ? activeSession.exercises.reduce((sum, item) => sum + item.sets.filter((set) => set.completed).length, 0) : 0} />
+      <RestTimer key={profile?.id ?? 'none'} profileId={profile?.id} restRequest={restRequest} setsLogged={activeSession ? activeSession.exercises.reduce((sum, item) => sum + item.sets.filter((set) => set.completed).length, 0) : 0} />
       <ToastStack toasts={toasts} />
       {summary && <WorkoutSummary data={summary} onDone={() => { setSummary(null); setTab('today'); }} />}
       {moveSlot && sheetData && (
@@ -918,7 +922,7 @@ export default function App() {
           onClose={() => setMoveSlot(null)}
         />
       )}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-surface border-t border-line py-2 px-3 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">
+      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-surface border-t border-line pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] px-3 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">
         <NavButton active={tab === 'today'} label="Today" icon={<Dumbbell className="w-5 h-5" />} onClick={() => setTab('today')} />
         <NavButton active={tab === 'program'} label="Program" icon={<CalendarDays className="w-5 h-5" />} onClick={() => setTab('program')} />
         <NavButton active={tab === 'progress'} label="Progress" icon={<TrendingUp className="w-5 h-5" />} onClick={() => setTab('progress')} />

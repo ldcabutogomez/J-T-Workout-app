@@ -15,7 +15,7 @@ export function ToastStack({ toasts }: { toasts: ToastItem[] }) {
     <div
       aria-live="polite"
       data-keep-active
-      className="pointer-events-none fixed inset-x-0 top-3 z-[70] flex flex-col items-center gap-2 px-4"
+      className="pointer-events-none fixed inset-x-0 top-[calc(0.75rem+env(safe-area-inset-top))] z-[70] flex flex-col items-center gap-2 px-4"
     >
       {toasts.map((t) => (
         <div

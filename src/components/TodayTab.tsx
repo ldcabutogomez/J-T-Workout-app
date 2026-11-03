@@ -1,3 +1,4 @@
+import { setInputProblem } from '../lib/setInput';
 import React, { useEffect, useState } from 'react';
 import type { LoggedExercise, LoggedSet, SourceReference, UserProfile, WorkoutSession } from '../types';
 import { getDayPrescription } from '../engine/jnt2Engine';
@@ -12,6 +13,7 @@ import { ProgressRing } from './ProgressRing';
 import { StreakLabel } from './StreakLabel';
 import { fmtCount } from '../engine/sessionValidity';
 import { Avatar } from './Avatar';
+import { BATTERY_FLAIR } from '../lib/perks';
 import { CoachCard } from './CoachCard';
 import { fromDateKey, type NextWorkout } from '../engine/schedule';
 import type { CoachMessage } from '../engine/coach';
@@ -37,6 +39,8 @@ interface TodayTabProps {
   onMoveNext?: () => void;
   weekStrip?: React.ReactNode;
   streak?: StreakInfo;
+  /** Set when last week's goal was missed: The Battery debuff, with the time it ends. */
+  battery?: { until: number; missedCount: number } | null;
   history: WorkoutSession[];
 }
 
@@ -63,6 +67,7 @@ export function TodayTab({
   onMoveNext,
   weekStrip,
   streak,
+  battery,
   history,
 }: TodayTabProps) {
   const [showHelp, setShowHelp] = useState(false);
@@ -79,7 +84,7 @@ export function TodayTab({
     const whenText = !slot.date ? '' : slot.reason === 'today' ? 'Today' : slot.reason === 'missed' ? `Missed · was ${fromDateKey(slot.date).toLocaleDateString(undefined, { weekday: 'long' })}` : fromDateKey(slot.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
     return (
       <div className="space-y-4">
-        {streak && <WeekCard profile={profile} streak={streak} />}
+        {streak && <WeekCard profile={profile} streak={streak} battery={battery ?? null} />}
         {weekStrip}
         {coach && onDismissCoach && <CoachCard message={coach} onDismiss={onDismissCoach} />}
         <section className="card p-5  animate-slide-up">
@@ -263,7 +268,7 @@ function ExerciseSwap({ slot, siblings = [], locked = false, lockedReason, onSwa
   );
 }
 
-function WeekCard({ profile, streak }: { profile: UserProfile; streak: StreakInfo }) {
+function WeekCard({ profile, streak, battery }: { profile: UserProfile; streak: StreakInfo; battery: { until: number; missedCount: number } | null }) {
   const name = profile.name;
   const remaining = fmtCount(Math.max(0, streak.weeklyGoal - streak.weeklyCount));
   const headline = streak.goalMet
@@ -278,13 +283,14 @@ function WeekCard({ profile, streak }: { profile: UserProfile; streak: StreakInf
       </ProgressRing>
       <div className="min-w-0 flex-1">
         <p className="font-black text-ink text-sm">{headline}</p>
+        {battery && <p className="text-xs font-bold text-bad mt-0.5">The Battery until Monday. Last week: {fmtCount(battery.missedCount)} of {streak.weeklyGoal} sessions.</p>}
         <p className="text-xs text-muted mt-0.5">
           {streak.streakWeeks > 0
             ? <StreakLabel weeks={streak.streakWeeks} />
             : 'Hit your weekly goal to start a streak'}
         </p>
       </div>
-      <Avatar profile={profile} size={44} />
+      <Avatar profile={battery ? { ...profile, flair: BATTERY_FLAIR } : profile} size={44} />
     </section>
   );
 }
@@ -338,7 +344,8 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
     );
   }
 
-  const canLog = !disabled && load !== '' && reps !== '' && Number(reps) >= 0 && Number(load) >= 0;
+  const problem = setInputProblem(load, reps);
+  const canLog = !disabled && load !== '' && reps !== '' && problem === null;
   return (
     <div className={`rounded-2xl p-3 border ${isCurrent ? 'bg-paper border-accent/70 ring-1 ring-accent/30' : 'bg-paper/40 border-line/70'} ${disabled ? 'opacity-50' : ''}`}>
       {isCurrent && <p className="mb-1 text-xs font-black uppercase tracking-wider text-accent-ink">Up next</p>}
@@ -352,12 +359,13 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
         <Stepper label="Achieved reps" value={reps} step={1} onChange={setReps} />
         <label className="text-xs uppercase font-bold text-muted">RIR<select value={rir} onChange={(event) => setRir(Number(event.target.value))} className="block mt-1 min-h-10 bg-surface border border-line rounded-xl px-2 text-xs text-accent-ink"><option value={0}>0</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3+</option></select></label>
       </div>
+      {problem && <p role="alert" className="mt-2 text-xs font-bold text-bad">{problem}</p>}
       {set.suggested && load !== '' && Number(load) === set.load && (
         <p className="mt-2 text-xs font-semibold text-accent-ink">{set.suggested === 'tm' ? 'Suggested from your training max. Adjust to what you can do today.' : 'Suggested from last time. Adjust to what you can do today.'}</p>
       )}
       <div className="flex gap-2 mt-3">
         <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), rir)} className={`flex-1 bg-ok disabled:bg-sunk disabled:text-muted text-on-accent rounded-xl font-black uppercase active:scale-[0.98] transition ${isCurrent ? 'min-h-12 text-sm' : 'min-h-11 text-xs'}`}>Log set</button>
-        {set.isAmrap && <button disabled={disabled || load === ''} onClick={() => onLog(set.prescribedReps, Number(load), rir, true)} className="px-3 min-h-11 bg-sunk rounded-xl text-xs font-bold">Log prescribed reps, no AMRAP</button>}
+        {set.isAmrap && <button disabled={disabled || load === '' || (problem !== null && Number(load) < 0)} onClick={() => onLog(set.prescribedReps, Number(load), rir, true)} className="px-3 min-h-11 bg-sunk rounded-xl text-xs font-bold">Log prescribed reps, no AMRAP</button>}
       </div>
     </div>
   );

@@ -133,7 +133,7 @@ export function WorkoutSummary({ data, onDone }: { data: WorkoutSummaryData; onD
   return (
     <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-50 overflow-y-auto bg-paper animate-fade-in" role="dialog" aria-modal="true" aria-label="Workout summary">
       {confettiCount > 0 && <Confetti count={confettiCount} />}
-      <div className="mx-auto flex min-h-full w-full max-w-xl flex-col gap-4 p-4 pb-8">
+      <div className="mx-auto flex min-h-full w-full max-w-xl flex-col gap-4 p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(2rem+env(safe-area-inset-bottom))]">
         <header className="animate-slide-up pt-8 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent text-on-accent" aria-hidden><HeaderIcon className="h-8 w-8" /></div>
           <h1 className="mt-3 text-3xl font-black text-ink">{headline}</h1>

@@ -264,7 +264,7 @@ function FlairPicker({ profile, onUpdateProfile, level }: { profile: UserProfile
     <div>
       <p className="eyebrow">Flair <span className="normal-case font-normal">(Level {level})</span></p>
       <div className="mt-2 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Avatar flair">
-        {[{ id: '', label: 'None', level: 1, badge: undefined as string | undefined }, ...FLAIRS].map((flair) => {
+        {[{ id: '', label: 'None', level: 1, badge: undefined as string | undefined }, ...FLAIRS.filter((item) => !item.debuff)].map((flair) => {
           const locked = flair.id !== '' && !flairUnlocked(flair as (typeof FLAIRS)[number], level, badgeIds);
           const selected = (profile.flair ?? '') === flair.id;
           return (

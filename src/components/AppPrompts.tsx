@@ -75,7 +75,7 @@ export function AppPrompts({ updateReady, onUpdate, activeWorkout, paired, onOpe
 
 function Card({ icon, title, body, children }: { icon: React.ReactNode; title: string; body: string; children: React.ReactNode }) {
   return (
-    <div role="dialog" aria-label={title} className="fixed inset-x-3 bottom-24 z-40 mx-auto max-w-xl animate-slide-up rounded-3xl border-2 border-accent/50 bg-surface p-4 shadow-lg">
+    <div role="dialog" aria-label={title} className="fixed inset-x-3 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-40 mx-auto max-w-xl animate-slide-up rounded-3xl border-2 border-accent/50 bg-surface p-4 shadow-lg">
       <div className="flex items-start gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-on-accent">{icon}</span>
         <div className="min-w-0">

@@ -87,6 +87,10 @@ export interface UserProfile {
   hapticsEnabled?: boolean;
   soundEnabled?: boolean;
   autoStartRest?: boolean;
+  /** Keep the screen on during a workout. On unless set to false. */
+  keepScreenOn?: boolean;
+  /** Bigger numbers and tap targets for a set, for reading across a gym. */
+  largeGymMode?: boolean;
   unlockedBadges?: UnlockedBadge[];
   avatar?: ProfileAvatar;
   /** Equipped flair id (see lib/perks.ts): a small badge on your avatar and a title next to your name. */

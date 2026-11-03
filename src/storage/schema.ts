@@ -28,6 +28,8 @@ const OPTIONAL_PROFILE_FIELDS: Record<string, Clean> = {
   hapticsEnabled: bool,
   soundEnabled: bool,
   autoStartRest: bool,
+  keepScreenOn: bool,
+  largeGymMode: bool,
   shareLive: bool,
   block2ConfirmedAt: (value) => (finite(value) && value >= 0 ? value : undefined),
   exerciseCustomizations: (value) => (isStringRecord(value) ? value : undefined),

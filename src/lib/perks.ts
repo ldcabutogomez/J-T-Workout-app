@@ -2,7 +2,7 @@ import type { ColorTheme } from '../types';
 
 /** Perks unlock with level (see engine/xp.ts). Everything here is cosmetic or playful, never a training change. */
 
-export type FlairIconKey = 'sparkles' | 'flame' | 'church' | 'crown' | 'trophy' | 'snowflake' | 'flower' | 'sun' | 'leaf' | 'drumstick' | 'tree';
+export type FlairIconKey = 'sparkles' | 'flame' | 'church' | 'crown' | 'trophy' | 'snowflake' | 'flower' | 'sun' | 'leaf' | 'drumstick' | 'tree' | 'battery';
 
 export interface Flair {
   id: string;
@@ -12,6 +12,8 @@ export interface Flair {
   icon: FlairIconKey;
   /** Seasonal flairs are earned with a badge instead of a level. */
   badge?: string;
+  /** Imposed, not chosen: worn for a week after missing the weekly goal. Never in the picker. */
+  debuff?: boolean;
 }
 
 export const FLAIRS: Flair[] = [
@@ -28,7 +30,11 @@ export const FLAIRS: Flair[] = [
   // Holidays: unlocked by the matching holiday badge.
   { id: 'thanksgiving', label: 'Gobbler', level: 1, icon: 'drumstick', badge: 'holiday_thanksgiving' },
   { id: 'christmas', label: 'Santa Claws', level: 1, icon: 'tree', badge: 'holiday_christmas' },
+  { id: 'battery', label: 'The Battery', level: 1, icon: 'battery', debuff: true },
 ];
+
+/** Flair id worn while the weekly-goal debuff is active. */
+export const BATTERY_FLAIR = 'battery';
 
 /** Whether a flair can be equipped at this level with these badges. */
 export const flairUnlocked = (flair: Flair, level: number, badgeIds: readonly string[]): boolean =>
@@ -95,7 +101,7 @@ export interface PerkUnlock {
 
 /** Everything that unlocks, in level order, for the level-up message and the Settings list. */
 export const PERK_UNLOCKS: PerkUnlock[] = [
-  ...FLAIRS.filter((flair) => !flair.badge).map((flair) => ({ level: flair.level, text: `${flair.label} flair` })),
+  ...FLAIRS.filter((flair) => !flair.badge && !flair.debuff).map((flair) => ({ level: flair.level, text: `${flair.label} flair` })),
   ...Object.entries(THEME_UNLOCK_LEVEL).map(([theme, level]) => ({ level: level as number, text: `${theme[0].toUpperCase()}${theme.slice(1)} theme` })),
   { level: TAUNT_LEVEL, text: 'Send taunts to your partner' },
   { level: 8, text: 'Sharper taunts' },

@@ -470,6 +470,44 @@ try {
   await iosDialog.waitFor({ state: 'detached' });
   await iosContext.close();
 
+  // Storage that cannot be opened shows a recovery screen with real choices, not an endless "Loading".
+  const brokenContext = await lockedContext(browser);
+  await brokenContext.addInitScript(() => {
+    Object.defineProperty(window, 'indexedDB', { value: { open() { throw new Error('simulated storage failure'); } }, configurable: true });
+  });
+  const brokenPage = await brokenContext.newPage();
+  await brokenPage.goto(origin, { waitUntil: 'networkidle' });
+  await brokenPage.getByRole('heading', { name: "Can't open your data" }).waitFor();
+  await brokenPage.getByText('simulated storage failure').waitFor();
+  for (const name of ['Try again', 'Save a copy of my data', 'Start fresh']) await brokenPage.getByRole('button', { name }).waitFor();
+  await assertNoHorizontalClipping(brokenPage, 'storage recovery screen');
+  await brokenPage.getByRole('button', { name: 'Try again' }).click();
+  await brokenPage.getByRole('heading', { name: "Can't open your data" }).waitFor();
+  await brokenContext.close();
+
+  // Reps must be whole numbers: the problem is said next to the field and logging is disabled.
+  const inputContext = await lockedContext(browser);
+  await inputContext.clock.setFixedTime(new Date('2024-05-13T09:00:00'));
+  const inputPage = await inputContext.newPage();
+  await inputPage.goto(origin, { waitUntil: 'networkidle' });
+  await inputPage.getByRole('button', { name: 'Program' }).click();
+  const tmBlock = inputPage.locator('section').filter({ has: inputPage.getByRole('heading', { name: 'Block 1 training maxes' }) });
+  await tmBlock.getByRole('button', { name: /Edit/ }).click();
+  for (const [index, value] of ['200', '180', '300', '120', '160'].entries()) await tmBlock.locator('input[type="number"]').nth(index).fill(value);
+  await tmBlock.getByRole('button', { name: /Save/ }).click();
+  await inputPage.getByText('Block 1 TMs confirmed').waitFor();
+  await inputPage.getByRole('button', { name: 'Today' }).click();
+  await inputPage.getByRole('button', { name: 'Start workout' }).click();
+  await inputPage.getByText('Workout in progress').waitFor();
+  const logButton = inputPage.getByRole('button', { name: 'Log set' }).first();
+  const setRow = logButton.locator('..').locator('..');
+  await setRow.locator('input').nth(1).fill('5.5');
+  await inputPage.getByText('Reps must be a whole number.').waitFor();
+  assert.equal(await logButton.isDisabled(), true, 'fractional reps cannot be logged');
+  await setRow.locator('input').nth(1).fill('5');
+  await inputPage.getByText('Reps must be a whole number.').waitFor({ state: 'detached' });
+  await inputContext.close();
+
   assert.deepEqual(browserErrors, [], `browser console/page errors: ${browserErrors.join('\n')}`);
   console.log('PASS: production mobile-width workflow, refresh/resume, completion/history, and offline logging/reload.');
 } finally {

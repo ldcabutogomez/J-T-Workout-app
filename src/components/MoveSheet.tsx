@@ -26,7 +26,7 @@ export function MoveSheet({ item, days, today, hasActiveWorkout, onChoose, onSta
         role="dialog"
         aria-modal="true"
         aria-label="Move workout"
-        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-8"
+        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(2rem+env(safe-area-inset-bottom))]"
       >
         <h2 className="text-xl font-black">Day {item.day} · {item.lift}</h2>
         <p className="mt-0.5 text-sm text-muted">Week {item.week}. Currently {weekdayName(item.date)}. Choose a day this week.</p>

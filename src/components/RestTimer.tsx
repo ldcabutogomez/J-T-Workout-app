@@ -16,6 +16,8 @@ interface RestTimerProps {
   defaultT1Sec?: number;
   defaultT2Sec?: number;
   defaultT3Sec?: number;
+  /** Whose timer this is. Each profile keeps its own, so two people sharing a phone never see each other's countdown. */
+  profileId?: string;
 }
 
 export const RestTimer: React.FC<RestTimerProps> = ({
@@ -24,9 +26,13 @@ export const RestTimer: React.FC<RestTimerProps> = ({
   defaultT1Sec = 240, // 4:00 (T1: 3-5 min)
   defaultT2Sec = 150, // 2:30 (T2: 2-3 min)
   defaultT3Sec = 90,  // 1:30 (T3: 60-90 sec)
+  profileId = 'default',
 }) => {
+  const timerKey = `jnt2_active_timer_target:${profileId}`;
+  // One-time cleanup of the old shared key, which any profile on this phone could pick up.
+  useEffect(() => { try { localStorage.removeItem('jnt2_active_timer_target'); } catch { /* storage unavailable */ } }, []);
   const [targetEndTimestamp, setTargetEndTimestamp] = useState<number | null>(() => {
-    const saved = localStorage.getItem('jnt2_active_timer_target');
+    const saved = localStorage.getItem(timerKey);
     if (saved) {
       const end = Number(saved);
       if (end > Date.now()) return end;
@@ -49,12 +55,12 @@ export const RestTimer: React.FC<RestTimerProps> = ({
   // Sync remaining seconds with timestamp even after app backgrounding
   useEffect(() => {
     if (!targetEndTimestamp) {
-      localStorage.removeItem('jnt2_active_timer_target');
+      localStorage.removeItem(timerKey);
       setSecondsRemaining(0);
       return;
     }
 
-    localStorage.setItem('jnt2_active_timer_target', targetEndTimestamp.toString());
+    localStorage.setItem(timerKey, targetEndTimestamp.toString());
 
     const updateTimer = () => {
       const rem = Math.max(0, Math.round((targetEndTimestamp - Date.now()) / 1000));
@@ -62,7 +68,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({
 
       if (rem <= 0) {
         setTargetEndTimestamp(null);
-        localStorage.removeItem('jnt2_active_timer_target');
+        localStorage.removeItem(timerKey);
         feedback('timerEnd');
         setRestDone(true);
       }
@@ -103,7 +109,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({
   const cancelTimer = () => {
     setRestDone(false);
     setTargetEndTimestamp(null);
-    localStorage.removeItem('jnt2_active_timer_target');
+    localStorage.removeItem(timerKey);
     setSecondsRemaining(0);
   };
 
@@ -117,7 +123,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({
   const progress = isRunning ? Math.min(1, Math.max(0, secondsRemaining / Math.max(totalSeconds, secondsRemaining))) : 0;
 
   return (
-    <div className="fixed bottom-20 right-4 z-40">
+    <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-40">
       <div role="status" aria-live="polite" className="sr-only">{restDone ? 'Rest complete. Ready for the next set.' : ''}</div>
       {restDone && !isRunning && !isOpen && (
         <div className="mb-2 rounded-2xl bg-ok px-3 py-2 text-right text-xs font-black text-on-accent shadow-lg animate-pop">Rest complete · ready for the next set</div>

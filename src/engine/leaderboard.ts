@@ -5,6 +5,7 @@ import { liftOf, nextWorkout, defaultSchedule, fromDateKey, isWeekCode, todayKey
 import { countResults, deriveHighlights, streakFromCounts } from './achievements';
 import { normalizeWeight } from './jnt2Engine';
 import { levelFor } from './xp';
+import { batteryDebuff } from './debuff';
 import { flairById, tauntText, type Taunt } from '../lib/perks';
 import { countsTowardStats, validCompleted, weekStart, weeklyCounts } from './sessionValidity';
 
@@ -25,6 +26,8 @@ export interface PartnerStats {
   /** XP level, absent for partners on an older build. */
   level?: number;
   flair?: string;
+  /** Set while the weekly-goal debuff (The Battery) is on; the time it ends. */
+  batteryUntil?: number;
   taunt?: Taunt;
   /** Fully finished workouts. */
   sessionsCompleted: number;
@@ -82,6 +85,7 @@ export interface PartnerSnapshot {
   partialSessions?: number;
   level?: number;
   flair?: string;
+  batteryUntil?: number;
   taunt?: Taunt;
   currentWeek: number;
   currentDay: number;
@@ -158,6 +162,7 @@ export function snapshotFromHistory(
     const t = s.completedTime ?? s.startTime;
     return best === null || t > best ? t : best;
   }, null);
+  const battery = batteryDebuff(history, profile.weeklyGoalSessions ?? 4, now);
   const snapshot: PartnerSnapshot = {
     v: SNAPSHOT_VERSION,
     deviceId,
@@ -170,6 +175,7 @@ export function snapshotFromHistory(
     badgeCount: profile.unlockedBadges?.length ?? 0,
     level: levelFor(history, profile).level,
     ...(flairById(profile.flair) ? { flair: profile.flair } : {}),
+    ...(battery.active && battery.until !== null ? { batteryUntil: battery.until } : {}),
     ...(profile.taunt && tauntText(profile.taunt.id) !== undefined ? { taunt: profile.taunt } : {}),
     sessionsCompleted: new Set(finished.map((s) => s.sessionId)).size,
     partialSessions: new Set(counted.map((s) => s.sessionId)).size - new Set(finished.map((s) => s.sessionId)).size,
@@ -312,6 +318,7 @@ function parseExtras(r: Record<string, unknown>): Partial<PartnerSnapshot> {
   const level = int(r.level, 1, 99);
   if (level !== null) out.level = level;
   if (flairById(r.flair)) out.flair = r.flair as string;
+  if (typeof r.batteryUntil === 'number' && Number.isFinite(r.batteryUntil) && r.batteryUntil > 0) out.batteryUntil = r.batteryUntil;
   if (r.taunt && typeof r.taunt === 'object') {
     const t = r.taunt as Record<string, unknown>;
     const at = typeof t.at === 'number' && Number.isFinite(t.at) ? t.at : null;
@@ -340,6 +347,7 @@ export function statsFromSnapshot(snapshot: PartnerSnapshot, now: number): Partn
     badgeCount: snapshot.badgeCount,
     level: snapshot.level,
     flair: snapshot.flair,
+    batteryUntil: snapshot.batteryUntil,
     taunt: snapshot.taunt,
     sessionsCompleted: snapshot.sessionsCompleted,
     partialSessions: snapshot.partialSessions ?? 0,

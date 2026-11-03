@@ -1,4 +1,4 @@
-import { Church, Crown, Drumstick, Flame, Flower2, Leaf, Snowflake, Sparkles, Sun, TreePine, Trophy, type LucideIcon } from 'lucide-react';
+import { BatteryFull, Church, Crown, Drumstick, Flame, Flower2, Leaf, Snowflake, Sparkles, Sun, TreePine, Trophy, type LucideIcon } from 'lucide-react';
 import type { AvatarColor, UserProfile } from '../types';
 import { flairById, type FlairIconKey } from '../lib/perks';
 import { avatarInitial, defaultAvatarColor } from '../lib/avatar';
@@ -15,7 +15,7 @@ export const AVATAR_TILE: Record<AvatarColor, string> = {
   teal: 'bg-teal text-on-accent',
 };
 
-const FLAIR_ICONS: Record<FlairIconKey, LucideIcon> = { sparkles: Sparkles, flame: Flame, church: Church, crown: Crown, trophy: Trophy, snowflake: Snowflake, flower: Flower2, sun: Sun, leaf: Leaf, drumstick: Drumstick, tree: TreePine };
+const FLAIR_ICONS: Record<FlairIconKey, LucideIcon> = { sparkles: Sparkles, flame: Flame, church: Church, crown: Crown, trophy: Trophy, snowflake: Snowflake, flower: Flower2, sun: Sun, leaf: Leaf, drumstick: Drumstick, tree: TreePine, battery: BatteryFull };
 
 interface AvatarProps {
   profile: Pick<UserProfile, 'id' | 'name' | 'avatar' | 'colorTheme'> & { flair?: string };

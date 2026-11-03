@@ -106,3 +106,28 @@ test('a session still round-trips through a v3 backup', async () => {
   assert.equal((await target.importBackup(await source.exportBackup(), 'replace-all')).success, true);
   assert.equal((await target.getSessionHistory(p.id, true)).length, 1);
 });
+
+test('an unreadable profile is set aside, not fatal, and a raw export still works', async () => {
+  const service = new StorageService('schema-quarantine', 'test_schema_q');
+  const good = profile({ id: 'good', name: 'Good' });
+  await service.saveProfile(good);
+  // Plant a broken record straight into the fallback store, as a corrupted database might hold.
+  const key = 'test_schema_q_profiles';
+  const stored = JSON.parse(localStorage.getItem(key) ?? '[]');
+  localStorage.setItem(key, JSON.stringify([...stored, { id: 'broken', name: '', unit: 'stone' }]));
+  const profiles = await service.getProfiles();
+  assert.deepEqual(profiles.map((p) => p.id), ['good']);
+  assert.equal(service.quarantinedCount(), 1);
+  const raw = JSON.parse(await service.exportRaw());
+  assert.equal(raw.raw, true);
+  assert.equal(raw.quarantine[0].id, 'broken', 'the broken record is kept for recovery');
+  assert.ok(raw.profiles.length === 2, 'nothing was deleted from the store');
+});
+
+test('resetAll clears everything for the start-fresh choice', async () => {
+  const service = new StorageService('schema-reset', 'test_schema_reset');
+  await service.saveProfile(profile({ id: 'x' }));
+  assert.equal((await service.getProfiles()).length, 1);
+  await service.resetAll();
+  assert.equal((await service.getProfiles()).length, 0);
+});

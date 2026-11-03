@@ -11,7 +11,7 @@ test('Bishop is a flair, unlocked at level 5, and level-ups announce what unlock
   assert.equal(bishop?.label, 'Bishop');
   assert.equal(bishop?.level, 5);
   assert.equal(flairById('nope'), undefined);
-  const byLevel = FLAIRS.filter((flair) => !flair.badge);
+  const byLevel = FLAIRS.filter((flair) => !flair.badge && !flair.debuff);
   assert.ok(byLevel.every((flair, i) => i === 0 || flair.level >= byLevel[i - 1].level));
   assert.ok(perksBetween(4, 5).includes('Bishop flair'));
   assert.deepEqual(perksBetween(5, 5), []);
@@ -72,4 +72,35 @@ test('taunts are tiered by level and none unlock before the base level', () => {
   for (let id = 0; id < TAUNTS.length; id++) assert.ok(tauntLevel(id) >= TAUNT_LEVEL);
   assert.equal(tauntLevel(0), TAUNT_LEVEL);
   assert.ok(TAUNTS.some((_, id) => tauntLevel(id) >= 12));
+});
+
+test('missing last week goal puts you on The Battery until next Monday, and only after your first full week', async () => {
+  const { batteryDebuff } = await import('../src/engine/debuff');
+  const day = 24 * 3_600_000;
+  const lastWeek = new Date(2024, 4, 6, 12).getTime();
+  const at = (offset: number, n: number) => Array.from({ length: n }, (_, i) => completeSession(profile(), 1, 1, offset + i * 10_000));
+  const earlier = new Date(2024, 3, 29, 12).getTime();
+
+  // Trained the week before, then only 2 of 4 last week: debuffed through Sunday.
+  const missed = batteryDebuff([...at(earlier, 4), ...at(lastWeek, 2)], 4, NOW);
+  assert.equal(missed.active, true);
+  assert.equal(missed.until, new Date(2024, 4, 20).getTime());
+
+  // Hit 4 last week: clean.
+  assert.equal(batteryDebuff([...at(earlier, 4), ...at(lastWeek, 4)], 4, NOW).active, false);
+  // Brand new last week: that was the start week, nobody is punished for it.
+  assert.equal(batteryDebuff(at(lastWeek, 1), 4, NOW).active, false);
+  // No history at all.
+  assert.equal(batteryDebuff([], 4, NOW).active, false);
+  // A full week of nothing after earlier activity counts as a miss.
+  assert.equal(batteryDebuff(at(earlier, 4), 4, NOW).active, true);
+  // The debuff is over once the new week arrives and it is judged on its own.
+  assert.equal(batteryDebuff([...at(earlier, 4), ...at(lastWeek, 2)], 4, NOW + 7 * day).active, true);
+});
+
+test('the battery debuff travels in the snapshot and is not a pickable flair', () => {
+  assert.equal(flairById('battery')?.debuff, true);
+  assert.equal(perksBetween(0, 99).some((text) => /battery/i.test(text)), false);
+  const parsed = parseSnapshot(JSON.parse(JSON.stringify({ ...snapshotFromHistory(profile(), [], NOW, 'dev'), batteryUntil: NOW + 1000 })));
+  assert.equal(parsed?.batteryUntil, NOW + 1000);
 });
