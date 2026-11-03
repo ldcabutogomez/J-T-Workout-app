@@ -14,7 +14,7 @@ import {
 import { findAllComparableResults, generateSessionEncouragement, isVerifiedCycleComplete } from './engine/encouragement';
 import { findAlternative, swapKey } from './program/swapOptions';
 import { BADGES, computeHighlights, computeStreak, evaluateBadges, evaluateDuoBadges, newlyUnlocked } from './engine/achievements';
-import { levelFor } from './engine/xp';
+import { levelBadges, levelFor } from './engine/xp';
 import { AppPrompts } from './components/AppPrompts';
 import { UpdateCard } from './components/UpdateCard';
 import { useAppUpdate } from './lib/appUpdate';
@@ -653,7 +653,7 @@ export default function App() {
         const goal = savedProfile.weeklyGoalSessions ?? 4;
         let newBadges: typeof BADGES = [];
         if (celebrate) {
-          const unlocked = newlyUnlocked(evaluateBadges(completed, history, goal), savedProfile.unlockedBadges);
+          const unlocked = newlyUnlocked([...evaluateBadges(completed, history, goal), ...levelBadges(levelFor(updatedHistory, savedProfile).level)], savedProfile.unlockedBadges);
           if (unlocked.length) {
             savedProfile = { ...savedProfile, unlockedBadges: [...(savedProfile.unlockedBadges ?? []), ...unlocked] };
             await dbService.saveProfile(savedProfile);

@@ -5,7 +5,7 @@ import { Download, Upload, Users } from 'lucide-react';
 import { canVibrate, feedback, haptic } from '../lib/feedback';
 import { AVATAR_COLORS, defaultAvatarColor, fileToAvatar } from '../lib/avatar';
 import { COLOR_THEMES, THEMES, themeForProfile } from '../lib/theme';
-import { FLAIRS, PERK_UNLOCKS, TAUNT_LEVEL, THEME_UNLOCK_LEVEL, themeUnlocked } from '../lib/perks';
+import { FLAIRS, PERK_UNLOCKS, TAUNT_LEVEL, THEME_UNLOCK_LEVEL, flairUnlocked, themeUnlocked } from '../lib/perks';
 import { WEEKDAY_LABELS, defaultSchedule, normalizeDays, withTrainingDays } from '../engine/schedule';
 import { Avatar, AVATAR_TILE } from './Avatar';
 
@@ -231,12 +231,13 @@ function ThemePicker({ profile, onUpdateProfile, level }: { profile: UserProfile
 
 function FlairPicker({ profile, onUpdateProfile, level }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void; level: number }) {
   const next = PERK_UNLOCKS.find((perk) => perk.level > level);
+  const badgeIds = (profile.unlockedBadges ?? []).map((badge) => badge.id);
   return (
     <div>
       <p className="eyebrow">Flair <span className="normal-case font-normal">(Level {level})</span></p>
       <div className="mt-2 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Avatar flair">
-        {[{ id: '', label: 'None', level: 1 }, ...FLAIRS].map((flair) => {
-          const locked = level < flair.level;
+        {[{ id: '', label: 'None', level: 1, badge: undefined as string | undefined }, ...FLAIRS].map((flair) => {
+          const locked = flair.id !== '' && !flairUnlocked(flair as (typeof FLAIRS)[number], level, badgeIds);
           const selected = (profile.flair ?? '') === flair.id;
           return (
             <button
@@ -249,7 +250,7 @@ function FlairPicker({ profile, onUpdateProfile, level }: { profile: UserProfile
               className={`flex min-h-14 flex-col items-center justify-center rounded-xl border px-2 py-2 text-sm font-bold disabled:opacity-50 ${selected ? 'border-accent bg-accent/10 text-accent-ink' : 'border-line bg-surface text-ink'}`}
             >
               {flair.label}
-              {locked && <span className="text-xs font-normal text-muted">Level {flair.level}</span>}
+              {locked && <span className="text-xs font-normal text-muted">{flair.badge ? 'Earn the badge' : `Level ${flair.level}`}</span>}
             </button>
           );
         })}

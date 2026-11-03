@@ -3,6 +3,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 const AUTO_CHECK_MS = 15 * 60_000;
 const HOURLY_MS = 60 * 60_000;
 
+const BUILD = typeof __APP_BUILD__ === 'undefined' ? 'dev' : __APP_BUILD__;
+
+/** True when the server is serving a newer build than the one running. Never for dev builds, or when offline. */
+async function serverHasNewerBuild(fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  if (BUILD === 'dev') return false;
+  try {
+    // A unique URL and no-store: older installed copies cache same-origin files, and this must always hit the network.
+    const response = await fetchImpl(`./version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok) return false;
+    const { build } = (await response.json()) as { build?: unknown };
+    return typeof build === 'string' && build !== BUILD;
+  } catch {
+    return false;
+  }
+}
+
 export type UpdateCheck = 'ready' | 'current' | 'unavailable' | 'failed';
 
 /**
@@ -12,6 +28,7 @@ export type UpdateCheck = 'ready' | 'current' | 'unavailable' | 'failed';
  */
 export function useAppUpdate() {
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
+  const [stale, setStale] = useState(false);
   const [checking, setChecking] = useState(false);
   const lastCheck = useRef(0);
 
@@ -31,11 +48,14 @@ export function useAppUpdate() {
   }, [watch]);
 
   const check = useCallback(async (): Promise<UpdateCheck> => {
-    if (!('serviceWorker' in navigator)) return 'unavailable';
-    const registration = await navigator.serviceWorker.getRegistration();
-    if (!registration) return 'unavailable';
-    setChecking(true);
     lastCheck.current = Date.now();
+    // The version file is the primary signal: it works even when the service worker is slow to notice a new build.
+    const newer = await serverHasNewerBuild();
+    if (newer) setStale(true);
+    if (!('serviceWorker' in navigator)) return newer ? 'ready' : 'unavailable';
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return newer ? 'ready' : 'unavailable';
+    setChecking(true);
     try {
       await registration.update();
       const installing = registration.installing;
@@ -50,9 +70,9 @@ export function useAppUpdate() {
         setWaiting(registration.waiting);
         return 'ready';
       }
-      return 'current';
+      return newer ? 'ready' : 'current';
     } catch {
-      return 'failed';
+      return newer ? 'ready' : 'failed';
     } finally {
       setChecking(false);
     }
@@ -70,10 +90,16 @@ export function useAppUpdate() {
 
   /** Activates the downloaded version and reloads into it. */
   const apply = useCallback(() => {
-    if (!waiting) return;
-    navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true });
-    waiting.postMessage({ type: 'SKIP_WAITING' });
+    if (waiting) {
+      navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true });
+      waiting.postMessage({ type: 'SKIP_WAITING' });
+      return;
+    }
+    // A newer build exists but its service worker has not finished downloading: reload, and the page itself
+    // is fetched from the network first, so the new version loads either way.
+    void navigator.serviceWorker?.getRegistration().then((registration) => registration?.update()).catch(() => undefined)
+      .finally(() => window.location.reload());
   }, [waiting]);
 
-  return { updateReady: waiting !== null, checking, check, apply };
+  return { updateReady: waiting !== null || stale, checking, check, apply };
 }

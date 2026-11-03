@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  computeHighlights, computeStreak, computeTotalVolume, evaluateBadges, evaluateDuoBadges, newlyUnlocked, weekStart,
+  computeHighlights, computeStreak, computeTotalVolume, evaluateBadges, evaluateDuoBadges, newlyUnlocked, seasonOf, SEASON_TARGET, BADGES, isThanksgivingWeek, isChristmasWeek, thanksgivingDate, weekStart,
 } from '../src/engine/achievements';
 import type { WorkoutSession } from '../src/types';
 import { completeSession } from './helpers';
@@ -112,4 +112,56 @@ test('duo badges need both lifters', () => {
   assert.deepEqual(evaluateDuoBadges(side(day, true, 4), [side(day + 3_600_000, true, 5)]).sort(), ['duo_both_goal', 'duo_same_day', 'duo_streak']);
   assert.deepEqual(evaluateDuoBadges(side(day, false, 1), [side(day - DAY, true, 5)]), []);
   assert.deepEqual(evaluateDuoBadges(side(day, true, 4), []), [], 'no partner, no duo badge');
+});
+
+test('seasons follow the calendar, with December counting toward the winter that ends in February', () => {
+  assert.deepEqual(seasonOf(new Date(2024, 11, 20).getTime()), { season: 'winter', year: 2025 });
+  assert.deepEqual(seasonOf(new Date(2025, 0, 10).getTime()), { season: 'winter', year: 2025 });
+  assert.equal(seasonOf(new Date(2025, 2, 1).getTime()).season, 'spring');
+  assert.equal(seasonOf(new Date(2025, 5, 1).getTime()).season, 'summer');
+  assert.equal(seasonOf(new Date(2025, 8, 1).getTime()).season, 'fall');
+  assert.equal(seasonOf(new Date(2025, 10, 30).getTime()).season, 'fall');
+});
+
+test('a seasonal badge needs enough workouts inside one season', () => {
+  const base = completeSession();
+  const summer = (n: number) => Array.from({ length: n }, (_, i) => at(base, `s${i}`, new Date(2024, 5, 3 + i, 12).getTime()));
+  const enough = summer(SEASON_TARGET);
+  const now = new Date(2024, 7, 1).getTime();
+  assert.ok(evaluateBadges(enough[0], enough.slice(1), 4, now).includes('season_summer'));
+  const few = summer(SEASON_TARGET - 1);
+  assert.ok(!evaluateBadges(few[0], few.slice(1), 4, now).includes('season_summer'));
+  // Workouts spread over two different winters never add up.
+  const split = [...Array.from({ length: 5 }, (_, i) => at(base, `a${i}`, new Date(2024, 0, 2 + i, 12).getTime())), ...Array.from({ length: 5 }, (_, i) => at(base, `b${i}`, new Date(2025, 0, 2 + i, 12).getTime()))];
+  assert.ok(!evaluateBadges(split[0], split.slice(1), 4, new Date(2025, 1, 1).getTime()).includes('season_winter'));
+  assert.ok(['season_winter', 'season_spring', 'season_summer', 'season_fall', 'the_battery'].every((id) => BADGES.some((badge) => badge.id === id)));
+});
+
+test('Thanksgiving is the fourth Thursday of November, and holiday weeks run Monday to Sunday', () => {
+  assert.equal(thanksgivingDate(2026), 26);
+  assert.equal(thanksgivingDate(2025), 27);
+  assert.equal(thanksgivingDate(2024), 28);
+  // Thanksgiving 2026 is Thursday Nov 26, so its week is Mon Nov 23 to Sun Nov 29.
+  assert.equal(isThanksgivingWeek(new Date(2026, 10, 23, 8).getTime()), true, 'Monday of the week');
+  assert.equal(isThanksgivingWeek(new Date(2026, 10, 26, 18).getTime()), true, 'the day itself');
+  assert.equal(isThanksgivingWeek(new Date(2026, 10, 29, 23).getTime()), true, 'Sunday of the week');
+  assert.equal(isThanksgivingWeek(new Date(2026, 10, 22, 23).getTime()), false, 'the Sunday before');
+  assert.equal(isThanksgivingWeek(new Date(2026, 10, 30, 8).getTime()), false, 'the Monday after');
+  // Christmas 2026 is a Friday: the week is Mon Dec 21 to Sun Dec 27.
+  assert.equal(isChristmasWeek(new Date(2026, 11, 21, 8).getTime()), true);
+  assert.equal(isChristmasWeek(new Date(2026, 11, 27, 20).getTime()), true);
+  assert.equal(isChristmasWeek(new Date(2026, 11, 28, 8).getTime()), false);
+  assert.equal(isChristmasWeek(new Date(2026, 11, 20, 20).getTime()), false);
+});
+
+test('holiday badges need a workout during the holiday week', () => {
+  const base = completeSession();
+  const monday = at(base, 't', new Date(2026, 10, 23, 10).getTime());
+  const earned = evaluateBadges(monday, [], 4, new Date(2026, 10, 30).getTime());
+  assert.ok(earned.includes('holiday_thanksgiving'), 'any day of the week counts, not only the holiday');
+  assert.ok(!earned.includes('holiday_christmas'));
+  const xmas = at(base, 'x', new Date(2026, 11, 22, 10).getTime());
+  assert.ok(evaluateBadges(xmas, [], 4, new Date(2026, 11, 30).getTime()).includes('holiday_christmas'));
+  const ordinary = at(base, 'o', new Date(2026, 10, 18, 10).getTime());
+  assert.ok(!evaluateBadges(ordinary, [], 4, new Date(2026, 10, 30).getTime()).some((id) => id.startsWith('holiday_')));
 });

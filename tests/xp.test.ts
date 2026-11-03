@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeXp, levelFromXp, xpForLevel, XP_PER_BADGE, XP_PER_SET, XP_PER_WORKOUT } from '../src/engine/xp';
+import { levelBadges, computeXp, levelFromXp, xpForLevel, XP_PER_BADGE, XP_PER_SET, XP_PER_WORKOUT } from '../src/engine/xp';
 import { completeSession, profile } from './helpers';
 
 test('the level curve rises with each level', () => {
@@ -24,4 +24,10 @@ test('xp comes from sets, finished workouts and badges, and is derived from hist
   assert.equal(computeXp([session], { ...p, unlockedBadges: [{ id: 'first_workout', unlockedAt: 1 }] }) - base, XP_PER_BADGE);
   assert.equal(computeXp([], p), 0);
   assert.equal(computeXp([session], p), base, 'same history, same xp');
+});
+
+test('The Battery is awarded from level 3', () => {
+  assert.deepEqual(levelBadges(2), []);
+  assert.deepEqual(levelBadges(3), ['the_battery']);
+  assert.deepEqual(levelBadges(9), ['the_battery']);
 });

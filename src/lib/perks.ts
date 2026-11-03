@@ -2,7 +2,7 @@ import type { ColorTheme } from '../types';
 
 /** Perks unlock with level (see engine/xp.ts). Everything here is cosmetic or playful, never a training change. */
 
-export type FlairIconKey = 'sparkles' | 'flame' | 'church' | 'crown' | 'trophy';
+export type FlairIconKey = 'sparkles' | 'flame' | 'church' | 'crown' | 'trophy' | 'snowflake' | 'flower' | 'sun' | 'leaf' | 'drumstick' | 'tree';
 
 export interface Flair {
   id: string;
@@ -10,6 +10,8 @@ export interface Flair {
   label: string;
   level: number;
   icon: FlairIconKey;
+  /** Seasonal flairs are earned with a badge instead of a level. */
+  badge?: string;
 }
 
 export const FLAIRS: Flair[] = [
@@ -18,7 +20,19 @@ export const FLAIRS: Flair[] = [
   { id: 'bishop', label: 'Bishop', level: 5, icon: 'church' },
   { id: 'crown', label: 'Royalty', level: 7, icon: 'crown' },
   { id: 'legend', label: 'Legend', level: 10, icon: 'trophy' },
+  // Seasonal: unlocked by the matching seasonal badge, and yours to keep once earned.
+  { id: 'winter', label: 'Frostbite', level: 1, icon: 'snowflake', badge: 'season_winter' },
+  { id: 'spring', label: 'In Bloom', level: 1, icon: 'flower', badge: 'season_spring' },
+  { id: 'summer', label: 'Sunburnt', level: 1, icon: 'sun', badge: 'season_summer' },
+  { id: 'fall', label: 'Leaf Peeper', level: 1, icon: 'leaf', badge: 'season_fall' },
+  // Holidays: unlocked by the matching holiday badge.
+  { id: 'thanksgiving', label: 'Gobbler', level: 1, icon: 'drumstick', badge: 'holiday_thanksgiving' },
+  { id: 'christmas', label: 'Santa Claws', level: 1, icon: 'tree', badge: 'holiday_christmas' },
 ];
+
+/** Whether a flair can be equipped at this level with these badges. */
+export const flairUnlocked = (flair: Flair, level: number, badgeIds: readonly string[]): boolean =>
+  flair.badge ? badgeIds.includes(flair.badge) : level >= flair.level;
 
 export const flairById = (id: unknown): Flair | undefined =>
   typeof id === 'string' ? FLAIRS.find((flair) => flair.id === id) : undefined;
@@ -45,6 +59,7 @@ export const TAUNTS: string[] = [
   'I can hear your couch calling. Ignore it.',
   'Your PRs miss you.',
   'Bishop to rack. Checkmate in two sets.',
+  "You're behaving like a battery right now.",
 ];
 
 export const tauntText = (id: unknown): string | undefined =>
@@ -63,7 +78,7 @@ export interface PerkUnlock {
 
 /** Everything that unlocks, in level order, for the level-up message and the Settings list. */
 export const PERK_UNLOCKS: PerkUnlock[] = [
-  ...FLAIRS.map((flair) => ({ level: flair.level, text: `${flair.label} flair` })),
+  ...FLAIRS.filter((flair) => !flair.badge).map((flair) => ({ level: flair.level, text: `${flair.label} flair` })),
   ...Object.entries(THEME_UNLOCK_LEVEL).map(([theme, level]) => ({ level: level as number, text: `${theme[0].toUpperCase()}${theme.slice(1)} theme` })),
   { level: TAUNT_LEVEL, text: 'Send taunts to your partner' },
 ].sort((a, b) => a.level - b.level);

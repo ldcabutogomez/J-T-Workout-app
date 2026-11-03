@@ -1,4 +1,4 @@
-import { Award, CalendarCheck, CalendarDays, Crown, Dumbbell, Flame, Gem, HeartHandshake, Medal, Moon, PartyPopper, RefreshCcw, Rocket, Star, Sunrise, Target, Trophy, Users, Weight, Zap, type LucideIcon } from 'lucide-react';
+import { Award, BatteryFull, Drumstick, TreePine, Flower2, Leaf, Snowflake, Sun, CalendarCheck, CalendarDays, Crown, Dumbbell, Flame, Gem, HeartHandshake, Medal, Moon, PartyPopper, RefreshCcw, Rocket, Star, Sunrise, Target, Trophy, Users, Weight, Zap, type LucideIcon } from 'lucide-react';
 import type { BadgeIconKey } from '../engine/achievements';
 
 const ICONS: Record<BadgeIconKey, LucideIcon> = {
@@ -22,6 +22,13 @@ const ICONS: Record<BadgeIconKey, LucideIcon> = {
   refresh: RefreshCcw,
   users: Users,
   handshake: HeartHandshake,
+  battery: BatteryFull,
+  snowflake: Snowflake,
+  flower: Flower2,
+  sun: Sun,
+  leaf: Leaf,
+  drumstick: Drumstick,
+  tree: TreePine,
 };
 
 /** Line-icon tile for a badge; muted until earned. */

@@ -8,6 +8,9 @@ import {defineConfig, type Plugin} from 'vite';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
+/** Identifies this build. The app compares it with version.json on the server to know it is out of date. */
+const BUILD_ID = Date.now().toString(36);
+
 function productionServiceWorker(): Plugin {
   return {
     name: 'jnt2-production-service-worker',
@@ -59,6 +62,8 @@ self.addEventListener('notificationclick', event => {
 });
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
+  // The version file must always come from the network, or an out-of-date app could never find out.
+  if (new URL(event.request.url).pathname.endsWith('/version.json')) return;
   if (event.request.mode === 'navigate') {
     event.respondWith(fetch(event.request).then(response => {
       const copy = response.clone();
@@ -74,6 +79,7 @@ self.addEventListener('fetch', event => {
   })));
 });`;
       this.emitFile({ type: 'asset', fileName: 'sw.js', source });
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD_ID }) });
     },
   };
 }
@@ -81,6 +87,7 @@ self.addEventListener('fetch', event => {
 export default defineConfig(() => {
   return {
     base: './',
+    define: { __APP_BUILD__: JSON.stringify(BUILD_ID) },
     plugins: [react(), tailwindcss(), productionServiceWorker()],
     resolve: {
       alias: {

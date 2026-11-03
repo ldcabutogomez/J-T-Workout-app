@@ -7,7 +7,8 @@ import { normalizeWeight } from './jnt2Engine';
 
 export type BadgeIconKey =
   | 'rocket' | 'flame' | 'dumbbell' | 'medal' | 'trophy' | 'star' | 'party' | 'calendar' | 'calendar-check' | 'zap' | 'crown'
-  | 'weight' | 'target' | 'gem' | 'award' | 'sunrise' | 'moon' | 'refresh' | 'users' | 'handshake';
+  | 'weight' | 'target' | 'gem' | 'award' | 'sunrise' | 'moon' | 'refresh' | 'users' | 'handshake'
+  | 'battery' | 'snowflake' | 'flower' | 'sun' | 'leaf' | 'drumstick' | 'tree';
 
 export interface BadgeDefinition {
   id: string;
@@ -15,6 +16,38 @@ export interface BadgeDefinition {
   description: string;
   icon: BadgeIconKey;
 }
+
+export type Season = 'winter' | 'spring' | 'summer' | 'fall';
+/** Finished workouts needed within one season for its badge. */
+export const SEASON_TARGET = 10;
+
+/** Meteorological seasons in local time. December belongs to the winter that ends the following February. */
+export function seasonOf(timestamp: number): { season: Season; year: number } {
+  const date = new Date(timestamp);
+  const month = date.getMonth();
+  if (month === 11) return { season: 'winter', year: date.getFullYear() + 1 };
+  if (month <= 1) return { season: 'winter', year: date.getFullYear() };
+  if (month <= 4) return { season: 'spring', year: date.getFullYear() };
+  if (month <= 7) return { season: 'summer', year: date.getFullYear() };
+  return { season: 'fall', year: date.getFullYear() };
+}
+
+/** US Thanksgiving: the fourth Thursday of November. */
+export function thanksgivingDate(year: number): number {
+  const firstOfNovember = new Date(year, 10, 1).getDay();
+  return 1 + ((4 - firstOfNovember + 7) % 7) + 21;
+}
+
+/** Holiday weeks are the calendar week (Monday to Sunday, the same weeks as the weekly goal) that contains the holiday. */
+export const isThanksgivingWeek = (timestamp: number): boolean => {
+  const year = new Date(timestamp).getFullYear();
+  return weekStart(timestamp) === weekStart(new Date(year, 10, thanksgivingDate(year), 12).getTime());
+};
+
+export const isChristmasWeek = (timestamp: number): boolean => {
+  const year = new Date(timestamp).getFullYear();
+  return weekStart(timestamp) === weekStart(new Date(year, 11, 25, 12).getTime());
+};
 
 export const BADGES: BadgeDefinition[] = [
   { id: 'first_workout', name: 'First Rep', description: 'Complete your first workout', icon: 'rocket' },
@@ -47,6 +80,16 @@ export const BADGES: BadgeDefinition[] = [
   { id: 'duo_same_day', name: 'Gym Buddies', description: 'Train on the same day as your partner', icon: 'users' },
   { id: 'duo_both_goal', name: 'Team Goal', description: 'Both hit your weekly goal in the same week', icon: 'handshake' },
   { id: 'duo_streak', name: 'Dynamic Duo', description: 'Both on a 4-week streak at once', icon: 'zap' },
+  // Awarded by the app when you reach the level (levelBadges in xp.ts), not from workout history.
+  { id: 'the_battery', name: 'The Battery', description: 'Reach level 3', icon: 'battery' },
+  // Seasonal: finish enough workouts in one season. Each also unlocks a matching flair.
+  { id: 'season_winter', name: 'Winter Warrior', description: `Finish ${SEASON_TARGET} workouts in one winter (Dec to Feb)`, icon: 'snowflake' },
+  { id: 'season_spring', name: 'Spring Bloom', description: `Finish ${SEASON_TARGET} workouts in one spring (Mar to May)`, icon: 'flower' },
+  { id: 'season_summer', name: 'Summer Shredder', description: `Finish ${SEASON_TARGET} workouts in one summer (Jun to Aug)`, icon: 'sun' },
+  { id: 'season_fall', name: 'Fall Grinder', description: `Finish ${SEASON_TARGET} workouts in one fall (Sep to Nov)`, icon: 'leaf' },
+  // Holidays: train during the holiday week. Each also unlocks a matching flair.
+  { id: 'holiday_thanksgiving', name: 'Gobble Gains', description: 'Finish a workout during Thanksgiving week (Mon to Sun)', icon: 'drumstick' },
+  { id: 'holiday_christmas', name: 'Merry Liftmas', description: 'Finish a workout during Christmas week (Mon to Sun)', icon: 'tree' },
 ];
 
 export const DUO_BADGE_IDS = ['duo_same_day', 'duo_both_goal', 'duo_streak'];
@@ -181,6 +224,17 @@ export function evaluateBadges(
   if (completed.some((s) => new Date(s.startTime).getHours() < 7)) earned.push('early_bird');
   if (completed.some((s) => new Date(s.completedTime ?? s.startTime).getHours() >= 21)) earned.push('night_owl');
   for (const n of [12, 24]) if (streak >= n) earned.push(`streak_${n}`);
+  const perSeason = new Map<string, number>();
+  for (const time of times) {
+    const { season, year } = seasonOf(time);
+    const key = `${season}-${year}`;
+    perSeason.set(key, (perSeason.get(key) ?? 0) + 1);
+  }
+  for (const season of ['winter', 'spring', 'summer', 'fall'] as const) {
+    if ([...perSeason].some(([key, count]) => key.startsWith(`${season}-`) && count >= SEASON_TARGET)) earned.push(`season_${season}`);
+  }
+  if (times.some(isThanksgivingWeek)) earned.push('holiday_thanksgiving');
+  if (times.some(isChristmasWeek)) earned.push('holiday_christmas');
   if (total >= 1) earned.push('first_workout');
   for (const n of [5, 10, 25, 40]) if (total >= n) earned.push(`sessions_${n}`);
   if (totalPrs >= 1) earned.push('first_pr');

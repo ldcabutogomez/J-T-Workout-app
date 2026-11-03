@@ -56,3 +56,8 @@ export function computeXp(history: WorkoutSession[], profile: Pick<UserProfile, 
 
 export const levelFor = (history: WorkoutSession[], profile: Pick<UserProfile, 'weeklyGoalSessions' | 'unlockedBadges'>): LevelInfo =>
   levelFromXp(computeXp(history, profile));
+
+export const BATTERY_LEVEL = 3;
+
+/** Badges that are earned by reaching a level rather than from workout history. */
+export const levelBadges = (level: number): string[] => (level >= BATTERY_LEVEL ? ['the_battery'] : []);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FLAIRS, TAUNTS, TAUNT_LEVEL, flairById, perksBetween, tauntText, themeUnlocked } from '../src/lib/perks';
+import { FLAIRS, TAUNTS, TAUNT_LEVEL, flairById, flairUnlocked, perksBetween, tauntText, themeUnlocked } from '../src/lib/perks';
 import { parseSnapshot, snapshotFromHistory, statsFromSnapshot } from '../src/engine/leaderboard';
 import { completeSession, profile } from './helpers';
 
@@ -11,7 +11,8 @@ test('Bishop is a flair, unlocked at level 5, and level-ups announce what unlock
   assert.equal(bishop?.label, 'Bishop');
   assert.equal(bishop?.level, 5);
   assert.equal(flairById('nope'), undefined);
-  assert.ok(FLAIRS.every((flair, i) => i === 0 || flair.level >= FLAIRS[i - 1].level));
+  const byLevel = FLAIRS.filter((flair) => !flair.badge);
+  assert.ok(byLevel.every((flair, i) => i === 0 || flair.level >= byLevel[i - 1].level));
   assert.ok(perksBetween(4, 5).includes('Bishop flair'));
   assert.deepEqual(perksBetween(5, 5), []);
   assert.ok(perksBetween(1, 10).includes('Send taunts to your partner'));
@@ -47,4 +48,22 @@ test('flair and taunt travel in the snapshot, and a bad value from another phone
   assert.equal(bad.flair, undefined);
   assert.equal(bad.taunt, undefined);
   assert.equal(bad.name, snap.name, 'the stats still show');
+});
+
+test('seasonal flairs are earned with their badge, not by level', () => {
+  const winter = flairById('winter')!;
+  assert.equal(winter.badge, 'season_winter');
+  assert.equal(flairUnlocked(winter, 99, []), false, 'level alone never unlocks it');
+  assert.equal(flairUnlocked(winter, 1, ['season_winter']), true);
+  assert.equal(flairById('thanksgiving')?.badge, 'holiday_thanksgiving');
+  assert.equal(flairById('christmas')?.badge, 'holiday_christmas');
+  assert.equal(flairUnlocked(flairById('christmas')!, 99, []), false);
+  assert.equal(flairUnlocked(flairById('bishop')!, 5, []), true);
+  assert.equal(flairUnlocked(flairById('bishop')!, 4, ['season_winter']), false);
+  assert.ok(!perksBetween(1, 99).some((text) => /Frostbite|In Bloom|Sunburnt|Leaf/.test(text)), 'seasonal flairs are not level unlocks');
+});
+
+test('the battery taunt is in the list', () => {
+  assert.ok(TAUNTS.includes("You're behaving like a battery right now."));
+  assert.equal(tauntText(TAUNTS.length - 1), "You're behaving like a battery right now.");
 });
