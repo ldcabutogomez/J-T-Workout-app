@@ -452,7 +452,7 @@ try {
   process.exitCode = 1;
 } finally {
   await browser?.close().catch(() => {});
-  stopPreview();
+  await stopPreview();
   // Exit explicitly: a lingering handle must never keep a finished test run alive (CI would wait for the job limit).
   process.exit(process.exitCode ?? 0);
 }

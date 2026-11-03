@@ -72,13 +72,21 @@ export async function assertNoHorizontalClipping(page, label) {
 }
 
 
-/** Stops the preview server and everything it started. Safe to call when no server was started here. */
-export function stopPreview() {
-  if (!preview || preview.killed) return;
+/**
+ * Stops the preview server and everything it started, and waits until it has really gone. The next test script
+ * starts its own server on the same port; if this one were still dying, that script could connect to it and then
+ * lose it halfway through ("connection refused").
+ */
+export async function stopPreview() {
+  if (!preview || preview.exitCode !== null || preview.signalCode !== null) return;
+  const exited = new Promise((resolve) => preview.once('exit', resolve));
   try {
     if (process.platform !== 'win32' && preview.pid) process.kill(-preview.pid, 'SIGTERM');
     else preview.kill('SIGTERM');
   } catch {
     preview.kill('SIGTERM');
   }
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))]);
+  // Give the operating system a moment to release the port.
+  await new Promise((resolve) => setTimeout(resolve, 300));
 }
