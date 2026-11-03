@@ -27,18 +27,26 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      # The browser tests expect an app with no sync backend ("Partner sync is not set up"), so they run against a build
+      # made without the Supabase values. The real build, with them, is made afterwards and is what gets deployed.
+      - name: Build for browser tests (no sync config)
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ''
+          VITE_SUPABASE_ANON_KEY: ''
+          VITE_VAPID_PUBLIC_KEY: ''
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests
+        run: npm run test:browser
+      - name: Build for deploy
+        run: npm run build
         env:
           # Public values by design (the anon key is only allowed to call the two sync functions). Set under
           # Settings > Secrets and variables > Actions > Variables. Leave unset to build without partner sync.
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
-      # Browser tests run against the production build with a pinned clock. A failure stops the deploy.
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-      - name: Browser tests
-        run: npm run test:browser
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
