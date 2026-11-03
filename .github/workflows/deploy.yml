@@ -32,6 +32,14 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+      # Browser tests run against the production build with a pinned clock. Non-blocking until they have proven
+      # stable on CI for a while; then remove continue-on-error so a failure stops the deploy.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+        continue-on-error: true
+      - name: Browser tests
+        run: npm run test:browser
+        continue-on-error: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, RefreshCw } from 'lucide-react';
+import { Bell, DatabaseBackup, RefreshCw } from 'lucide-react';
 import { loadPushSettings, pushSupport, readVapidKey } from '../sync/push';
 
 const SNOOZE_KEY = 'jnt2_push_prompt_until';
@@ -23,10 +23,14 @@ interface Props {
   paired: boolean;
   /** Take the person to the Notifications section of Settings. */
   onOpenNotifications: () => void;
+  /** There is enough new work since the last backup that it is worth saving a copy. */
+  backupDue?: boolean;
+  onBackupNow?: () => void;
+  onSnoozeBackup?: () => void;
 }
 
 /** One small card above the tab bar: an app update first, otherwise an offer to turn on notifications. */
-export function AppPrompts({ updateReady, onUpdate, activeWorkout, paired, onOpenNotifications }: Props) {
+export function AppPrompts({ updateReady, onUpdate, activeWorkout, paired, onOpenNotifications, backupDue = false, onBackupNow, onSnoozeBackup }: Props) {
   const [ready, setReady] = useState(false);
   const [dismissedUpdate, setDismissedUpdate] = useState(false);
   const [pushHidden, setPushHidden] = useState(false);
@@ -43,6 +47,15 @@ export function AppPrompts({ updateReady, onUpdate, activeWorkout, paired, onOpe
       <Card icon={<RefreshCw className="h-5 w-5" aria-hidden />} title="A new version is ready" body="Update now to get the latest features and fixes. It only takes a second.">
         <button type="button" onClick={onUpdate} className="btn-primary flex-1">Update now</button>
         <button type="button" onClick={() => setDismissedUpdate(true)} className="btn-secondary">Later</button>
+      </Card>
+    );
+  }
+
+  if (backupDue && onBackupNow && onSnoozeBackup) {
+    return (
+      <Card icon={<DatabaseBackup className="h-5 w-5" aria-hidden />} title="Save a backup" body="Your workouts live only on this phone. Save a copy so a lost or reset phone can't take them with it.">
+        <button type="button" onClick={onBackupNow} className="btn-primary flex-1">Back up now</button>
+        <button type="button" onClick={onSnoozeBackup} className="btn-secondary">Later</button>
       </Card>
     );
   }

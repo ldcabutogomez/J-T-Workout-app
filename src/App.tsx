@@ -16,11 +16,14 @@ import { findAlternative, swapKey } from './program/swapOptions';
 import { BADGES, computeHighlights, computeStreak, evaluateBadges, evaluateDuoBadges, newlyUnlocked } from './engine/achievements';
 import { levelBadges, levelFor } from './engine/xp';
 import { AppPrompts } from './components/AppPrompts';
+import { StorageRecovery } from './components/StorageRecovery';
+import { exportTextFile } from './lib/exportFile';
+import { backupDue, clearImportSnapshot, lastBackupAt, loadImportSnapshot, recordBackup, saveImportSnapshot, snoozeBackupNudge } from './lib/backupStatus';
 import { UpdateCard } from './components/UpdateCard';
 import { useAppUpdate } from './lib/appUpdate';
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { notifyPartner } from './sync/push';
-import { TAUNT_COOLDOWN_MS, TAUNT_FRESH_MS, TAUNT_LEVEL, perksBetween, tauntText } from './lib/perks';
+import { TAUNT_COOLDOWN_MS, TAUNT_FRESH_MS, TAUNT_LEVEL, perksBetween, tauntText, tauntUnlocked } from './lib/perks';
 import { haptic, installTapHaptics, setFeedbackPrefs } from './lib/feedback';
 import { feedback } from './lib/feedback';
 import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, prRewardKey } from './lib/rewards';
@@ -80,6 +83,12 @@ export default function App() {
   const deviceId = useMemo(() => getDeviceId(), []);
   const [pairing, setPairing] = useState(() => loadPairing());
   const [remote, setRemote] = useState<PartnerSnapshot[]>([]);
+  // Storage that cannot be opened gets a recovery screen, not an endless "Loading…". `initAttempt` re-runs the open.
+  const [initError, setInitError] = useState<string | null>(null);
+  const [initAttempt, setInitAttempt] = useState(0);
+  const [persisted, setPersisted] = useState<boolean | null>(null);
+  const [backupAt, setBackupAt] = useState<number | null>(() => lastBackupAt());
+  const [backupNudgeHidden, setBackupNudgeHidden] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: 'idle' });
   const syncing = useRef(false);
   const syncPending = useRef(false);
@@ -133,10 +142,18 @@ export default function App() {
   }, [profile?.hapticsEnabled, profile?.soundEnabled]);
 
   useEffect(() => {
+    setInitError(null);
     void (async () => {
       try {
         await dbService.init();
+        // Ask the browser not to evict this data when the phone is short on space. Best effort; it can say no.
+        try {
+          if (navigator.storage?.persist) await navigator.storage.persist();
+          if (navigator.storage?.persisted) setPersisted(await navigator.storage.persisted());
+        } catch { /* unsupported */ }
         let stored = await dbService.getProfiles();
+        const aside = dbService.quarantinedCount();
+        if (aside > 0) showBanner(`${aside} unreadable profile${aside === 1 ? ' was' : 's were'} set aside. Your other data is fine.`, true);
         if (!stored.length) {
           stored = [blankProfile('partner-1', 'Lauren'), blankProfile('partner-2', 'Luis')];
           await Promise.all(stored.map((item) => dbService.saveProfile(item)));
@@ -160,10 +177,10 @@ export default function App() {
         }));
         setProfiles(stored);
       } catch (error) {
-        showBanner((error as Error).message, true);
+        setInitError((error as Error).message || 'The local database could not be opened.');
       }
     })();
-  }, []);
+  }, [initAttempt]);
 
   useEffect(() => {
     if (!profile) return;
@@ -306,7 +323,7 @@ export default function App() {
 
   // A taunt is a canned line chosen on one phone and shown on the other, carried in the sync snapshot.
   const sendTaunt = (tauntId: number) => {
-    if (!profile || myLevel < TAUNT_LEVEL) return;
+    if (!profile || myLevel < TAUNT_LEVEL || !tauntUnlocked(tauntId, myLevel)) return;
     const wait = (profile.taunt?.at ?? 0) + TAUNT_COOLDOWN_MS - Date.now();
     if (wait > 0) { showToast(`Easy, champ. Another taunt in ${Math.ceil(wait / 60_000)} min.`); return; }
     haptic('pr');
@@ -811,12 +828,23 @@ export default function App() {
     setSyncStatus({ state: 'idle' });
   };
 
+  if (initError) {
+    return (
+      <StorageRecovery
+        message={initError}
+        onRetry={() => setInitAttempt((n) => n + 1)}
+        onExportRaw={async () => { await exportTextFile(`jnt2-raw-data-${new Date().toISOString().slice(0, 10)}.json`, await dbService.exportRaw()); }}
+        onStartFresh={async () => { await dbService.resetAll(); window.location.reload(); }}
+      />
+    );
+  }
+
   if (lock?.state === 'choose') return <WhoUsesPhone profiles={profiles} onPick={chooseUser} />;
 
   return (
     <div className="min-h-screen bg-paper text-ink flex flex-col font-sans selection:bg-accent selection:text-on-accent">
       <OfflineIndicator />
-      <AppPrompts updateReady={appUpdate.updateReady} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} paired={Boolean(cloudConfig && pairing.code)} onOpenNotifications={openNotifications} />
+      <AppPrompts updateReady={appUpdate.updateReady} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} paired={Boolean(cloudConfig && pairing.code)} onOpenNotifications={openNotifications} backupDue={!backupNudgeHidden && backupDue(history, backupAt)} onBackupNow={() => { setBackupNudgeHidden(true); setTab('settings'); }} onSnoozeBackup={() => { snoozeBackupNudge(); setBackupNudgeHidden(true); }} />
       <header className="sticky top-0 z-30 bg-surface border-b border-line px-3 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-display font-black text-lg text-accent-ink whitespace-nowrap">J&amp;T 2.0</span>
@@ -856,19 +884,22 @@ export default function App() {
         {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} />}
         {tab === 'settings' && <SettingsTab level={myLevel} extra={<>{profile && <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} />}<UpdateCard updateReady={appUpdate.updateReady} checking={appUpdate.checking} onCheck={appUpdate.check} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} /></>} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
-            const blob = new Blob([await dbService.exportBackup()], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = `jnt2-backup-${new Date().toISOString().slice(0, 10)}.json`;
-            anchor.click();
-            URL.revokeObjectURL(url);
+            const outcome = await exportTextFile(`jnt2-backup-${new Date().toISOString().slice(0, 10)}.json`, await dbService.exportBackup());
+            if (outcome !== 'cancelled') { recordBackup(); setBackupAt(Date.now()); showToast(outcome === 'shared' ? 'Backup shared' : 'Backup saved'); }
           } catch (error) { showBanner((error as Error).message, true); }
         }} onImportBackup={async (json, replace) => {
+          // A replace-all import overwrites what is here, so keep a copy of it first and offer to restore it.
+          if (replace) { try { saveImportSnapshot(await dbService.exportBackup()); } catch { /* the import itself still validates */ } }
           const result = await dbService.importBackup(json, replace ? 'replace-all' : 'reject-duplicates');
           if (result.success) await refreshAfterImport();
           return result;
-        }} />}
+        }} backupInfo={{ persisted, lastBackupAt: backupAt, canRestore: Boolean(loadImportSnapshot()), onRestore: async () => {
+          const snapshot = loadImportSnapshot();
+          if (!snapshot) return { success: false, message: 'There is no earlier copy to restore.' };
+          const result = await dbService.importBackup(snapshot, 'replace-all');
+          if (result.success) { clearImportSnapshot(); await refreshAfterImport(); }
+          return result;
+        } }} />}
         {tab === 'verify' && <VerificationTab />}
       </main>
 

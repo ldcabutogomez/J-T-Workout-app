@@ -47,7 +47,7 @@ export const TAUNT_COOLDOWN_MS = 10 * 60_000;
 /** A taunt that is older than this is stale news, so it is never shown. */
 export const TAUNT_FRESH_MS = 24 * 3_600_000;
 
-/** Canned on purpose: nothing typed by one phone ends up on the other, and every line is friendly. */
+/** Canned on purpose: nothing typed by one phone ends up on the other. Cheeky, never cruel. Ids are indexes, so only ever append. */
 export const TAUNTS: string[] = [
   'Your barbell is lonely. Just saying.',
   'Rest day again? Bold strategy.',
@@ -60,7 +60,24 @@ export const TAUNTS: string[] = [
   'Your PRs miss you.',
   'Bishop to rack. Checkmate in two sets.',
   "You're behaving like a battery right now.",
+  'Nice rack. Shame you never use it.',
+  'Spotting you is the closest you get to action this week.',
+  'My pump is better than yours. Come see for yourself.',
+  'Go deeper. Squats, I mean. Mostly.',
+  "Still can't finish a set? Bedroom problem too?",
+  'Get under the bar already. I know you like it heavy.',
+  "Two sets and you're out of breath? Stamina is sexy. Get some.",
 ];
+
+/** Level that unlocks each taunt, by id. Anything not listed opens at TAUNT_LEVEL. */
+const TAUNT_UNLOCK: Record<number, number> = {
+  2: 8, 6: 8, 7: 8, 8: 8,
+  4: 12, 9: 12, 10: 12, 11: 12, 12: 12, 13: 12,
+  14: 16, 15: 16, 16: 16,
+};
+
+export const tauntLevel = (id: number): number => TAUNT_UNLOCK[id] ?? TAUNT_LEVEL;
+export const tauntUnlocked = (id: number, level: number): boolean => level >= tauntLevel(id);
 
 export const tauntText = (id: unknown): string | undefined =>
   typeof id === 'number' && Number.isInteger(id) && id >= 0 && id < TAUNTS.length ? TAUNTS[id] : undefined;
@@ -81,6 +98,9 @@ export const PERK_UNLOCKS: PerkUnlock[] = [
   ...FLAIRS.filter((flair) => !flair.badge).map((flair) => ({ level: flair.level, text: `${flair.label} flair` })),
   ...Object.entries(THEME_UNLOCK_LEVEL).map(([theme, level]) => ({ level: level as number, text: `${theme[0].toUpperCase()}${theme.slice(1)} theme` })),
   { level: TAUNT_LEVEL, text: 'Send taunts to your partner' },
+  { level: 8, text: 'Sharper taunts' },
+  { level: 12, text: 'Spicy taunts' },
+  { level: 16, text: 'Filthy taunts' },
 ].sort((a, b) => a.level - b.level);
 
 export const perksBetween = (from: number, to: number): string[] =>

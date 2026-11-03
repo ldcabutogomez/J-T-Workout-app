@@ -1,5 +1,5 @@
 import { levelTitle } from '../engine/xp';
-import { TAUNTS, TAUNT_LEVEL, flairById } from '../lib/perks';
+import { TAUNTS, TAUNT_LEVEL, flairById, tauntLevel } from '../lib/perks';
 import { useEffect, useState } from 'react';
 import { Trophy, Users } from 'lucide-react';
 import { isLiveFresh, type Leaderboard, type LeaderboardCategory, type PartnerStats } from '../engine/leaderboard';
@@ -223,7 +223,7 @@ export function TogetherTab({ board, youId, pairing, profiles, youLevel = 1, onT
               <div className="mb-1"><Avatar profile={personFor(s)} size={44} decorative /></div>
               <p className="font-black text-ink truncate max-w-full">{s.name}{isYou && <span className="text-accent-ink text-xs ml-1 align-middle">YOU</span>}</p>
               {s.level !== undefined && <p className="text-xs font-bold text-accent-ink">Lv {s.level} · {flairById(s.flair)?.label ?? levelTitle(s.level)}</p>}
-              {!isYou && onTaunt && <TauntButton unlocked={youLevel >= TAUNT_LEVEL} onTaunt={onTaunt} />}
+              {!isYou && onTaunt && <TauntButton level={youLevel} onTaunt={onTaunt} />}
               <div className="mt-2">
                 <ProgressRing value={s.weeklyCount} max={s.weeklyGoal} size={72}>
                   <span className="font-mono text-sm font-black text-ink">{fmtCount(s.weeklyCount)}/{s.weeklyGoal}</span>
@@ -283,21 +283,25 @@ export function TogetherTab({ board, youId, pairing, profiles, youLevel = 1, onT
   );
 }
 
-function TauntButton({ unlocked, onTaunt }: { unlocked: boolean; onTaunt: (tauntId: number) => void }) {
+function TauntButton({ level, onTaunt }: { level: number; onTaunt: (tauntId: number) => void }) {
   const [sent, setSent] = useState(false);
   useEffect(() => {
     if (!sent) return;
     const timer = window.setTimeout(() => setSent(false), 3000);
     return () => window.clearTimeout(timer);
   }, [sent]);
-  if (!unlocked) return <p className="mt-1 text-xs text-muted">Taunts unlock at level {TAUNT_LEVEL}</p>;
+  if (level < TAUNT_LEVEL) return <p className="mt-1 text-xs text-muted">Taunts unlock at level {TAUNT_LEVEL}</p>;
   return (
     <details className="mt-2 w-full">
       <summary className="flex min-h-9 cursor-pointer items-center justify-center rounded-xl bg-sunk px-2 text-xs font-bold text-accent-ink">{sent ? 'Taunt sent ✓' : 'Send a taunt'}</summary>
       <div className="mt-1 space-y-1">
-        {TAUNTS.map((text, id) => (
-          <button key={id} type="button" onClick={(event) => { onTaunt(id); setSent(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="w-full rounded-xl border border-line bg-paper px-2 py-2 text-left text-xs text-ink">{text}</button>
-        ))}
+        {TAUNTS.map((text, id) => ({ text, id, need: tauntLevel(id) }))
+          .sort((a, b) => a.need - b.need || a.id - b.id)
+          .map(({ text, id, need }) => need > level ? (
+            <p key={id} className="w-full rounded-xl border border-dashed border-line px-2 py-2 text-left text-xs text-muted">Locked: unlocks at level {need}</p>
+          ) : (
+            <button key={id} type="button" onClick={(event) => { onTaunt(id); setSent(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="w-full rounded-xl border border-line bg-paper px-2 py-2 text-left text-xs text-ink">{text}</button>
+          ))}
       </div>
     </details>
   );

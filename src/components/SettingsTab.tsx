@@ -22,9 +22,16 @@ interface SettingsTabProps {
   level?: number;
   /** Extra sections (notifications), rendered before the backups. */
   extra?: React.ReactNode;
+  /** Where this phone's data stands: protected from eviction, last export, and an undo for the last replace-all import. */
+  backupInfo?: {
+    persisted: boolean | null;
+    lastBackupAt: number | null;
+    canRestore: boolean;
+    onRestore: () => Promise<{ success: boolean; message: string }>;
+  };
 }
 
-export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitchUser, onUpdateProfile, onExportBackup, onImportBackup, level = 1, extra }: SettingsTabProps) {
+export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitchUser, onUpdateProfile, onExportBackup, onImportBackup, level = 1, extra, backupInfo }: SettingsTabProps) {
   const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0];
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
@@ -36,6 +43,14 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitch
     if (!file) return;
     try {
       const json = await file.text();
+      // Say what is about to be imported before touching anything.
+      try {
+        const peek = JSON.parse(json) as { timestamp?: number; profiles?: unknown[]; sessions?: unknown[] };
+        if (Array.isArray(peek.profiles) && Array.isArray(peek.sessions)) {
+          const when = typeof peek.timestamp === 'number' ? ` made ${new Date(peek.timestamp).toLocaleDateString()}` : '';
+          if (!window.confirm(`Import this backup${when}?\n\n${peek.profiles.length} profile${peek.profiles.length === 1 ? '' : 's'}, ${peek.sessions.length} completed workout${peek.sessions.length === 1 ? '' : 's'}.`)) return;
+        }
+      } catch { /* not readable as JSON: the import below reports the real problem */ }
       let result = await onImportBackup(json, false);
       if (!result.success && result.message.includes('duplicate IDs')) {
         const replace = window.confirm(`${result.message}\n\nReplace all local profiles, completed sessions, and active drafts with this validated backup? Export your current data first if needed.`);
@@ -113,7 +128,20 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitch
 
       <section className="card p-5 space-y-3">
         <h2 className="text-lg font-black">Local backups</h2>
-        <p className="text-xs text-muted">Version 2 imports validate every profile, session, exercise, and set before one transaction writes anything. Duplicate IDs are rejected unless you explicitly approve replace-all.</p>
+        {backupInfo && (
+          <div className="rounded-xl bg-sunk p-3 text-xs text-ink-2 space-y-1">
+            <p>Last backup: <strong>{backupInfo.lastBackupAt ? new Date(backupInfo.lastBackupAt).toLocaleDateString() : 'never'}</strong>. Your workouts live only on this phone, so save a copy now and then.</p>
+            <p>{backupInfo.persisted === true ? 'This phone has agreed to keep the app data safe from automatic cleanup.' : backupInfo.persisted === false ? 'This phone may clear app data if it runs low on space, so backups matter.' : 'Storage protection status is not available here.'}</p>
+          </div>
+        )}
+        {backupInfo?.canRestore && (
+          <button type="button" onClick={async () => {
+            if (!window.confirm('Restore the data you had before your last "replace all" import? This replaces the current data on this phone.')) return;
+            const result = await backupInfo.onRestore();
+            setStatus({ text: result.message, error: !result.success });
+          }} className="btn-secondary w-full">Undo last replace-all import</button>
+        )}
+        <p className="text-xs text-muted">Backups validate every profile, session, exercise, and set before one transaction writes anything. Duplicate IDs are rejected unless you explicitly approve replace-all.</p>
         {status && <div role={status.error ? 'alert' : 'status'} className={`p-3 rounded-2xl text-xs ${status.error ? 'bg-bad/10 border border-bad/40 text-bad' : 'bg-ok/10 border border-ok/40 text-ok'}`}>{status.text}</div>}
         <div className="grid grid-cols-2 gap-2"><button onClick={onExportBackup} className="min-h-12 bg-sunk border border-line rounded-2xl text-xs font-bold"><Download className="inline w-4 h-4 mr-1 text-accent-ink" />Export</button><button onClick={() => inputRef.current?.click()} className="min-h-12 bg-accent text-on-accent rounded-2xl text-xs font-black"><Upload className="inline w-4 h-4 mr-1" />Import</button></div>
         <input ref={inputRef} type="file" accept="application/json,.json" onChange={importFile} className="hidden" />
@@ -255,7 +283,7 @@ function FlairPicker({ profile, onUpdateProfile, level }: { profile: UserProfile
           );
         })}
       </div>
-      <p className="mt-2 text-xs text-muted">{next ? `Next unlock: ${next.text} at level ${next.level}. ` : ''}Taunts for your partner unlock at level {TAUNT_LEVEL}. Level up by training.</p>
+      <p className="mt-2 text-xs text-muted">{next ? `Next unlock: ${next.text} at level ${next.level}. ` : ''}Taunts for your partner unlock at level {TAUNT_LEVEL}, with sharper ones as you climb. Level up by training.</p>
     </div>
   );
 }

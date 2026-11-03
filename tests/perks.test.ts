@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FLAIRS, TAUNTS, TAUNT_LEVEL, flairById, flairUnlocked, perksBetween, tauntText, themeUnlocked } from '../src/lib/perks';
+import { FLAIRS, TAUNTS, TAUNT_LEVEL, tauntLevel, flairById, flairUnlocked, perksBetween, tauntText, themeUnlocked } from '../src/lib/perks';
 import { parseSnapshot, snapshotFromHistory, statsFromSnapshot } from '../src/engine/leaderboard';
 import { completeSession, profile } from './helpers';
 
@@ -65,5 +65,11 @@ test('seasonal flairs are earned with their badge, not by level', () => {
 
 test('the battery taunt is in the list', () => {
   assert.ok(TAUNTS.includes("You're behaving like a battery right now."));
-  assert.equal(tauntText(TAUNTS.length - 1), "You're behaving like a battery right now.");
+  assert.equal(tauntText(TAUNTS.indexOf("You're behaving like a battery right now.")), "You're behaving like a battery right now.");
+});
+
+test('taunts are tiered by level and none unlock before the base level', () => {
+  for (let id = 0; id < TAUNTS.length; id++) assert.ok(tauntLevel(id) >= TAUNT_LEVEL);
+  assert.equal(tauntLevel(0), TAUNT_LEVEL);
+  assert.ok(TAUNTS.some((_, id) => tauntLevel(id) >= 12));
 });

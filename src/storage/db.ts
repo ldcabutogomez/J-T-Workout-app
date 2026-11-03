@@ -3,6 +3,7 @@ import { isValidAvatar } from '../lib/avatar';
 import { isColorTheme } from '../lib/theme';
 import { isValidSchedule } from '../engine/schedule';
 import { nextProgramPosition } from '../engine/sessionEngine';
+import { BACKUP_APP, SCHEMA_VERSION, migrateBackup, sanitizeProfile } from './schema';
 
 const DEFAULT_DB_NAME = 'JackedAndTan2_LocalDB';
 const DB_VERSION = 2;
@@ -165,10 +166,10 @@ function uniqueIds<T>(items: T[], getId: (item: T) => string): boolean {
   return new Set(ids).size === ids.length;
 }
 
-function validateBackup(value: unknown): { ok: true; data: BackupExportData } | { ok: false; message: string } {
-  if (!isObject(value) || value.version !== 2 || value.app !== 'GZCL_Jacked_And_Tan_2_Partner_Engine') {
-    return { ok: false, message: 'This is not a supported version 2 J&T 2.0 backup.' };
-  }
+function validateBackup(raw: unknown): { ok: true; data: BackupExportData } | { ok: false; message: string } {
+  const migrated = migrateBackup(raw);
+  if (!migrated.ok) return { ok: false, message: migrated.message };
+  const value = migrated.value;
   if (!Array.isArray(value.profiles) || !Array.isArray(value.sessions) || !Array.isArray(value.activeSessions)) {
     return { ok: false, message: 'Backup collections are missing or malformed.' };
   }
@@ -272,10 +273,55 @@ export class StorageService {
   }
 
   async getProfiles(): Promise<UserProfile[]> {
-    return this.getAll<UserProfile>('profiles');
+    // Read through the sanitizer so a bad optional field in stored data can never reach the UI. A profile that is
+    // still unusable is set aside (never deleted) so one bad record cannot stop the app from opening.
+    const all = (await this.getAll<UserProfile>('profiles')).map((profile) => sanitizeProfile(profile));
+    const good = all.filter((profile) => validateProfile(profile));
+    if (good.length !== all.length) this.quarantine(all.filter((profile) => !validateProfile(profile)));
+    return good;
   }
 
-  async saveProfile(profile: UserProfile): Promise<void> {
+  private quarantine(records: unknown[]): void {
+    try {
+      const existing = JSON.parse(localStorage.getItem(this.key('quarantine')) ?? '[]') as unknown[];
+      localStorage.setItem(this.key('quarantine'), JSON.stringify([...existing, ...records].slice(-20)));
+    } catch { /* setting aside is best effort */ }
+  }
+
+  /** How many unreadable profiles have been set aside on this device. */
+  quarantinedCount(): number {
+    try { return (JSON.parse(localStorage.getItem(this.key('quarantine')) ?? '[]') as unknown[]).length; } catch { return 0; }
+  }
+
+  /** Best-effort dump of everything that can still be read, for the recovery screen. Never throws. */
+  async exportRaw(): Promise<string> {
+    const out: Record<string, unknown> = { app: BACKUP_APP, raw: true, timestamp: Date.now() };
+    for (const store of STORES) {
+      try { out[store] = await this.getAll<unknown>(store); } catch (error) { out[store] = { unreadable: (error as Error).message }; }
+      try { const text = localStorage.getItem(this.key(store)); if (text) out[`localStorage_${store}`] = text; } catch { /* not available */ }
+    }
+    try { const q = localStorage.getItem(this.key('quarantine')); if (q) out.quarantine = JSON.parse(q); } catch { /* ignore */ }
+    return JSON.stringify(out, null, 2);
+  }
+
+  /** Deletes every record this app keeps on the device. Only for the "start fresh" recovery choice. */
+  async resetAll(): Promise<void> {
+    this.db?.close();
+    this.db = null;
+    this.fallback = false;
+    if (typeof indexedDB !== 'undefined') {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(this.dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(new Error(`Could not clear the database: ${request.error?.message ?? 'unknown error'}`));
+        request.onblocked = () => reject(new Error('Close any other tab or window of this app, then try again.'));
+      });
+    }
+    try { for (const store of [...STORES, 'quarantine']) localStorage.removeItem(this.key(store)); } catch { /* not available */ }
+  }
+
+  async saveProfile(input: UserProfile): Promise<void> {
+    const profile = sanitizeProfile(input);
     if (!validateProfile(profile)) throw new Error('Refusing to save a malformed profile.');
     return this.enqueue(async () => {
       await this.init();
@@ -352,9 +398,10 @@ export class StorageService {
    */
   async completeAndAdvance(
     inputSession: WorkoutSession,
-    inputProfile: UserProfile,
+    rawProfile: UserProfile,
     position?: Pick<UserProfile, 'currentWeek' | 'currentDay' | 'cycleCompleted'>,
   ): Promise<{ session: WorkoutSession; profile: UserProfile; advanced: boolean }> {
+    const inputProfile = sanitizeProfile(rawProfile);
     if (!validateProfile(inputProfile)
       || inputSession.status === 'active'
       || !validateSession(inputSession, new Set([inputProfile.id]))) {
@@ -502,9 +549,9 @@ export class StorageService {
       this.getAll<WorkoutSession>('activeSessions'),
     ]);
     const payload: BackupExportData = {
-      version: 2,
+      version: SCHEMA_VERSION as 3,
       timestamp: Date.now(),
-      app: 'GZCL_Jacked_And_Tan_2_Partner_Engine',
+      app: BACKUP_APP,
       profiles,
       sessions: sessions.filter((item) => !item.isDemo),
       activeSessions,

@@ -95,6 +95,8 @@ export interface UserProfile {
   taunt?: { id: number; at: number };
   /** Share your photo and live workout status with your partner. On unless set to false. */
   shareLive?: boolean;
+  /** Version of the stored data shape this profile was last written with (see storage/schema.ts). */
+  schemaVersion?: number;
 }
 
 export interface ProfileSchedule {
@@ -224,7 +226,7 @@ export interface WorkoutSession {
 }
 
 export interface BackupExportData {
-  version: 2;
+  version: 2 | 3;
   timestamp: number;
   profiles: UserProfile[];
   sessions: WorkoutSession[];
