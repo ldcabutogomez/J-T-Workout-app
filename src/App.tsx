@@ -15,6 +15,9 @@ import { findAllComparableResults, generateSessionEncouragement, isVerifiedCycle
 import { findAlternative, swapKey } from './program/swapOptions';
 import { BADGES, computeHighlights, computeStreak, evaluateBadges, evaluateDuoBadges, newlyUnlocked } from './engine/achievements';
 import { levelFor } from './engine/xp';
+import { AppPrompts } from './components/AppPrompts';
+import { UpdateCard } from './components/UpdateCard';
+import { useAppUpdate } from './lib/appUpdate';
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { notifyPartner } from './sync/push';
 import { TAUNT_COOLDOWN_MS, TAUNT_FRESH_MS, TAUNT_LEVEL, perksBetween, tauntText } from './lib/perks';
@@ -292,6 +295,12 @@ export default function App() {
     return composeBoard({ profiles, historyByProfile: partnerHistory, pairedProfileId: meId, remote, now: Date.now() });
     // `today` ticks at midnight and on resume, so "Trained today" rolls over to "yesterday" on its own.
   }, [profiles, partnerHistory, meId, remote, today]);
+
+  const appUpdate = useAppUpdate();
+  const openNotifications = () => {
+    setTab('settings');
+    window.setTimeout(() => document.getElementById('notifications')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  };
 
   const myLevel = useMemo(() => (profile ? levelFor(history, profile).level : 1), [history, profile]);
 
@@ -807,6 +816,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-paper text-ink flex flex-col font-sans selection:bg-accent selection:text-on-accent">
       <OfflineIndicator />
+      <AppPrompts updateReady={appUpdate.updateReady} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} paired={Boolean(cloudConfig && pairing.code)} onOpenNotifications={openNotifications} />
       <header className="sticky top-0 z-30 bg-surface border-b border-line px-3 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-display font-black text-lg text-accent-ink whitespace-nowrap">J&amp;T 2.0</span>
@@ -844,7 +854,7 @@ export default function App() {
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
         {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} />}
-        {tab === 'settings' && <SettingsTab level={myLevel} extra={profile ? <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} /> : null} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onUpdateProfile={updateProfile} onExportBackup={async () => {
+        {tab === 'settings' && <SettingsTab level={myLevel} extra={<>{profile && <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} />}<UpdateCard updateReady={appUpdate.updateReady} checking={appUpdate.checking} onCheck={appUpdate.check} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} /></>} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
             const blob = new Blob([await dbService.exportBackup()], { type: 'application/json' });
             const url = URL.createObjectURL(blob);

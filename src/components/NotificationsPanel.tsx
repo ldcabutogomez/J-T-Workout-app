@@ -76,7 +76,7 @@ export function NotificationsPanel({ profile, config, code, deviceId }: Props) {
   };
 
   return (
-    <section className="card p-5 space-y-3">
+    <section id="notifications" className="card p-5 space-y-3 scroll-mt-20">
       <h2 className="flex items-center gap-2 text-lg font-black"><Bell className="h-5 w-5" aria-hidden /> Notifications</h2>
       {!code ? (
         <p className="text-xs text-muted">Link with your partner on the Together tab first. Notifications go between your two phones.</p>
