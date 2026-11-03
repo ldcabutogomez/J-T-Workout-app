@@ -4,7 +4,6 @@ import type { TrendPoint } from '../../engine/trends';
 const W = 320;
 const H = 170;
 const PAD = { left: 40, right: 12, top: 12, bottom: 24 };
-const PLOT_W = W - PAD.left - PAD.right;
 const PLOT_H = H - PAD.top - PAD.bottom;
 
 const dateLabel = (at: number) => new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -27,25 +26,27 @@ interface ChartProps {
   title: string;
 }
 
-function Frame({ title, unit, points, children, lo, hi, selected, setSelected }: ChartProps & { children: React.ReactNode; lo: number; hi: number; selected: number | null; setSelected: (i: number | null) => void }) {
+function Frame({ title, unit, points, children, lo, hi, selected, setSelected, width }: ChartProps & { children: React.ReactNode; lo: number; hi: number; selected: number | null; setSelected: (i: number | null) => void; width: number }) {
   const ticks = [lo, (lo + hi) / 2, hi];
   const active = selected !== null ? points[selected] : null;
   return (
     <figure className="space-y-2">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${title}: ${points.length} points, from ${compact(points[0].value)} to ${compact(points[points.length - 1].value)} ${unit}`} className="w-full h-auto" onPointerLeave={() => setSelected(null)}>
-        {ticks.map((tick) => {
-          const y = PAD.top + PLOT_H - ((tick - lo) / (hi - lo)) * PLOT_H;
-          return (
-            <g key={tick}>
-              <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="var(--color-line)" strokeWidth="1" />
-              <text x={PAD.left - 6} y={y + 3} textAnchor="end" fontSize="9" fill="var(--color-muted)">{compact(tick)}</text>
-            </g>
-          );
-        })}
-        <text x={PAD.left} y={H - 6} fontSize="9" fill="var(--color-muted)">{dateLabel(points[0].at)}</text>
-        <text x={W - PAD.right} y={H - 6} fontSize="9" textAnchor="end" fill="var(--color-muted)">{dateLabel(points[points.length - 1].at)}</text>
-        {children}
-      </svg>
+      <div className="overflow-x-auto no-scrollbar">
+        <svg viewBox={`0 0 ${width} ${H}`} role="img" aria-label={`${title}: ${points.length} points, from ${compact(points[0].value)} to ${compact(points[points.length - 1].value)} ${unit}`} className="h-auto max-w-none" style={{ width: width === W ? '100%' : `${width}px` }} onPointerLeave={() => setSelected(null)}>
+          {ticks.map((tick) => {
+            const y = PAD.top + PLOT_H - ((tick - lo) / (hi - lo)) * PLOT_H;
+            return (
+              <g key={tick}>
+                <line x1={PAD.left} x2={width - PAD.right} y1={y} y2={y} stroke="var(--color-line)" strokeWidth="1" />
+                <text x={PAD.left - 6} y={y + 3} textAnchor="end" fontSize="9" fill="var(--color-muted)">{compact(tick)}</text>
+              </g>
+            );
+          })}
+          <text x={PAD.left} y={H - 6} fontSize="9" fill="var(--color-muted)">{dateLabel(points[0].at)}</text>
+          <text x={width - PAD.right} y={H - 6} fontSize="9" textAnchor="end" fill="var(--color-muted)">{dateLabel(points[points.length - 1].at)}</text>
+          {children}
+        </svg>
+      </div>
       <figcaption className="min-h-5 text-xs text-ink-2" aria-live="polite">
         {active ? `${dateLabel(active.at)}: ${active.value.toLocaleString()} ${unit}${active.best ? ' (best so far)' : ''}` : 'Tap or hover a point for its value.'}
       </figcaption>
@@ -65,11 +66,13 @@ export function LineChart(props: ChartProps) {
   const { points } = props;
   const [selected, setSelected] = useState<number | null>(null);
   const [lo, hi] = yRange(points.map((p) => p.value), false);
-  const x = (i: number) => PAD.left + (points.length === 1 ? PLOT_W / 2 : (i / (points.length - 1)) * PLOT_W);
+  const width = Math.max(W, PAD.left + PAD.right + Math.max(1, points.length - 1) * 18);
+  const plotWidth = width - PAD.left - PAD.right;
+  const x = (i: number) => PAD.left + (points.length === 1 ? plotWidth / 2 : (i / (points.length - 1)) * plotWidth);
   const y = (v: number) => PAD.top + PLOT_H - ((v - lo) / (hi - lo)) * PLOT_H;
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
   return (
-    <Frame {...props} lo={lo} hi={hi} selected={selected} setSelected={setSelected}>
+    <Frame {...props} lo={lo} hi={hi} selected={selected} setSelected={setSelected} width={width}>
       <path d={path} fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
       {points.map((p, i) => (
         <g key={p.at}>
@@ -86,12 +89,14 @@ export function BarChart(props: ChartProps) {
   const { points } = props;
   const [selected, setSelected] = useState<number | null>(null);
   const [, hi] = yRange(points.map((p) => p.value), true);
-  const slot = PLOT_W / points.length;
+  const width = Math.max(W, PAD.left + PAD.right + points.length * 18);
+  const plotWidth = width - PAD.left - PAD.right;
+  const slot = plotWidth / points.length;
   const barW = Math.max(4, Math.min(28, slot - 6));
   const baseline = PAD.top + PLOT_H;
   const r = 3;
   return (
-    <Frame {...props} lo={0} hi={hi} selected={selected} setSelected={setSelected}>
+    <Frame {...props} lo={0} hi={hi} selected={selected} setSelected={setSelected} width={width}>
       {points.map((p, i) => {
         const h = Math.max(0, (p.value / hi) * PLOT_H);
         const x0 = PAD.left + i * slot + (slot - barW) / 2;
