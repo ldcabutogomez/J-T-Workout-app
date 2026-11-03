@@ -24,7 +24,7 @@ export function squareCrop(width: number, height: number): { sx: number; sy: num
   return { sx: Math.floor((width - size) / 2), sy: Math.floor((height - size) / 2), size };
 }
 
-const THEME_AVATAR: Record<ColorTheme, AvatarColor> = { lavender: 'violet', blue: 'cobalt', vermilion: 'accent' };
+const THEME_AVATAR: Record<ColorTheme, AvatarColor> = { lavender: 'violet', blue: 'cobalt', vermilion: 'accent', forest: 'teal', rose: 'clay' };
 
 /** Default tile color follows the profile's theme, so the initial matches the person's look. */
 export function defaultAvatarColor(profile: { id: string; colorTheme?: ColorTheme }): AvatarColor {

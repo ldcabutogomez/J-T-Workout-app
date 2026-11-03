@@ -5,7 +5,9 @@ import { countsTowardStats, meetsGoal, validCompleted, weekStart, weeklyCounts }
 export { weekStart };
 import { normalizeWeight } from './jnt2Engine';
 
-export type BadgeIconKey = 'rocket' | 'flame' | 'dumbbell' | 'medal' | 'trophy' | 'star' | 'party' | 'calendar' | 'calendar-check' | 'zap' | 'crown';
+export type BadgeIconKey =
+  | 'rocket' | 'flame' | 'dumbbell' | 'medal' | 'trophy' | 'star' | 'party' | 'calendar' | 'calendar-check' | 'zap' | 'crown'
+  | 'weight' | 'target' | 'gem' | 'award' | 'sunrise' | 'moon' | 'refresh' | 'users' | 'handshake';
 
 export interface BadgeDefinition {
   id: string;
@@ -26,7 +28,29 @@ export const BADGES: BadgeDefinition[] = [
   { id: 'streak_4', name: 'Month of Consistency', description: 'Hit your weekly goal 4 weeks in a row', icon: 'calendar-check' },
   { id: 'streak_8', name: 'Unstoppable', description: 'Hit your weekly goal 8 weeks in a row', icon: 'zap' },
   { id: 'cycle_complete', name: 'Cycle Complete', description: 'Finish all 48 sessions', icon: 'crown' },
+  // Lifting milestones
+  { id: 'volume_50k', name: 'Fifty Thousand', description: 'Lift 50,000 lb in total', icon: 'weight' },
+  { id: 'volume_100k', name: 'Six Figures', description: 'Lift 100,000 lb in total', icon: 'weight' },
+  { id: 'volume_250k', name: 'Quarter Million', description: 'Lift 250,000 lb in total', icon: 'gem' },
+  { id: 'volume_500k', name: 'Half a Million', description: 'Lift 500,000 lb in total', icon: 'gem' },
+  { id: 'prs_5', name: 'Record Setter', description: 'Set 5 all-time PRs', icon: 'target' },
+  { id: 'prs_10', name: 'PR Machine', description: 'Set 10 all-time PRs', icon: 'target' },
+  { id: 'prs_25', name: 'Always Improving', description: 'Set 25 all-time PRs', icon: 'award' },
+  // Consistency
+  { id: 'perfect_week', name: 'Perfect Week', description: 'Finish all 4 workouts in one week', icon: 'calendar-check' },
+  { id: 'comeback', name: 'Comeback', description: 'Train again after 2 weeks away', icon: 'refresh' },
+  { id: 'streak_12', name: 'Quarter Strong', description: 'Hit your weekly goal 12 weeks in a row', icon: 'flame' },
+  { id: 'streak_24', name: 'Half-Year Habit', description: 'Hit your weekly goal 24 weeks in a row', icon: 'crown' },
+  { id: 'early_bird', name: 'Early Bird', description: 'Start a workout before 7 am', icon: 'sunrise' },
+  { id: 'night_owl', name: 'Night Owl', description: 'Finish a workout after 9 pm', icon: 'moon' },
+  // Duo badges, earned together with your partner
+  { id: 'duo_same_day', name: 'Gym Buddies', description: 'Train on the same day as your partner', icon: 'users' },
+  { id: 'duo_both_goal', name: 'Team Goal', description: 'Both hit your weekly goal in the same week', icon: 'handshake' },
+  { id: 'duo_streak', name: 'Dynamic Duo', description: 'Both on a 4-week streak at once', icon: 'zap' },
 ];
+
+export const DUO_BADGE_IDS = ['duo_same_day', 'duo_both_goal', 'duo_streak'];
+const LB_PER_KG = 2.20462;
 
 export function computeTotalVolume(session: WorkoutSession): number {
   const unit = session.settingsSnapshot.unit;
@@ -145,6 +169,18 @@ export function evaluateBadges(
   const totalPrs = [...derived.keys()].filter((id) => finishedIds.has(id)).reduce((sum, id) => sum + allTimePrs(id), 0);
   const currentPrs = allTimePrs(current.sessionId);
   const earned: string[] = [];
+  const volumeLb = completed.reduce((sum, session) => {
+    const volume = derived.get(session.sessionId)?.totalVolume ?? 0;
+    return sum + (session.settingsSnapshot.unit === 'kg' ? volume * LB_PER_KG : volume);
+  }, 0);
+  for (const n of [50, 100, 250, 500]) if (volumeLb >= n * 1000) earned.push(`volume_${n}k`);
+  for (const n of [5, 10, 25]) if (totalPrs >= n) earned.push(`prs_${n}`);
+  if ([...weeklyCounts(completed).values()].some((count) => count >= 4)) earned.push('perfect_week');
+  const times = completed.map((s) => s.completedTime ?? s.startTime).sort((a, b) => a - b);
+  if (times.some((time, i) => i > 0 && time - times[i - 1] >= 14 * 86_400_000)) earned.push('comeback');
+  if (completed.some((s) => new Date(s.startTime).getHours() < 7)) earned.push('early_bird');
+  if (completed.some((s) => new Date(s.completedTime ?? s.startTime).getHours() >= 21)) earned.push('night_owl');
+  for (const n of [12, 24]) if (streak >= n) earned.push(`streak_${n}`);
   if (total >= 1) earned.push('first_workout');
   for (const n of [5, 10, 25, 40]) if (total >= n) earned.push(`sessions_${n}`);
   if (totalPrs >= 1) earned.push('first_pr');
@@ -152,6 +188,25 @@ export function evaluateBadges(
   for (const n of [2, 4, 8]) if (streak >= n) earned.push(`streak_${n}`);
   if (isVerifiedCycleComplete(current, history)) earned.push('cycle_complete');
   return earned;
+}
+
+/** What the duo badges need to know about one person. */
+export interface DuoSide {
+  lastSessionAt: number | null;
+  goalMet: boolean;
+  streakWeeks: number;
+}
+
+/** Duo badges are earned together, so they are judged from your row and each partner's row on the board. */
+export function evaluateDuoBadges(me: DuoSide, partners: DuoSide[]): string[] {
+  const earned = new Set<string>();
+  for (const partner of partners) {
+    if (me.lastSessionAt !== null && partner.lastSessionAt !== null
+      && new Date(me.lastSessionAt).toDateString() === new Date(partner.lastSessionAt).toDateString()) earned.add('duo_same_day');
+    if (me.goalMet && partner.goalMet) earned.add('duo_both_goal');
+    if (me.streakWeeks >= 4 && partner.streakWeeks >= 4) earned.add('duo_streak');
+  }
+  return [...earned];
 }
 
 export function newlyUnlocked(

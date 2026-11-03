@@ -64,3 +64,28 @@ revoke all on function public.push_snapshot(text, text, jsonb) from public;
 revoke all on function public.pull_snapshots(text) from public;
 grant execute on function public.push_snapshot(text, text, jsonb) to anon;
 grant execute on function public.pull_snapshots(text) to anon;
+
+-- ---------------------------------------------------------------------------------------------
+-- Push notifications. Run this block after the sync functions above, then follow
+-- supabase/PUSH_SETUP.md to deploy the two Edge Functions and schedule the reminders.
+-- Subscriptions hang off the same pairing code (hashed) and device id as snapshots, so there are
+-- no accounts. Only the Edge Functions (service role) can touch this table.
+-- ---------------------------------------------------------------------------------------------
+create table if not exists public.push_subscriptions (
+  code_hash     text        not null,
+  device_id     text        not null,
+  endpoint      text        not null,
+  p256dh        text        not null,
+  auth          text        not null,
+  tz            text        not null default 'UTC',
+  reminder_time text        not null default '17:30',
+  train_days    int[]       not null default '{0,1,3,4}',
+  prefs         jsonb       not null default '{}'::jsonb,
+  -- When each kind of push last went to this device ({"trained": ms, "day": "YYYY-MM-DD"}), for rate limits.
+  last_sent     jsonb       not null default '{}'::jsonb,
+  updated_at    timestamptz not null default now(),
+  primary key (code_hash, device_id)
+);
+
+alter table public.push_subscriptions enable row level security;
+revoke all on public.push_subscriptions from anon, authenticated;

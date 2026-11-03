@@ -5,6 +5,7 @@ import { Download, Upload, Users } from 'lucide-react';
 import { canVibrate, feedback, haptic } from '../lib/feedback';
 import { AVATAR_COLORS, defaultAvatarColor, fileToAvatar } from '../lib/avatar';
 import { COLOR_THEMES, THEMES, themeForProfile } from '../lib/theme';
+import { FLAIRS, PERK_UNLOCKS, TAUNT_LEVEL, THEME_UNLOCK_LEVEL, themeUnlocked } from '../lib/perks';
 import { WEEKDAY_LABELS, defaultSchedule, normalizeDays, withTrainingDays } from '../engine/schedule';
 import { Avatar, AVATAR_TILE } from './Avatar';
 
@@ -17,9 +18,13 @@ interface SettingsTabProps {
   onUpdateProfile: (profile: UserProfile) => void;
   onExportBackup: () => void;
   onImportBackup: (json: string, replace: boolean) => Promise<{ success: boolean; message: string }>;
+  /** The active lifter's level, which unlocks themes, flair and taunts. */
+  level?: number;
+  /** Extra sections (notifications), rendered before the backups. */
+  extra?: React.ReactNode;
 }
 
-export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitchUser, onUpdateProfile, onExportBackup, onImportBackup }: SettingsTabProps) {
+export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitchUser, onUpdateProfile, onExportBackup, onImportBackup, level = 1, extra }: SettingsTabProps) {
   const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0];
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
@@ -75,7 +80,8 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitch
             <span className="text-xs text-muted">Your partner sees your picture, whether you are lifting right now, today's workout and this week's calendar. Set-by-set logs never leave this phone.</span>
           </span>
         </label>
-        <ThemePicker profile={profile} onUpdateProfile={onUpdateProfile} />
+        <ThemePicker profile={profile} onUpdateProfile={onUpdateProfile} level={level} />
+        <FlairPicker profile={profile} onUpdateProfile={onUpdateProfile} level={level} />
         <TrainingDays profile={profile} onUpdateProfile={onUpdateProfile} />
         <label className="block text-xs uppercase font-bold text-muted">Lifter name<input value={profile.name} onChange={(event) => onUpdateProfile({ ...profile, name: event.target.value })} className="block w-full mt-1 min-h-11 bg-paper border border-line rounded-xl px-3 text-sm normal-case text-ink" /></label>
         <div className="grid grid-cols-2 gap-3">
@@ -102,6 +108,8 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitch
           </div>
         </div>
       </section>
+
+      {extra}
 
       <section className="card p-5 space-y-3">
         <h2 className="text-lg font-black">Local backups</h2>
@@ -191,7 +199,7 @@ function AvatarEditor({ profile, onUpdateProfile }: { profile: UserProfile; onUp
   );
 }
 
-function ThemePicker({ profile, onUpdateProfile }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void }) {
+function ThemePicker({ profile, onUpdateProfile, level }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void; level: number }) {
   const current = themeForProfile(profile);
   return (
     <div>
@@ -203,8 +211,9 @@ function ThemePicker({ profile, onUpdateProfile }: { profile: UserProfile; onUpd
             type="button"
             role="radio"
             aria-checked={current === theme}
+            disabled={!themeUnlocked(theme, level)}
             onClick={() => onUpdateProfile({ ...profile, colorTheme: theme })}
-            className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2 text-sm font-bold ${current === theme ? 'border-accent bg-accent/10 text-accent-ink' : 'border-line bg-surface text-ink'}`}
+            className={`disabled:opacity-50 flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2 text-sm font-bold ${current === theme ? 'border-accent bg-accent/10 text-accent-ink' : 'border-line bg-surface text-ink'}`}
           >
             <span
               aria-hidden
@@ -212,9 +221,40 @@ function ThemePicker({ profile, onUpdateProfile }: { profile: UserProfile; onUpd
               style={{ background: `linear-gradient(135deg, ${THEMES[theme].paper} 50%, ${THEMES[theme].accent} 50%)` }}
             />
             {THEMES[theme].label}
+            {!themeUnlocked(theme, level) && <span className="text-xs font-normal text-muted">Level {THEME_UNLOCK_LEVEL[theme]}</span>}
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function FlairPicker({ profile, onUpdateProfile, level }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void; level: number }) {
+  const next = PERK_UNLOCKS.find((perk) => perk.level > level);
+  return (
+    <div>
+      <p className="eyebrow">Flair <span className="normal-case font-normal">(Level {level})</span></p>
+      <div className="mt-2 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Avatar flair">
+        {[{ id: '', label: 'None', level: 1 }, ...FLAIRS].map((flair) => {
+          const locked = level < flair.level;
+          const selected = (profile.flair ?? '') === flair.id;
+          return (
+            <button
+              key={flair.id || 'none'}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={locked}
+              onClick={() => onUpdateProfile({ ...profile, flair: flair.id || undefined })}
+              className={`flex min-h-14 flex-col items-center justify-center rounded-xl border px-2 py-2 text-sm font-bold disabled:opacity-50 ${selected ? 'border-accent bg-accent/10 text-accent-ink' : 'border-line bg-surface text-ink'}`}
+            >
+              {flair.label}
+              {locked && <span className="text-xs font-normal text-muted">Level {flair.level}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-muted">{next ? `Next unlock: ${next.text} at level ${next.level}. ` : ''}Taunts for your partner unlock at level {TAUNT_LEVEL}. Level up by training.</p>
     </div>
   );
 }

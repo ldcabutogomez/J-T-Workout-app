@@ -7,3 +7,6 @@ coverage/
 .env*
 GZCL Free Compendium November 27th Update.xlsx
 jacked-&-tan-2.0-partner-training-engine.zip
+
+# Supabase CLI link state
+supabase/.temp/

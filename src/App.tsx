@@ -13,8 +13,12 @@ import {
 } from './engine/sessionEngine';
 import { findAllComparableResults, generateSessionEncouragement, isVerifiedCycleComplete } from './engine/encouragement';
 import { findAlternative, swapKey } from './program/swapOptions';
-import { BADGES, computeHighlights, computeStreak, evaluateBadges, newlyUnlocked } from './engine/achievements';
-import { haptic, setFeedbackPrefs } from './lib/feedback';
+import { BADGES, computeHighlights, computeStreak, evaluateBadges, evaluateDuoBadges, newlyUnlocked } from './engine/achievements';
+import { levelFor } from './engine/xp';
+import { NotificationsPanel } from './components/NotificationsPanel';
+import { notifyPartner } from './sync/push';
+import { TAUNT_COOLDOWN_MS, TAUNT_FRESH_MS, TAUNT_LEVEL, perksBetween, tauntText } from './lib/perks';
+import { haptic, installTapHaptics, setFeedbackPrefs } from './lib/feedback';
 import { feedback } from './lib/feedback';
 import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, prRewardKey } from './lib/rewards';
 import { TogetherTab, type SyncStatus } from './components/TogetherTab';
@@ -115,6 +119,8 @@ export default function App() {
   useEffect(() => {
     if (profile) applyTheme(themeForProfile(profile));
   }, [profile?.id, profile?.colorTheme]);
+
+  useEffect(() => installTapHaptics(), []);
 
   useEffect(() => {
     setFeedbackPrefs({
@@ -283,8 +289,58 @@ export default function App() {
   const leaderboard = useMemo(() => {
     if (!partnerHistory) return null;
     // Your own row always comes from local history, so it shows right after a workout, paired or not.
-    return composeBoard({ profiles, historyByProfile: partnerHistory, pairedProfileId: meId, remote });
-  }, [profiles, partnerHistory, meId, remote]);
+    return composeBoard({ profiles, historyByProfile: partnerHistory, pairedProfileId: meId, remote, now: Date.now() });
+    // `today` ticks at midnight and on resume, so "Trained today" rolls over to "yesterday" on its own.
+  }, [profiles, partnerHistory, meId, remote, today]);
+
+  const myLevel = useMemo(() => (profile ? levelFor(history, profile).level : 1), [history, profile]);
+
+  // A taunt is a canned line chosen on one phone and shown on the other, carried in the sync snapshot.
+  const sendTaunt = (tauntId: number) => {
+    if (!profile || myLevel < TAUNT_LEVEL) return;
+    const wait = (profile.taunt?.at ?? 0) + TAUNT_COOLDOWN_MS - Date.now();
+    if (wait > 0) { showToast(`Easy, champ. Another taunt in ${Math.ceil(wait / 60_000)} min.`); return; }
+    haptic('pr');
+    notifyPartner(cloudConfig, pairing.code, deviceId, 'taunt');
+    void updateProfile({ ...profile, taunt: { id: tauntId, at: Date.now() } });
+    showToast('Taunt sent');
+  };
+
+  useEffect(() => {
+    if (!meId) return;
+    for (const snapshot of remote) {
+      const text = snapshot.taunt ? tauntText(snapshot.taunt.id) : undefined;
+      if (!snapshot.taunt || text === undefined || Date.now() - snapshot.taunt.at > TAUNT_FRESH_MS) continue;
+      const key = `jnt2_taunt_seen_${snapshot.deviceId}`;
+      let seen = 0;
+      try { seen = Number(localStorage.getItem(key)) || 0; } catch { /* a missed taunt is harmless */ }
+      if (snapshot.taunt.at <= seen) continue;
+      try { localStorage.setItem(key, String(snapshot.taunt.at)); } catch { /* shown again next time at worst */ }
+      showToast(`${snapshot.name}: ${text}`, 'badge');
+      feedback('badge');
+    }
+  }, [remote, meId]);
+
+  // Duo badges are earned together, so they are judged from your row and your partner's on the board.
+  useEffect(() => {
+    if (!leaderboard || !profile) return;
+    const side = (item: (typeof leaderboard.ranked)[number]) => ({
+      lastSessionAt: item.lastSessionAt,
+      goalMet: meetsGoal(item.weeklyCount, item.weeklyGoal),
+      streakWeeks: item.streakWeeks,
+    });
+    const mine = leaderboard.ranked.find((item) => item.profileId === profile.id);
+    const partners = leaderboard.ranked.filter((item) => item.profileId !== profile.id);
+    if (!mine || !partners.length) return;
+    const fresh = newlyUnlocked(evaluateDuoBadges(side(mine), partners.map(side)), profile.unlockedBadges);
+    if (!fresh.length) return;
+    const saved = { ...profile, unlockedBadges: [...(profile.unlockedBadges ?? []), ...fresh] };
+    void dbService.saveProfile(saved).then(() => {
+      setProfiles((items) => items.map((item) => (item.id === saved.id ? saved : item)));
+      showToast(`Badge unlocked: ${BADGES.find((badge) => badge.id === fresh[0].id)?.name ?? 'Duo badge'}`);
+      feedback('badge');
+    });
+  }, [leaderboard, profile?.id, profile?.unlockedBadges]);
 
   const pairingUi = {
     configured: Boolean(cloudConfig),
@@ -595,9 +651,18 @@ export default function App() {
             newBadges = BADGES.filter((badge) => unlocked.some((item) => item.id === badge.id));
           }
         }
+        // Tell the partner's phone: a PR beats a badge beats a plain "trained". Fire and forget, and only for finished workouts.
+        if (celebrate && completed.status === 'completed') {
+          const pr = computeHighlights(completed, history).results.find((result) => result.kind === 'all_time_pr');
+          if (pr) notifyPartner(cloudConfig, pairing.code, deviceId, 'pr', pr.exerciseName);
+          else if (newBadges.length) notifyPartner(cloudConfig, pairing.code, deviceId, 'badge', newBadges[0].name);
+          else notifyPartner(cloudConfig, pairing.code, deviceId, 'trained');
+        }
         const nextTitle = savedProfile.cycleCompleted ? undefined : getDayPrescription(savedProfile.currentWeek, savedProfile.currentDay, savedProfile).title;
         const highlights = computeHighlights(completed, history);
         const streak = computeStreak(updatedHistory, goal);
+        const levelBefore = levelFor(history, profile);
+        const levelAfter = levelFor(updatedHistory, savedProfile);
         setSummary({
           title: `Week ${completed.week} · Day ${completed.day}`,
           message: completed.encouragementMessage ?? '',
@@ -617,8 +682,13 @@ export default function App() {
             delivered: completed.rewardsDelivered ?? [],
             weeklyGoalNewlyMet: meetsGoal(streak.weeklyCount, goal) && !meetsGoal(streak.weeklyCount - sessionCredit(completed), goal),
             newBadgeCount: newBadges.length,
+            leveledUp: levelAfter.level > levelBefore.level,
           }),
           nextTitle,
+          level: levelAfter,
+          xpGained: Math.max(0, levelAfter.xp - levelBefore.xp),
+          levelUp: celebrate && levelAfter.level > levelBefore.level,
+          perksUnlocked: celebrate ? perksBetween(levelBefore.level, levelAfter.level) : [],
         });
       } else {
         showBanner(completed.encouragementMessage || (result.advanced ? 'Workout saved and program position advanced.' : 'Completed session edits saved without advancing again.'));
@@ -773,8 +843,8 @@ export default function App() {
             showBanner('Session deleted.');
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
-        {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} />}
-        {tab === 'settings' && <SettingsTab profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onUpdateProfile={updateProfile} onExportBackup={async () => {
+        {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} />}
+        {tab === 'settings' && <SettingsTab level={myLevel} extra={profile ? <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} /> : null} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
             const blob = new Blob([await dbService.exportBackup()], { type: 'application/json' });
             const url = URL.createObjectURL(blob);

@@ -42,6 +42,12 @@ export const T1_ALTERNATIVES: Record<string, SwapAlternative[]> = {
     { id: 'sumo-deadlift', name: 'Sumo Deadlift' },
     { id: 'trap-bar-deadlift', name: 'Trap Bar Deadlift' },
     { id: 'rack-pull', name: 'Rack Pull' },
+    { id: 'romanian-deadlift', name: 'Romanian Deadlift' },
+    { id: 'leg-press', name: 'Leg Press' },
+    { id: 'hack-squat', name: 'Hack Squat' },
+    { id: 'hip-thrust', name: 'Hip Thrust' },
+    { id: 'bulgarian-split-squat', name: 'Bulgarian Split Squat' },
+    { id: 'walking-lunge', name: 'Walking Lunge' },
   ],
   'military-press': [
     { id: 'seated-military-press', name: 'Seated Military Press' },

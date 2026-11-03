@@ -24,5 +24,7 @@ export const THEME_TOKENS: Record<string, Record<string, string>> = {
   vermilion: base,
   lavender: { ...base, ...themeBlock('lavender') },
   blue: { ...base, ...themeBlock('blue') },
+  forest: { ...base, ...themeBlock('forest') },
+  rose: { ...base, ...themeBlock('rose') },
 };
 

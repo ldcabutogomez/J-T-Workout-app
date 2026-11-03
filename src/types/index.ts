@@ -89,6 +89,10 @@ export interface UserProfile {
   autoStartRest?: boolean;
   unlockedBadges?: UnlockedBadge[];
   avatar?: ProfileAvatar;
+  /** Equipped flair id (see lib/perks.ts): a small badge on your avatar and a title next to your name. */
+  flair?: string;
+  /** The last taunt you sent your partner (an index into TAUNTS); it travels in your sync snapshot. */
+  taunt?: { id: number; at: number };
   /** Share your photo and live workout status with your partner. On unless set to false. */
   shareLive?: boolean;
 }
@@ -102,7 +106,7 @@ export interface ProfileSchedule {
   moves: Record<string, string>;
 }
 
-export type ColorTheme = 'lavender' | 'blue' | 'vermilion';
+export type ColorTheme = 'lavender' | 'blue' | 'vermilion' | 'forest' | 'rose';
 
 export type AvatarColor = 'accent' | 'violet' | 'cobalt' | 'ok' | 'gold' | 'ink' | 'clay' | 'teal';
 

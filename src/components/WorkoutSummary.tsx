@@ -10,6 +10,7 @@ import { StreakLabel } from './StreakLabel';
 import { Confetti } from './Confetti';
 import { ProgressRing } from './ProgressRing';
 import { fmtCount } from '../engine/sessionValidity';
+import type { LevelInfo } from '../engine/xp';
 
 export interface WorkoutSummaryData {
   title: string;
@@ -23,6 +24,12 @@ export interface WorkoutSummaryData {
   /** The single major feedback sequence for this completion. */
   celebration: Celebration;
   nextTitle?: string;
+  /** XP earned by this workout, and the level reached afterwards (levelUp is set when it just rose). */
+  xpGained?: number;
+  level?: LevelInfo;
+  levelUp?: boolean;
+  /** Perks that unlocked at the new level, for example "Bishop flair". */
+  perksUnlocked?: string[];
   /** Set for a partial workout: how it counts, since it is not celebrated like a finished one. */
   partialNote?: string;
 }
@@ -32,6 +39,7 @@ const CELEBRATION_FEEDBACK: Record<Celebration, FeedbackKind | null> = {
   pr: 'pr',
   weekly_goal: 'badge',
   badge: 'badge',
+  level: 'badge',
   finish: 'finish',
   none: null,
 };
@@ -191,6 +199,20 @@ export function WorkoutSummary({ data, onDone }: { data: WorkoutSummaryData; onD
                 </div>
               </div>
             ))}
+          </section>
+        )}
+
+        {data.level && (
+          <section className="animate-slide-up rounded-3xl border border-line bg-surface p-4" style={{ animationDelay: '0.35s' }}>
+            <div className="flex items-baseline justify-between">
+              <p className="text-sm font-black text-ink">{data.levelUp ? `Level up! Level ${data.level.level}` : `Level ${data.level.level}`} · {data.level.title}</p>
+              {data.xpGained ? <span className="font-mono text-xs font-bold text-ok">+{data.xpGained} XP</span> : null}
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-sunk" role="progressbar" aria-valuemin={0} aria-valuemax={data.level.span} aria-valuenow={data.level.into} aria-label="XP to next level">
+              <div className="h-full rounded-full bg-accent transition-all duration-700" style={{ width: `${data.level.pct}%` }} />
+            </div>
+            <p className="mt-1 text-xs text-muted">{data.level.into} / {data.level.span} XP to level {data.level.level + 1}</p>
+            {data.perksUnlocked && data.perksUnlocked.length > 0 && <p className="mt-2 text-xs font-bold text-ok">Unlocked: {data.perksUnlocked.join(', ')}</p>}
           </section>
         )}
 

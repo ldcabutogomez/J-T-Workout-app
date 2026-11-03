@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildLeaderboard, computeCompliance } from '../src/engine/leaderboard';
+import { buildLeaderboard, calendarDaysSince, computeCompliance } from '../src/engine/leaderboard';
 import type { WorkoutSession } from '../src/types';
 import { completeSession, profile } from './helpers';
 
@@ -92,4 +92,14 @@ test('days since last session', () => {
   const base = completeSession();
   const board = buildLeaderboard([lauren], { p1: [at(base, 'a', 'p1', NOW - 3 * DAY)] }, NOW);
   assert.equal(board.ranked[0].daysSinceLast, 3);
+});
+
+test('days since last session count calendar days, not 24-hour windows', () => {
+  const eightPmYesterday = new Date(2024, 4, 14, 20).getTime();
+  const sixAmToday = new Date(2024, 4, 15, 6).getTime();
+  assert.equal(calendarDaysSince(eightPmYesterday, sixAmToday), 1, 'trained yesterday evening is yesterday');
+  assert.equal(calendarDaysSince(new Date(2024, 4, 15, 0, 5).getTime(), new Date(2024, 4, 15, 23, 55).getTime()), 0, 'same calendar day');
+  assert.equal(calendarDaysSince(new Date(2024, 4, 14, 23, 59).getTime(), new Date(2024, 4, 15, 0, 1).getTime()), 1, 'across midnight');
+  assert.equal(calendarDaysSince(new Date(2024, 2, 9, 22).getTime(), new Date(2024, 2, 10, 8).getTime()), 1, 'US DST change day');
+  assert.equal(calendarDaysSince(NOW + DAY, NOW), 0, 'a future timestamp never goes negative');
 });

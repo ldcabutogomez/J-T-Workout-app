@@ -1,6 +1,6 @@
 import type { SessionResult, WorkoutSession } from '../types';
 
-export type Celebration = 'cycle' | 'pr' | 'weekly_goal' | 'badge' | 'finish' | 'none';
+export type Celebration = 'cycle' | 'pr' | 'weekly_goal' | 'badge' | 'level' | 'finish' | 'none';
 
 export const prRewardKey = (result: SessionResult) =>
   `pr:${result.exerciseId}:${result.reps}:${Number(result.load.toFixed(2))}`;
@@ -22,6 +22,7 @@ interface CelebrationInput {
   delivered: string[];
   weeklyGoalNewlyMet: boolean;
   newBadgeCount: number;
+  leveledUp?: boolean;
 }
 
 /**
@@ -35,5 +36,6 @@ export function pickPrimaryCelebration(input: CelebrationInput): Celebration {
   if (freshPr) return 'pr';
   if (input.weeklyGoalNewlyMet) return 'weekly_goal';
   if (input.newBadgeCount > 0) return 'badge';
+  if (input.leveledUp) return 'level';
   return 'finish';
 }

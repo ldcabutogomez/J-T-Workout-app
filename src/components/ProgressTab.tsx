@@ -7,6 +7,7 @@ import { ProgressRing } from './ProgressRing';
 import { BadgeIcon } from './BadgeIcon';
 import { StreakLabel } from './StreakLabel';
 import { fmtCount } from '../engine/sessionValidity';
+import { levelFor } from '../engine/xp';
 import { ChevronDown, ChevronUp, Trash2, Trophy } from 'lucide-react';
 
 interface ProgressTabProps {
@@ -45,6 +46,7 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
   const unlocked = new Map((profile.unlockedBadges ?? []).map((badge) => [badge.id, badge.unlockedAt]));
   const derived = deriveHighlights(history);
   const lifetimeVolume = valid.reduce((sum, session) => sum + (derived.get(session.sessionId)?.totalVolume ?? 0), 0);
+  const level = levelFor(history, profile);
   const earnedCount = BADGES.filter((badge) => unlocked.has(badge.id)).length;
 
   return (
@@ -58,6 +60,17 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
           <p className="text-xs text-muted mt-0.5">{streak.streakWeeks > 0 ? <StreakLabel weeks={streak.streakWeeks} /> : 'Hit your weekly goal to start a streak'}</p>
           {lifetimeVolume > 0 && <p className="text-xs text-muted mt-1 font-mono">{lifetimeVolume.toLocaleString()} {profile.unit} lifted since tracking began</p>}
         </div>
+      </section>
+
+      <section className="card p-5">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-black">Level {level.level} · {level.title}</h2>
+          <span className="font-mono text-xs text-muted">{level.xp.toLocaleString()} XP</span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-sunk" role="progressbar" aria-valuemin={0} aria-valuemax={level.span} aria-valuenow={level.into} aria-label="XP to next level">
+          <div className="h-full rounded-full bg-accent transition-all duration-700" style={{ width: `${level.pct}%` }} />
+        </div>
+        <p className="mt-1 text-xs text-muted">{level.into} / {level.span} XP to level {level.level + 1}. Earn XP from sets, finished workouts, PRs, goal weeks and badges.</p>
       </section>
 
       <section className="card p-5">

@@ -19,7 +19,7 @@ test('every main lift offers its own alternatives, in work and test weeks alike'
   assert.deepEqual(names(getSwapOptions(slotOf(1, 1, 'd1-t1-primary'))), ['Belted Squat', 'Safety Bar Squat', 'Box Squat', 'Pause Squat']);
   assert.deepEqual(names(getSwapOptions(slotOf(1, 2, 'd2-t1-primary'))), ['Sling Shot Bench', 'Pause Bench Press', 'Spoto Press', 'Floor Press']);
   assert.deepEqual(names(getSwapOptions(slotOf(1, 3, 'd3-t1-primary'))), ['Zercher Squat', 'Safety Bar Squat']);
-  assert.deepEqual(names(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))), ['Sumo Deadlift', 'Trap Bar Deadlift', 'Rack Pull']);
+  assert.deepEqual(names(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))), ['Sumo Deadlift', 'Trap Bar Deadlift', 'Rack Pull', 'Romanian Deadlift', 'Leg Press', 'Hack Squat', 'Hip Thrust', 'Bulgarian Split Squat', 'Walking Lunge']);
   assert.deepEqual(names(getSwapOptions(slotOf(1, 4, 'd4-t1-secondary'))), ['Bench Press', 'Pause Bench Press', 'Floor Press']);
   for (const week of [1, 6, 7, 12]) assert.equal(getSwapOptions(slotOf(week, 1, 'd1-t1-primary'))?.group, 'main', `week ${week}`);
   assert.equal(getSwapOptions(slotOf(6, 2, 'd2-t1-primary'))?.alternatives.length, 4, 'test weeks too');
@@ -147,4 +147,12 @@ test('names resolve from ids, including main-lift alternatives', () => {
   assert.equal(exerciseNameFor('some-new-lift'), 'Some New Lift');
   assert.equal(findAlternative('rack-pull')?.group, 'main');
   assert.equal(findAlternative('dips')?.group, 'chest');
+});
+
+test('the deadlift offers leg exercises and keeps its training max when swapped', () => {
+  const slot = { slotId: 'd1-t1-primary', tier: 'T1' as const, status: 'work' as const, exerciseId: 'deadlift', exerciseName: 'Deadlift' };
+  const options = getSwapOptions(slot);
+  const ids = options!.alternatives.map((item) => item.id);
+  for (const id of ['leg-press', 'hack-squat', 'romanian-deadlift', 'hip-thrust', 'bulgarian-split-squat', 'walking-lunge']) assert.ok(ids.includes(id), id);
+  assert.ok(!getSwapOptions(slot, ['leg-press'])!.alternatives.some((item) => item.id === 'leg-press'), 'no repeats in one day');
 });

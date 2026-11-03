@@ -1,4 +1,4 @@
-import { CalendarCheck, CalendarDays, Crown, Dumbbell, Flame, Medal, PartyPopper, Rocket, Star, Trophy, Zap, type LucideIcon } from 'lucide-react';
+import { Award, CalendarCheck, CalendarDays, Crown, Dumbbell, Flame, Gem, HeartHandshake, Medal, Moon, PartyPopper, RefreshCcw, Rocket, Star, Sunrise, Target, Trophy, Users, Weight, Zap, type LucideIcon } from 'lucide-react';
 import type { BadgeIconKey } from '../engine/achievements';
 
 const ICONS: Record<BadgeIconKey, LucideIcon> = {
@@ -13,6 +13,15 @@ const ICONS: Record<BadgeIconKey, LucideIcon> = {
   'calendar-check': CalendarCheck,
   zap: Zap,
   crown: Crown,
+  weight: Weight,
+  target: Target,
+  gem: Gem,
+  award: Award,
+  sunrise: Sunrise,
+  moon: Moon,
+  refresh: RefreshCcw,
+  users: Users,
+  handshake: HeartHandshake,
 };
 
 /** Line-icon tile for a badge; muted until earned. */

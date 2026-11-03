@@ -13,7 +13,7 @@
     <script>
       // Apply the last-used profile theme before first paint so the app never flashes the default colors.
       try {
-        var papers = { lavender: '#f3eff9', blue: '#eef2f7', vermilion: '#f4f0e8' };
+        var papers = { lavender: '#f3eff9', blue: '#eef2f7', vermilion: '#f4f0e8', forest: '#eef4ee', rose: '#f9eff3' };
         var saved = localStorage.getItem('jnt2_color_theme');
         if (saved && papers[saved]) {
           document.documentElement.dataset.theme = saved;

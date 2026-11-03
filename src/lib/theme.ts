@@ -1,6 +1,6 @@
 import type { ColorTheme } from '../types';
 
-export const COLOR_THEMES: readonly ColorTheme[] = ['lavender', 'blue', 'vermilion'];
+export const COLOR_THEMES: readonly ColorTheme[] = ['lavender', 'blue', 'vermilion', 'forest', 'rose'];
 export const THEME_STORAGE_KEY = 'jnt2_color_theme';
 
 /**
@@ -11,6 +11,8 @@ export const THEMES: Record<ColorTheme, { label: string; paper: string; accent: 
   lavender: { label: 'Lavender', paper: '#f3eff9', accent: '#7b4fc4' },
   blue: { label: 'Blue', paper: '#eef2f7', accent: '#1f5fbf' },
   vermilion: { label: 'Vermilion', paper: '#f4f0e8', accent: '#d63d16' },
+  forest: { label: 'Forest', paper: '#eef4ee', accent: '#1f7a4a' },
+  rose: { label: 'Rose', paper: '#f9eff3', accent: '#b8265f' },
 };
 
 export const isColorTheme = (value: unknown): value is ColorTheme =>

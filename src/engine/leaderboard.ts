@@ -1,9 +1,11 @@
 import type { AvatarColor, ColorTheme, UserProfile, WorkoutSession } from '../types';
 import { AVATAR_COLORS, AVATAR_THUMB_MAX_CHARS, isJpegDataUrl } from '../lib/avatar';
 import { isColorTheme, themeForProfile } from '../lib/theme';
-import { liftOf, nextWorkout, defaultSchedule, isWeekCode, todayKey, weekCodes } from './schedule';
+import { liftOf, nextWorkout, defaultSchedule, fromDateKey, isWeekCode, todayKey, weekCodes } from './schedule';
 import { countResults, deriveHighlights, streakFromCounts } from './achievements';
 import { normalizeWeight } from './jnt2Engine';
+import { levelFor } from './xp';
+import { flairById, tauntText, type Taunt } from '../lib/perks';
 import { countsTowardStats, validCompleted, weekStart, weeklyCounts } from './sessionValidity';
 
 export type LeaderboardCategory = 'compliance' | 'streak' | 'volume' | 'prs';
@@ -20,6 +22,10 @@ export interface PartnerStats {
   volumeLb: number;
   prCount: number;
   badgeCount: number;
+  /** XP level, absent for partners on an older build. */
+  level?: number;
+  flair?: string;
+  taunt?: Taunt;
   /** Fully finished workouts. */
   sessionsCompleted: number;
   /** Partial workouts that still count toward volume, PRs and (proportionally) the weekly goal. */
@@ -45,6 +51,12 @@ export interface Leaderboard {
 }
 
 const DAY_MS = 86_400_000;
+
+/** Whole local calendar days from `then` to `now`: 8pm yesterday is 1 day ago at 6am, not 0. */
+export function calendarDaysSince(then: number, now: number): number {
+  const days = Math.round((fromDateKey(todayKey(now)).getTime() - fromDateKey(todayKey(then)).getTime()) / DAY_MS);
+  return Math.max(0, days);
+}
 const COMPLIANCE_WEEKS = 4;
 /** Weeks of per-week counts a snapshot carries. Enough for any realistic streak, still tiny. */
 const SNAPSHOT_WEEKS = 26;
@@ -68,6 +80,9 @@ export interface PartnerSnapshot {
   sessionsCompleted: number;
   /** Optional so snapshots from phones on an older build still parse. */
   partialSessions?: number;
+  level?: number;
+  flair?: string;
+  taunt?: Taunt;
   currentWeek: number;
   currentDay: number;
   lastSessionAt: number | null;
@@ -153,6 +168,9 @@ export function snapshotFromHistory(
     volumeLb: Math.round(volumeLb),
     prCount,
     badgeCount: profile.unlockedBadges?.length ?? 0,
+    level: levelFor(history, profile).level,
+    ...(flairById(profile.flair) ? { flair: profile.flair } : {}),
+    ...(profile.taunt && tauntText(profile.taunt.id) !== undefined ? { taunt: profile.taunt } : {}),
     sessionsCompleted: new Set(finished.map((s) => s.sessionId)).size,
     partialSessions: new Set(counted.map((s) => s.sessionId)).size - new Set(finished.map((s) => s.sessionId)).size,
     currentWeek: profile.currentWeek,
@@ -291,6 +309,14 @@ function parseExtras(r: Record<string, unknown>): Partial<PartnerSnapshot> {
       out.workout = { week, day, lift, done, total, updatedAt };
     }
   }
+  const level = int(r.level, 1, 99);
+  if (level !== null) out.level = level;
+  if (flairById(r.flair)) out.flair = r.flair as string;
+  if (r.taunt && typeof r.taunt === 'object') {
+    const t = r.taunt as Record<string, unknown>;
+    const at = typeof t.at === 'number' && Number.isFinite(t.at) ? t.at : null;
+    if (tauntText(t.id) !== undefined && at !== null) out.taunt = { id: t.id as number, at };
+  }
   if (Array.isArray(r.weekCodes) && r.weekCodes.length === 7 && r.weekCodes.every(isWeekCode)) out.weekCodes = r.weekCodes as string[];
   return out;
 }
@@ -312,12 +338,15 @@ export function statsFromSnapshot(snapshot: PartnerSnapshot, now: number): Partn
     volumeLb: snapshot.volumeLb,
     prCount: snapshot.prCount,
     badgeCount: snapshot.badgeCount,
+    level: snapshot.level,
+    flair: snapshot.flair,
+    taunt: snapshot.taunt,
     sessionsCompleted: snapshot.sessionsCompleted,
     partialSessions: snapshot.partialSessions ?? 0,
     currentWeek: snapshot.currentWeek,
     currentDay: snapshot.currentDay,
     lastSessionAt: snapshot.lastSessionAt,
-    daysSinceLast: snapshot.lastSessionAt === null ? null : Math.max(0, Math.floor((now - snapshot.lastSessionAt) / DAY_MS)),
+    daysSinceLast: snapshot.lastSessionAt === null ? null : calendarDaysSince(snapshot.lastSessionAt, now),
     syncedAt: snapshot.updatedAt,
     avatar: snapshot.avatar,
     theme: snapshot.theme,

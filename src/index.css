@@ -106,6 +106,31 @@
   --color-accent-ink: #174a98;
 }
 
+/* Unlockable themes (see lib/perks.ts). */
+:root[data-theme='forest'] {
+  --color-paper: #eef4ee;
+  --color-surface: #f8fbf8;
+  --color-sunk: #e0ebe1;
+  --color-line: #c8d9ca;
+  --color-ink: #14231a;
+  --color-ink-2: #2c4034;
+  --color-muted: #4f6657;
+  --color-accent: #1f7a4a;
+  --color-accent-ink: #17613a;
+}
+
+:root[data-theme='rose'] {
+  --color-paper: #f9eff3;
+  --color-surface: #fdf8fa;
+  --color-sunk: #f2e1e8;
+  --color-line: #e5ccd7;
+  --color-ink: #2b1520;
+  --color-ink-2: #4a2c39;
+  --color-muted: #7a4f61;
+  --color-accent: #b8265f;
+  --color-accent-ink: #96194b;
+}
+
 @layer base {
   html {
     color-scheme: light;
@@ -204,7 +229,31 @@
   scrollbar-width: none;
 }
 
+/* Tactile press feedback for every control, a fallback where haptics are unavailable. */
+button:not(:disabled):active, [role="tab"]:active, summary:active {
+  transform: scale(0.97);
+  transition: transform 60ms ease-out;
+}
+
+/* Workout exercise blocks: each reads as its own framed card with a tier-coloured edge. */
+@utility exercise-card {
+  @apply relative overflow-hidden rounded-3xl border-2 border-line bg-surface p-4 pl-5 space-y-3 shadow-md opacity-85;
+  border-left-width: 6px;
+  border-left-color: var(--tier-color, var(--color-line));
+}
+@utility exercise-card-active {
+  @apply border-accent/70 ring-2 ring-accent/25 opacity-100;
+  border-left-color: var(--tier-color, var(--color-accent));
+}
+@utility exercise-card-alert {
+  @apply border-bad/50 opacity-100;
+}
+@utility exercise-head {
+  @apply -mx-4 -mt-4 mb-1 -ml-5 pl-5 pr-4 py-3 bg-sunk border-b-2 border-line;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):active, [role="tab"]:active, summary:active { transform: none; }
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;

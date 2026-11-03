@@ -153,7 +153,7 @@ export function TodayTab({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <section className="bg-surface border border-accent/40 rounded-3xl p-5">
         <div className="flex justify-between gap-3">
           <div>
@@ -166,7 +166,9 @@ export function TodayTab({
         <SessionProgress session={activeSession} />
       </section>
 
-      {activeSession.exercises.map((exercise) => {
+      {activeSession.exercises.map((exercise, exerciseIndex) => {
+        const isActive = exercise.sets.some((set) => set.setId === currentSetId);
+        const tierColor = exercise.tier === 'T1' ? 'var(--color-accent)' : exercise.tier.startsWith('T2') ? 'var(--color-ink-2, var(--color-ink))' : 'var(--color-muted, var(--color-line))';
         const finished = exercise.sets.length > 0 && exercise.sets.every((set) => set.completed);
         if (finished && !reopened[exercise.slotId]) {
           return (
@@ -183,8 +185,9 @@ export function TodayTab({
           );
         }
         return (
-        <section key={exercise.slotId} className={`bg-surface border rounded-3xl p-4 space-y-3 ${exercise.manualLoadDecisionPending ? 'border-bad/40' : 'border-line'}`}>
-          <div>
+        <section key={exercise.slotId} style={{ '--tier-color': tierColor } as React.CSSProperties} className={`exercise-card ${isActive ? 'exercise-card-active' : ''} ${exercise.manualLoadDecisionPending ? 'exercise-card-alert' : ''}`}>
+          <div className="exercise-head">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted mb-1">Exercise {exerciseIndex + 1} of {activeSession.exercises.length}</p>
             {finished && <button onClick={() => setReopened((value) => ({ ...value, [exercise.slotId]: false }))} className="mb-2 min-h-11 px-3 rounded-xl bg-sunk text-xs font-bold text-ink-2">Hide completed exercise</button>}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-black px-2 py-0.5 rounded bg-sunk text-accent-ink">{exercise.tier}</span>
@@ -364,9 +367,9 @@ function Stepper({ label, value, step, onChange }: { label: string; value: numbe
   return (
     <label className="text-xs uppercase font-bold text-muted min-w-0">{label}
  <div className="flex mt-1 min-h-11 bg-surface border border-line rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-accent">
-        <button type="button" onClick={() => onChange(Math.max(0, Number(value || 0) - step))} className="px-3 min-w-9 bg-sunk" aria-label={`Decrease ${label}`}><Minus className="w-3 h-3" /></button>
+        <button type="button" data-haptic="step" onClick={() => onChange(Math.max(0, Number(value || 0) - step))} className="px-3 min-w-9 bg-sunk" aria-label={`Decrease ${label}`}><Minus className="w-3 h-3" /></button>
         <input type="number" step={step} value={value} onChange={(event) => onChange(event.target.value === '' ? '' : Number(event.target.value))} className="w-full min-w-0 bg-transparent text-center text-sm font-mono text-ink outline-none" />
-        <button type="button" onClick={() => onChange(Number(value || 0) + step)} className="px-3 min-w-9 bg-sunk" aria-label={`Increase ${label}`}><Plus className="w-3 h-3" /></button>
+        <button type="button" data-haptic="step" onClick={() => onChange(Number(value || 0) + step)} className="px-3 min-w-9 bg-sunk" aria-label={`Increase ${label}`}><Plus className="w-3 h-3" /></button>
       </div>
     </label>
   );

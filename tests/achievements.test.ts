@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  computeHighlights, computeStreak, computeTotalVolume, evaluateBadges, newlyUnlocked, weekStart,
+  computeHighlights, computeStreak, computeTotalVolume, evaluateBadges, evaluateDuoBadges, newlyUnlocked, weekStart,
 } from '../src/engine/achievements';
 import type { WorkoutSession } from '../src/types';
 import { completeSession } from './helpers';
@@ -71,7 +71,7 @@ test('streak breaks on a missed week', () => {
 test('badges: first workout and session milestones', () => {
   const base = completeSession();
   const first = at(base, 's0', NOW);
-  assert.deepEqual(evaluateBadges(first, [], 4, NOW), ['first_workout']);
+  assert.deepEqual(evaluateBadges(first, [], 4, NOW).filter((id) => !id.startsWith('volume_')), ['first_workout']);
 
   const history = Array.from({ length: 4 }, (_, i) => at(base, `h${i}`, NOW - (i + 1) * 3 * DAY));
   const fifth = at(base, 's5', NOW);
@@ -82,4 +82,34 @@ test('badges: first workout and session milestones', () => {
 test('newlyUnlocked skips badges already held', () => {
   const result = newlyUnlocked(['first_workout', 'sessions_5'], [{ id: 'first_workout', unlockedAt: 1 }], 99);
   assert.deepEqual(result, [{ id: 'sessions_5', unlockedAt: 99 }]);
+});
+
+test('time-of-day and comeback badges', () => {
+  const base = completeSession();
+  const early = at(base, 'e', new Date(2024, 4, 15, 7, 30).getTime());
+  early.startTime = new Date(2024, 4, 15, 6, 30).getTime();
+  assert.ok(evaluateBadges(early, [], 4, NOW).includes('early_bird'));
+  const late = at(base, 'l', new Date(2024, 4, 15, 21, 30).getTime());
+  assert.ok(evaluateBadges(late, [], 4, NOW).includes('night_owl'));
+  assert.ok(!evaluateBadges(at(base, 'n', NOW), [], 4, NOW).some((id) => ['early_bird', 'night_owl', 'comeback'].includes(id)));
+  const away = at(base, 'a', NOW - 20 * DAY);
+  assert.ok(evaluateBadges(at(base, 'b', NOW), [away], 4, NOW).includes('comeback'));
+});
+
+test('lifting milestone badges: PR counts, perfect week and volume in lb', () => {
+  const base = completeSession();
+  const week = Array.from({ length: 4 }, (_, i) => at(base, `w${i}`, NOW - i * 3 * 3_600_000));
+  const earned = evaluateBadges(week[0], week.slice(1), 4, NOW);
+  assert.ok(earned.includes('perfect_week'));
+  assert.ok(earned.includes('volume_100k'), 'four full sessions lift over 100,000 lb in this fixture');
+  assert.ok(!earned.includes('volume_500k'));
+  assert.ok(!evaluateBadges(week[0], week.slice(1, 3), 4, NOW).includes('perfect_week'));
+});
+
+test('duo badges need both lifters', () => {
+  const day = new Date(2024, 4, 15, 9).getTime();
+  const side = (lastSessionAt: number | null, goalMet: boolean, streakWeeks: number) => ({ lastSessionAt, goalMet, streakWeeks });
+  assert.deepEqual(evaluateDuoBadges(side(day, true, 4), [side(day + 3_600_000, true, 5)]).sort(), ['duo_both_goal', 'duo_same_day', 'duo_streak']);
+  assert.deepEqual(evaluateDuoBadges(side(day, false, 1), [side(day - DAY, true, 5)]), []);
+  assert.deepEqual(evaluateDuoBadges(side(day, true, 4), []), [], 'no partner, no duo badge');
 });

@@ -1,4 +1,6 @@
+import { Church, Crown, Flame, Sparkles, Trophy, type LucideIcon } from 'lucide-react';
 import type { AvatarColor, UserProfile } from '../types';
+import { flairById, type FlairIconKey } from '../lib/perks';
 import { avatarInitial, defaultAvatarColor } from '../lib/avatar';
 
 // Literal class names so Tailwind can see them. Every pair is checked in tests/theme.test.ts.
@@ -13,14 +15,16 @@ export const AVATAR_TILE: Record<AvatarColor, string> = {
   teal: 'bg-teal text-on-accent',
 };
 
+const FLAIR_ICONS: Record<FlairIconKey, LucideIcon> = { sparkles: Sparkles, flame: Flame, church: Church, crown: Crown, trophy: Trophy };
+
 interface AvatarProps {
-  profile: Pick<UserProfile, 'id' | 'name' | 'avatar' | 'colorTheme'>;
+  profile: Pick<UserProfile, 'id' | 'name' | 'avatar' | 'colorTheme'> & { flair?: string };
   size?: number;
   /** Set when the name is shown next to the avatar, so assistive tech does not read it twice. */
   decorative?: boolean;
 }
 
-export function Avatar({ profile, size = 32, decorative = false }: AvatarProps) {
+function AvatarBase({ profile, size = 32, decorative = false }: AvatarProps) {
   const style = { width: size, height: size };
   if (profile.avatar?.photo) {
     return (
@@ -42,6 +46,29 @@ export function Avatar({ profile, size = 32, decorative = false }: AvatarProps) 
       className={`flex shrink-0 items-center justify-center rounded-full font-display font-bold leading-none ${AVATAR_TILE[color]}`}
     >
       {avatarInitial(profile.name)}
+    </span>
+  );
+}
+
+/** The avatar, with the equipped flair as a small badge on its corner. */
+export function Avatar(props: AvatarProps) {
+  const flair = flairById(props.profile.flair);
+  if (!flair) return <AvatarBase {...props} />;
+  const Icon = FLAIR_ICONS[flair.icon];
+  const size = props.size ?? 32;
+  const badge = Math.max(14, Math.round(size * 0.42));
+  return (
+    <span className="relative inline-flex shrink-0">
+      <AvatarBase {...props} />
+      <span
+        role={props.decorative ? undefined : 'img'}
+        aria-label={props.decorative ? undefined : flair.label}
+        aria-hidden={props.decorative || undefined}
+        style={{ width: badge, height: badge }}
+        className="absolute -bottom-1 -right-1 flex items-center justify-center rounded-full border-2 border-surface bg-gold-ink text-on-accent"
+      >
+        <Icon style={{ width: badge * 0.6, height: badge * 0.6 }} strokeWidth={2.5} />
+      </span>
     </span>
   );
 }

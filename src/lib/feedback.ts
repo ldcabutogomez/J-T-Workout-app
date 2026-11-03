@@ -1,4 +1,4 @@
-export type FeedbackKind = 'select' | 'setLogged' | 'exerciseDone' | 'pr' | 'finish' | 'badge' | 'timerEnd';
+export type FeedbackKind = 'select' | 'step' | 'setLogged' | 'exerciseDone' | 'pr' | 'finish' | 'badge' | 'timerEnd';
 
 interface FeedbackPrefs {
   haptics: boolean;
@@ -15,6 +15,7 @@ export const setFeedbackPrefs = (next: Partial<FeedbackPrefs>) => {
 // Short, crisp confirmations; the long attention pattern is reserved for the rest timer.
 const VIBRATION: Record<FeedbackKind, number | number[]> = {
   select: 12,
+  step: 8,
   setLogged: 25,
   exerciseDone: [30, 40, 30],
   pr: [40, 40, 40, 40, 100],
@@ -26,6 +27,7 @@ const VIBRATION: Record<FeedbackKind, number | number[]> = {
 // Each tone is [frequency Hz, start offset s, duration s].
 const TONES: Record<FeedbackKind, [number, number, number][]> = {
   select: [[520, 0, 0.04]],
+  step: [],
   setLogged: [[660, 0, 0.08]],
   exerciseDone: [[740, 0, 0.1], [880, 0.1, 0.12]],
   pr: [[587, 0, 0.12], [740, 0.12, 0.12], [880, 0.24, 0.3]],
@@ -63,10 +65,11 @@ const tick = () => getSwitchLabel()?.click();
 // Pulse gaps (ms) between ticks to approximate each vibration pattern.
 const TICK_GAPS: Record<FeedbackKind, number[]> = {
   select: [0],
-  setLogged: [0],
-  exerciseDone: [0, 80],
-  pr: [0, 90, 90],
-  finish: [0, 100, 100],
+  step: [0],
+  setLogged: [0, 70],
+  exerciseDone: [0, 80, 80],
+  pr: [0, 90, 90, 90],
+  finish: [0, 100, 100, 100],
   badge: [0, 80],
   timerEnd: [0, 120, 120],
 };
@@ -126,3 +129,22 @@ export const feedback = (kind: FeedbackKind) => {
 
 export const canVibrate = () =>
   typeof navigator !== 'undefined' && ('vibrate' in navigator || isIOS());
+
+/**
+ * Taps on interactive controls give a light tick. iOS only honours the switch-tick inside a user gesture, so
+ * this runs at the document level, in the capture phase, before any React handler or async work.
+ * Android uses pointerdown for the earliest response. Returns a cleanup function.
+ */
+export const installTapHaptics = (): (() => void) => {
+  if (typeof document === 'undefined') return () => undefined;
+  const selector = 'button, [role="tab"], [role="checkbox"], select, summary, input[type="checkbox"], input[type="range"]';
+  const handler = (event: Event) => {
+    const target = event.target as Element | null;
+    const el = target?.closest?.(selector) as (HTMLElement & { disabled?: boolean }) | null;
+    if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return;
+    haptic(el.matches('[data-haptic="step"]') ? 'step' : 'select');
+  };
+  const type = typeof navigator !== 'undefined' && 'vibrate' in navigator ? 'pointerdown' : 'click';
+  document.addEventListener(type, handler, true);
+  return () => document.removeEventListener(type, handler, true);
+};

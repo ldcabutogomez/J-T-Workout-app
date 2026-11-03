@@ -1,3 +1,5 @@
+import { levelTitle } from '../engine/xp';
+import { TAUNTS, TAUNT_LEVEL, flairById } from '../lib/perks';
 import { useState } from 'react';
 import { Trophy, Users } from 'lucide-react';
 import { isLiveFresh, type Leaderboard, type LeaderboardCategory, type PartnerStats } from '../engine/leaderboard';
@@ -47,6 +49,9 @@ interface TogetherTabProps {
   pairing: PairingUi;
   /** Local profiles, used to show your own picture. A partner's picture comes from what their phone shared. */
   profiles?: UserProfile[];
+  /** Your level, which unlocks taunts. */
+  youLevel?: number;
+  onTaunt?: (tauntId: number) => void;
 }
 
 function ago(ms: number, now = Date.now()): string {
@@ -196,14 +201,14 @@ const CATEGORIES: { key: LeaderboardCategory; label: string; value: (s: PartnerS
 
 function lastTrained(s: PartnerStats): { text: string; warn: boolean } {
   if (s.daysSinceLast === null) return { text: 'No sessions yet', warn: true };
-  if (s.daysSinceLast === 0) return { text: 'Trained today', warn: false };
+  if (s.daysSinceLast === 0) return { text: `Trained today${s.lastSessionAt ? `, ${new Date(s.lastSessionAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}`, warn: false };
   if (s.daysSinceLast === 1) return { text: 'Trained yesterday', warn: false };
   return { text: `${s.daysSinceLast} days since last session`, warn: s.daysSinceLast >= 4 };
 }
 
-export function TogetherTab({ board, youId, pairing, profiles }: TogetherTabProps) {
+export function TogetherTab({ board, youId, pairing, profiles, youLevel = 1, onTaunt }: TogetherTabProps) {
   const personFor = (s: PartnerStats) => profiles?.find((p) => p.id === s.profileId)
-    ?? { id: s.profileId, name: s.name, colorTheme: s.theme, avatar: s.avatar ? { photo: s.avatar.thumb, color: s.avatar.color } : undefined };
+    ?? { id: s.profileId, name: s.name, colorTheme: s.theme, flair: s.flair, avatar: s.avatar ? { photo: s.avatar.thumb, color: s.avatar.color } : undefined };
   if (!board) return <p className="text-sm text-muted p-4">Loading partners…</p>;
   return (
     <div className="space-y-4">
@@ -217,6 +222,8 @@ export function TogetherTab({ board, youId, pairing, profiles }: TogetherTabProp
             <div key={s.profileId} className={`bg-surface border rounded-3xl p-4 flex flex-col items-center text-center ${isYou ? 'border-accent/60' : 'border-line'}`}>
               <div className="mb-1"><Avatar profile={personFor(s)} size={44} decorative /></div>
               <p className="font-black text-ink truncate max-w-full">{s.name}{isYou && <span className="text-accent-ink text-xs ml-1 align-middle">YOU</span>}</p>
+              {s.level !== undefined && <p className="text-xs font-bold text-accent-ink">Lv {s.level} · {flairById(s.flair)?.label ?? levelTitle(s.level)}</p>}
+              {!isYou && onTaunt && <TauntButton unlocked={youLevel >= TAUNT_LEVEL} onTaunt={onTaunt} />}
               <div className="mt-2">
                 <ProgressRing value={s.weeklyCount} max={s.weeklyGoal} size={72}>
                   <span className="font-mono text-sm font-black text-ink">{fmtCount(s.weeklyCount)}/{s.weeklyGoal}</span>
@@ -273,5 +280,19 @@ export function TogetherTab({ board, youId, pairing, profiles }: TogetherTabProp
         <p className="text-xs text-muted mt-3">Ranked by 4-week compliance, then streak, volume and PRs. Compliance uses the last 4 full Mon–Sun weeks, capped at each lifter's weekly goal. Partner stats sync between your phones; set-level logs never leave this device.</p>
       </section>
     </div>
+  );
+}
+
+function TauntButton({ unlocked, onTaunt }: { unlocked: boolean; onTaunt: (tauntId: number) => void }) {
+  if (!unlocked) return <p className="mt-1 text-xs text-muted">Taunts unlock at level {TAUNT_LEVEL}</p>;
+  return (
+    <details className="mt-2 w-full">
+      <summary className="flex min-h-9 cursor-pointer items-center justify-center rounded-xl bg-sunk px-2 text-xs font-bold text-accent-ink">Send a taunt</summary>
+      <div className="mt-1 space-y-1">
+        {TAUNTS.map((text, id) => (
+          <button key={id} type="button" onClick={(event) => { onTaunt(id); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="w-full rounded-xl border border-line bg-paper px-2 py-2 text-left text-xs text-ink">{text}</button>
+        ))}
+      </div>
+    </details>
   );
 }
