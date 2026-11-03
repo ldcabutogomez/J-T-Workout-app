@@ -139,3 +139,32 @@ test('cycle fields survive a backup round trip, and a bad cycle id is dropped', 
   await other.importBackup(JSON.stringify(bad), 'replace-all');
   assert.equal((await other.getProfiles())[0].cycleId, undefined);
 });
+
+test('closing a cycle archives its training maxes, so cycles can be compared', () => {
+  const ended = { ...p, cycleCompleted: true, trainingMaxes: { squat: 200, bench: 150 }, block2ConfirmedTMs: { squat: 215 } };
+  const next = buildNextCycleProfile(ended, [], { trainingMaxes: { squat: 230 }, trainingDays: [0, 1, 3, 4], startDate: '2024-05-13', keepSwaps: true, now: MONDAY });
+  assert.deepEqual(next.cycles?.[0].trainingMaxes, { squat: 200, bench: 150 });
+  assert.deepEqual(next.cycles?.[0].block2ConfirmedTMs, { squat: 215 });
+  assert.equal(next.cycles?.[1].trainingMaxes, undefined, 'the new cycle has not ended');
+  assert.deepEqual(next.trainingMaxes, { squat: 230 });
+  // The archive is a copy: editing the live maxes later cannot change it.
+  next.trainingMaxes.squat = 999;
+  assert.equal(next.cycles?.[0].trainingMaxes?.squat, 200);
+  const noBlock2 = buildNextCycleProfile({ ...p, trainingMaxes: { squat: 180 }, block2ConfirmedTMs: undefined }, [], { trainingMaxes: {}, trainingDays: [0, 1, 3, 4], startDate: '2024-05-13', keepSwaps: true, now: MONDAY });
+  assert.equal('block2ConfirmedTMs' in (noBlock2.cycles?.[0] ?? {}), false);
+});
+
+test('archived cycle maxes survive storage and a backup, and a bad archive is dropped', async () => {
+  const ended = { ...p, cycleCompleted: true, trainingMaxes: { squat: 200 } };
+  const next = buildNextCycleProfile(ended, [], { trainingMaxes: { squat: 220 }, trainingDays: [0, 1, 3, 4], startDate: '2024-05-13', keepSwaps: true, now: MONDAY });
+  const store = new StorageService('cycles-tm', 'test_cycles_tm');
+  await store.saveProfile(next);
+  const target = new StorageService('cycles-tm2', 'test_cycles_tm2');
+  assert.equal((await target.importBackup(await store.exportBackup(), 'replace-all')).success, true);
+  assert.deepEqual((await target.getProfiles())[0].cycles?.[0].trainingMaxes, { squat: 200 });
+  const bad = JSON.parse(await store.exportBackup());
+  bad.profiles[0].cycles[0].trainingMaxes = { squat: 'heavy', moonlift: 1 };
+  const other = new StorageService('cycles-tm3', 'test_cycles_tm3');
+  assert.equal((await other.importBackup(JSON.stringify(bad), 'replace-all')).success, true, 'the profile still imports');
+  assert.equal((await other.getProfiles())[0].cycles?.[0].trainingMaxes, undefined);
+});

@@ -68,6 +68,17 @@ export function NewCycleFlow({ profile, history, onStart, onCancel }: Props) {
                   <div key={label as string} className="rounded-2xl bg-sunk p-3"><strong className="block text-2xl">{value}</strong><span className="text-xs uppercase text-muted">{label}</span></div>
                 ))}
               </div>
+              {Object.keys(profile.trainingMaxes).length > 0 && (
+                <div className="rounded-2xl bg-sunk p-3 text-xs text-ink-2">
+                  <p className="font-bold uppercase tracking-wider text-muted">Cycle {cycleNumber(current)} training maxes ({profile.unit})</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {REQUIRED_TRAINING_MAXES.filter(({ key }) => profile.trainingMaxes[key]).map(({ key, label }) => (
+                      <li key={key} className="flex justify-between"><span>{label}</span><span className="font-mono">{profile.trainingMaxes[key]}{profile.block2ConfirmedTMs?.[key] ? ` → ${profile.block2ConfirmedTMs[key]}` : ''}</span></li>
+                    ))}
+                  </ul>
+                  {profile.block2ConfirmedTMs && <p className="mt-1 text-muted">Arrows show your Block 2 maxes.</p>}
+                </div>
+              )}
               <p className="text-xs text-muted">Nothing is deleted. Cycle {cycleNumber(current)} stays in Progress, and your personal bests, badges and level carry over.</p>
             </>
           )}
@@ -80,6 +91,7 @@ export function NewCycleFlow({ profile, history, onStart, onCancel }: Props) {
                 return (
                   <label key={key} className="block text-xs uppercase font-bold text-muted">{label} ({profile.unit})
                     <input type="number" inputMode="decimal" min="0" step={profile.equipmentIncrement} value={tms[key] ?? ''} onChange={(e) => setTms({ ...tms, [key]: e.target.value === '' ? '' : Number(e.target.value) })} className="field mt-1 normal-case" />
+                    {profile.trainingMaxes[key] ? <span className="mt-1 block text-xs normal-case font-normal text-muted">Last cycle: {profile.block2ConfirmedTMs?.[key] ?? profile.trainingMaxes[key]} {profile.unit}</span> : null}
                     {problem && <span role="alert" className={`mt-1 block text-xs normal-case font-semibold ${problem.level === 'error' ? 'text-bad' : 'text-accent-ink'}`}>{problem.message}</span>}
                   </label>
                 );

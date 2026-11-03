@@ -129,6 +129,9 @@ export interface CycleRecord {
   endedAt?: number;
   /** True when all 48 workouts were reached; false when the cycle was ended early. */
   finished?: boolean;
+  /** The training maxes this cycle ended with, kept so cycles can be compared. Block 1, and Block 2 if it was confirmed. */
+  trainingMaxes?: Partial<Record<TrainingMaxKey, number>>;
+  block2ConfirmedTMs?: Partial<Record<TrainingMaxKey, number>>;
 }
 
 export interface ProfileSchedule {

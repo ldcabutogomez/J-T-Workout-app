@@ -18,6 +18,10 @@ const finite = (value: unknown): value is number => typeof value === 'number' &&
 const isStringRecord = (value: unknown): value is Record<string, string> =>
   isObject(value) && Object.values(value).every((item) => typeof item === 'string');
 
+const TM_KEYS = new Set(['squat', 'bench', 'deadlift', 'ohp', 'front_squat']);
+const isTmRecord = (value: unknown): value is Record<string, number> =>
+  isObject(value) && Object.entries(value).every(([key, v]) => TM_KEYS.has(key) && finite(v) && v >= 0);
+
 type Clean = (value: unknown) => unknown | undefined;
 
 const bool: Clean = (value) => (typeof value === 'boolean' ? value : undefined);
@@ -34,6 +38,11 @@ const OPTIONAL_PROFILE_FIELDS: Record<string, Clean> = {
   block2ConfirmedAt: (value) => (finite(value) && value >= 0 ? value : undefined),
   exerciseCustomizations: (value) => (isStringRecord(value) ? value : undefined),
   weeklyGoalSessions: (value) => (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 14 ? value : undefined),
+  variationTrainingMaxes: (value) => {
+    if (!isObject(value)) return undefined;
+    const kept = Object.entries(value).filter(([key, v]) => /^[a-z0-9-]{1,60}:[12]$/.test(key) && finite(v) && v > 0);
+    return Object.fromEntries(kept);
+  },
   cycleId: (value) => (typeof value === 'string' && /^c[1-9][0-9]{0,2}$/.test(value) ? value : undefined),
   cycles: (value) => {
     if (!Array.isArray(value)) return undefined;
@@ -43,6 +52,8 @@ const OPTIONAL_PROFILE_FIELDS: Record<string, Clean> = {
       id: item.id, number: item.number, startedAt: item.startedAt,
       ...(finite(item.endedAt) ? { endedAt: item.endedAt } : {}),
       ...(typeof item.finished === 'boolean' ? { finished: item.finished } : {}),
+      ...(isTmRecord(item.trainingMaxes) ? { trainingMaxes: item.trainingMaxes } : {}),
+      ...(isTmRecord(item.block2ConfirmedTMs) ? { block2ConfirmedTMs: item.block2ConfirmedTMs } : {}),
     }));
   },
   flair: (value) => (typeof value === 'string' && value.length > 0 && value.length <= 40 ? value : undefined),

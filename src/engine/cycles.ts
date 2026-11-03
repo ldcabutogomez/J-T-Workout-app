@@ -43,7 +43,13 @@ export function buildNextCycleProfile(profile: UserProfile, history: WorkoutSess
   const mine = historyForCycle(history, currentId);
   const startedAt = mine.reduce<number>((first, s) => Math.min(first, s.startTime), now);
   const known = profile.cycles ?? [{ id: currentId, number: cycleNumber(currentId), startedAt }];
-  const closed = known.map((cycle) => (cycle.id === currentId ? { ...cycle, endedAt: now, finished: Boolean(profile.cycleCompleted) } : cycle));
+  const closed = known.map((cycle) => (cycle.id === currentId ? {
+    ...cycle,
+    endedAt: now,
+    finished: Boolean(profile.cycleCompleted),
+    trainingMaxes: { ...profile.trainingMaxes },
+    ...(profile.block2ConfirmedTMs ? { block2ConfirmedTMs: { ...profile.block2ConfirmedTMs } } : {}),
+  } : cycle));
   const id = nextCycleId(currentId);
   const next: UserProfile = {
     ...profile,

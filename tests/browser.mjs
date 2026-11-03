@@ -40,7 +40,10 @@ try {
   const belted = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Belted Squat' }) });
   await belted.getByText('Swapped from Back Squat').waitFor();
   await belted.getByText('Warm-up').waitFor();
-  assert.equal(await belted.getByRole('checkbox').count(), 4, 'a swapped main lift keeps its warm-up ramp');
+  // A swapped main lift never borrows the program lift's training max: with none of its own it asks for one,
+  // and the warm-up ramp shrinks to the empty bar until a max is entered.
+  await belted.getByText(/Set your own training max for Belted Squat/).waitFor();
+  assert.equal(await belted.getByRole('checkbox').count(), 1, 'without its own training max a swapped main lift only warms up with the bar');
   await page.getByLabel('Swap Back Squat').selectOption('');
   await page.getByRole('heading', { name: 'Back Squat' }).waitFor();
   const squat = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Back Squat' }) });

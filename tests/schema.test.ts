@@ -131,3 +131,24 @@ test('resetAll clears everything for the start-fresh choice', async () => {
   await service.resetAll();
   assert.equal((await service.getProfiles()).length, 0);
 });
+
+test('variation training maxes import entry by entry: good ones kept, bad ones dropped, the profile survives', async () => {
+  const source = new StorageService('schema-var', 'test_schema_var');
+  await source.saveProfile(profile({ variationTrainingMaxes: { 'belted-squat:1': 185, 'pause-bench-press:1': 150 } }));
+  const exported = JSON.parse(await source.exportBackup());
+  assert.deepEqual(exported.profiles[0].variationTrainingMaxes, { 'belted-squat:1': 185, 'pause-bench-press:1': 150 });
+
+  const dirty = JSON.parse(JSON.stringify(exported));
+  dirty.profiles[0].variationTrainingMaxes = { 'belted-squat:1': 185, 'bad key': 100, 'rack-pull:2': -5, 'sumo-deadlift:1': 'heavy', 'trap-bar-deadlift:2': 210 };
+  const target = new StorageService('schema-var2', 'test_schema_var2');
+  const result = await target.importBackup(JSON.stringify(dirty), 'replace-all');
+  assert.equal(result.success, true, result.message);
+  assert.deepEqual((await target.getProfiles())[0].variationTrainingMaxes, { 'belted-squat:1': 185, 'trap-bar-deadlift:2': 210 });
+
+  const notARecord = JSON.parse(JSON.stringify(exported));
+  notARecord.profiles[0].variationTrainingMaxes = [185];
+  const third = new StorageService('schema-var3', 'test_schema_var3');
+  assert.equal((await third.importBackup(JSON.stringify(notARecord), 'replace-all')).success, true);
+  assert.equal((await third.getProfiles())[0].variationTrainingMaxes, undefined, 'a wrong-shaped field is dropped whole');
+  assert.equal(sanitizeProfile(profile({ variationTrainingMaxes: {} })).variationTrainingMaxes !== undefined, true, 'an empty record is fine');
+});
