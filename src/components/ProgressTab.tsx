@@ -1,3 +1,4 @@
+import { findTopSet } from '../engine/extras';
 import React, { useState } from 'react';
 import type { UserProfile, WorkoutSession } from '../types';
 import { normalizeWeight } from '../engine/jnt2Engine';
@@ -7,7 +8,7 @@ import { ProgressRing } from './ProgressRing';
 import { BadgeIcon } from './BadgeIcon';
 import { StreakLabel } from './StreakLabel';
 import { fmtCount } from '../engine/sessionValidity';
-import { TrendsCard } from './TrendsCard';
+import { AnalyticsDashboard } from './AnalyticsDashboard';
 import { levelFor } from '../engine/xp';
 import { cycleNumber, cycleOf } from '../engine/cycles';
 import { ChevronDown, ChevronUp, Trash2, Trophy } from 'lucide-react';
@@ -36,7 +37,7 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
   const records = (() => {
     const result = new Map<number, { load: number; week: number; date: number; name: string }>();
     valid.forEach((session) => session.exercises.filter((exercise) => exercise.exerciseId === activeExercise).forEach((exercise) => {
-      const set = exercise.sets.find((item) => item.completed && (item.type === 'rm_target' || item.type === 'test') && item.actualReps !== null && item.load !== null);
+      const set = findTopSet(exercise, (item) => item.completed && item.actualReps !== null && item.load !== null);
       if (!set || set.actualReps === null || set.load === null) return;
       const load = normalizeWeight(set.load, set.unit, profile.unit);
       const prior = result.get(set.actualReps);
@@ -55,6 +56,8 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
 
   return (
     <div className="space-y-4">
+      <AnalyticsDashboard profile={profile} history={history} />
+
       <section className="animate-slide-up flex items-center gap-4 card p-5">
         <ProgressRing value={streak.weeklyCount} max={streak.weeklyGoal} size={84}>
           <span className="font-mono text-base font-black text-ink">{fmtCount(streak.weeklyCount)}/{streak.weeklyGoal}</span>
@@ -76,8 +79,6 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
         </div>
         <p className="mt-1 text-xs text-muted">{level.into} / {level.span} XP to level {level.level + 1}. Earn XP from sets, finished workouts, PRs, goal weeks and badges.</p>
       </section>
-
-      <TrendsCard profile={profile} history={history} />
 
       <section className="card p-5">
         <h1 className="text-xl font-black">Recorded progress</h1>
@@ -125,7 +126,7 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
             {open && <div className="border-t border-line mt-2 pt-3 space-y-2">
               {session.note && <p className="whitespace-pre-wrap rounded-xl bg-sunk p-2 text-xs text-ink-2"><strong>Workout note:</strong> {session.note}</p>}
               {session.encouragementMessage && <p className="text-xs text-accent-ink bg-accent/10 rounded-xl p-2">{session.encouragementMessage}</p>}
-              {session.exercises.filter((exercise) => exercise.sets.some((set) => set.completed)).map((exercise) => <div key={exercise.slotId} className="bg-surface rounded-xl p-2"><strong className="text-xs">{exercise.tier} · {exercise.exerciseName}</strong>{exercise.userNote && <p className="mt-1 whitespace-pre-wrap text-xs italic text-ink-2">{exercise.userNote}</p>}{exercise.swappedFrom && <span className="ml-1 text-xs text-muted">(swapped from {exercise.swappedFrom.exerciseName})</span>}<div className="flex flex-wrap gap-1 mt-1">{exercise.sets.filter((set) => set.completed).map((set) => <span key={set.setId} className="text-xs font-mono bg-paper border border-line rounded px-1.5 py-0.5">{set.actualReps}r @ {set.load}{set.unit}</span>)}</div></div>)}
+              {session.exercises.filter((exercise) => exercise.sets.some((set) => set.completed)).map((exercise) => <div key={exercise.slotId} className="bg-surface rounded-xl p-2"><strong className="text-xs">{exercise.isExtra ? 'Extra' : exercise.tier} · {exercise.exerciseName}</strong>{exercise.userNote && <p className="mt-1 whitespace-pre-wrap text-xs italic text-ink-2">{exercise.userNote}</p>}{exercise.swappedFrom && <span className="ml-1 text-xs text-muted">(swapped from {exercise.swappedFrom.exerciseName})</span>}<div className="flex flex-wrap gap-1 mt-1">{exercise.sets.filter((set) => set.completed).map((set) => <span key={set.setId} className="text-xs font-mono bg-paper border border-line rounded px-1.5 py-0.5">{set.actualReps}r @ {set.load}{set.unit}</span>)}</div></div>)}
               <div className="flex justify-end gap-2 pt-2">{!session.isDemo && <button onClick={() => onEditSession(session)} className="px-3 py-2 rounded-xl bg-sunk text-xs font-bold">Edit without advancing</button>}<button onClick={() => onDeleteSession(session.sessionId, session.isDemo)} className="px-3 py-2 rounded-xl text-bad text-xs font-bold"><Trash2 className="inline w-3 h-3 mr-1" />Delete</button></div>
             </div>}
           </article>;

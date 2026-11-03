@@ -58,14 +58,14 @@ test('known numeric load regressions use the correct bases and rounding', () => 
 test('T2a exercise-specific mappings, late schemes, transitions, and conflicts are preserved', () => {
   assert.deepEqual(getDayPrescription(1, 1).exercises.find((item) => item.slotId === 'd1-t2a')!.loadBasis, { kind: 'training_max', key: 'deadlift', block: 1 });
   assert.deepEqual(getDayPrescription(1, 4).exercises.find((item) => item.slotId === 'd4-t2a')!.loadBasis, { kind: 'training_max', key: 'bench', block: 1 });
-  assert.deepEqual(getDayPrescription(7, 3).exercises.find((item) => item.slotId === 'd3-t2a')!.loadBasis, { kind: 'training_max', key: 'front_squat', block: 2 });
+  assert.deepEqual(getDayPrescription(7, 3).exercises.find((item) => item.slotId === 'd3-t2a')!.loadBasis, { kind: 'training_max', key: 'squat', block: 2 });
   assert.equal(getDayPrescription(1, 1).exercises.find((item) => item.slotId === 'd1-t2a')!.percentage, 0.5);
   assert.equal(getDayPrescription(1, 4).exercises.find((item) => item.slotId === 'd4-t2a')!.percentage, 0.45);
   assert.deepEqual([8, 9, 11].map((week) => {
     const slot = getDayPrescription(week, 1).exercises.find((item) => item.slotId === 'd1-t2a')!;
     return [slot.setCount, slot.repTarget];
   }), [[5, 5], [5, 4], [7, 2]]);
-  assert.equal(getDayPrescription(1, 3).exercises[0].exerciseName, 'Front Squat');
+  assert.equal(getDayPrescription(1, 3).exercises[0].exerciseName, 'Back Squat');
   assert.equal(getDayPrescription(7, 3).exercises[0].exerciseName, 'Deadlift');
   for (const day of [2, 3]) {
     const slot = getDayPrescription(12, day).exercises.find((item) => item.slotId === `d${day}-t2a`)!;

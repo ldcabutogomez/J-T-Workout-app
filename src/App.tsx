@@ -9,6 +9,10 @@ import {
   logSet,
   makeSkippedSession,
   setExerciseNote,
+  addExtraExercise,
+  addExtraSet,
+  removeExtraSet,
+  removeExtraExercise,
   setSessionNote,
   swapExercise,
   clearSuggestedLoads,
@@ -21,6 +25,7 @@ import { levelBadges, levelFor } from './engine/xp';
 import { batteryDebuff } from './engine/debuff';
 import { useWakeLock } from './lib/wakeLock';
 import { AppPrompts } from './components/AppPrompts';
+import { findTopSet, programExercises } from './engine/extras';
 import { NewCycleFlow } from './components/NewCycleFlow';
 import { historyForCycle, profileCycleId } from './engine/cycles';
 import { Onboarding } from './components/Onboarding';
@@ -513,7 +518,7 @@ export default function App() {
       const exercise = updated.exercises.find((item) => item.slotId === slotId);
 
       // A top set that beats the all-time best earns a PR moment, once per exact result.
-      const topSet = exercise?.sets.find((item) => item.completed && (item.type === 'rm_target' || item.type === 'test'));
+      const topSet = exercise ? findTopSet(exercise, (item) => item.completed) : undefined;
       const pr = exercise && topSet?.setId === setId && !updated.isEditingCompleted
         ? findAllComparableResults(updated, history).find((r) => r.exerciseId === exercise.exerciseId && r.kind === 'all_time_pr')
         : undefined;
@@ -523,18 +528,20 @@ export default function App() {
 
       // Finishing an exercise's last set earns one quiet transition.
       const doneKey = exerciseDoneKey(slotId);
-      const freshDone = Boolean(exercise && exercise.sets.length > 0 && exercise.sets.every((item) => item.completed)
+      // An extra's sets are added as it goes, so it is never "complete" after a set.
+      const freshDone = Boolean(exercise && !exercise.isExtra && exercise.sets.length > 0 && exercise.sets.every((item) => item.completed)
         && !updated.isEditingCompleted && !hasDelivered(updated, doneKey));
       if (freshDone) updated = markDelivered(updated, doneKey);
 
       // A short coach nudge at the halfway point, the last set, or after an all-out (RIR 0) set, once each per workout.
       let nudge: string | null = null;
       if (!freshPr && !updated.isEditingCompleted && profile) {
-        const allSets = updated.exercises.flatMap((item) => item.sets);
+        // Halfway / last-set nudges are about the program's own sets; an extra set never moves them.
+        const allSets = programExercises(updated).flatMap((item) => item.sets);
         const doneCount = allSets.filter((item) => item.completed).length;
         const due: Array<[NudgeKind, boolean]> = [
-          ['last_set', allSets.length - doneCount === 1],
-          ['halfway', allSets.length >= 6 && doneCount * 2 >= allSets.length],
+          ['last_set', !exercise?.isExtra && allSets.length - doneCount === 1],
+          ['halfway', !exercise?.isExtra && allSets.length >= 6 && doneCount * 2 >= allSets.length],
           ['hard_set', rir === 0],
         ];
         const pick = due.find(([kind, ready]) => ready && !hasDelivered(updated, `nudge:${kind}`));
@@ -560,8 +567,9 @@ export default function App() {
         haptic('setLogged');
       }
 
-      const allDone = updated.exercises.every((item) => item.sets.every((set) => set.completed));
-      if (profile?.autoStartRest && exercise && !allDone && !updated.isEditingCompleted) {
+      const allDone = programExercises(updated).every((item) => item.sets.every((set) => set.completed));
+      // Rest still helps between sets of an extra, even once the program's own sets are all done.
+      if (profile?.autoStartRest && exercise && (!allDone || exercise.isExtra) && !updated.isEditingCompleted) {
         const seconds = exercise.tier === 'T1' ? 240 : exercise.tier.startsWith('T2') ? 150 : 90;
         setRestRequest((prev) => ({ id: (prev?.id ?? 0) + 1, seconds }));
       }
@@ -607,7 +615,7 @@ export default function App() {
     const updatedProfile = { ...profile, variationTrainingMaxes: maxes };
     try {
       const current = activeSessionRef.current;
-      const slot = current?.exercises.find((exercise) => exercise.exerciseId === exerciseId);
+      const slot = current?.exercises.find((exercise) => exercise.exerciseId === exerciseId && !exercise.isExtra);
       if (current && slot && !slot.sets.some((set) => set.completed)) await persistActive(swapExercise(current, slot.slotId, updatedProfile, history));
       await updateProfile(updatedProfile);
     } catch (error) {
@@ -624,6 +632,23 @@ export default function App() {
       showBanner((error as Error).message, true);
     }
   };
+
+  // Exercises the lifter adds themselves ("a la carte"). Each is a pure engine change saved like any other edit.
+  const changeExtras = async (change: (session: WorkoutSession) => WorkoutSession): Promise<boolean> => {
+    const current = activeSessionRef.current;
+    if (!current) return false;
+    try {
+      await persistActive(change(current));
+      return true;
+    } catch (error) {
+      showBanner((error as Error).message, true);
+      return false;
+    }
+  };
+  const handleAddExtra = (name: string) => changeExtras((session) => addExtraExercise(session, name, history));
+  const handleAddExtraSet = (slotId: string) => { void changeExtras((session) => addExtraSet(session, slotId)); };
+  const handleRemoveExtraSet = (slotId: string, setId: string) => { void changeExtras((session) => removeExtraSet(session, slotId, setId)); };
+  const handleRemoveExtra = (slotId: string) => { void changeExtras((session) => removeExtraExercise(session, slotId)); };
 
   const handleExerciseNote = async (slotId: string, text: string) => {
     const current = activeSessionRef.current;
@@ -937,7 +962,7 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[calc(57px+env(safe-area-inset-top))] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
       <main key={tab} className="flex-1 p-3 sm:p-4 pb-[calc(7rem+env(safe-area-inset-bottom))] max-w-xl mx-auto w-full animate-fade-in">
-        {tab === 'today' && <TodayTab onExerciseNote={handleExerciseNote} onSessionNote={handleSessionNote} onStartNewCycle={() => setNewCycleOpen(true)} profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onSetVariationTm={handleSetVariationTm} onClearLoads={handleClearLoads} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'today' && <TodayTab extras={{ onAdd: handleAddExtra, onAddSet: handleAddExtraSet, onRemoveSet: handleRemoveExtraSet, onRemove: handleRemoveExtra }} onExerciseNote={handleExerciseNote} onSessionNote={handleSessionNote} onStartNewCycle={() => setNewCycleOpen(true)} profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onSetVariationTm={handleSetVariationTm} onClearLoads={handleClearLoads} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && (
           <div className="space-y-4">
             {schedule && <WeekCalendar schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}

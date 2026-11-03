@@ -6,7 +6,10 @@ import type {
   UserProfile,
   WorkoutSession,
 } from '../types';
-import { calculateSetLoad, getDayPrescription, resolveTrainingMax, roundLoad } from './jnt2Engine';
+import { calculateSetLoad, getDayPrescription, normalizeWeight, resolveTrainingMax, roundLoad } from './jnt2Engine';
+import { EXTRA_SLOT_PREFIX, EXTRA_TIER, isExtra, programExercises } from './extras';
+import { slug } from '../lib/slug';
+import { countsTowardStats } from './sessionValidity';
 import { suggestFromHistory, suggestRmLoadFor } from './suggestions';
 import { loadNotationFor } from '../program/loadNotation';
 
@@ -298,7 +301,8 @@ export function undoSet(
 }
 
 export function allRequiredSetsLogged(session: WorkoutSession): boolean {
-  return session.exercises.every((exercise) =>
+  // Extras are optional by definition: an unlogged extra set never makes a finished workout partial.
+  return programExercises(session).every((exercise) =>
     !exercise.manualLoadDecisionPending && exercise.sets.every((set) => set.completed),
   );
 }
@@ -306,6 +310,10 @@ export function allRequiredSetsLogged(session: WorkoutSession): boolean {
 export function finalizeSession(session: WorkoutSession, now = Date.now()): WorkoutSession {
   const next = copy(session);
   const complete = allRequiredSetsLogged(next);
+  // Nothing half-empty is saved: unlogged extra sets go, and so does an extra with no logged set.
+  next.exercises = next.exercises
+    .map((exercise) => (isExtra(exercise) ? { ...exercise, sets: exercise.sets.filter((set) => set.completed) } : exercise))
+    .filter((exercise) => !isExtra(exercise) || exercise.sets.length > 0);
   // Editing history must not move the session into the present (week goal, PR chronology).
   next.completedTime = session.isEditingCompleted && session.completedTime ? session.completedTime : now;
   next.updatedTime = now;
@@ -367,4 +375,112 @@ export function setSessionNote(session: WorkoutSession, text: string, now = Date
   const note = cleanNote(text);
   const { note: _old, ...rest } = session;
   return note.trim() ? { ...rest, note, updatedTime: now } : { ...rest, updatedTime: now };
+}
+
+export const EXTRA_NAME_MIN = 2;
+export const EXTRA_NAME_MAX = 40;
+const EXTRA_DEFAULT_REPS = 10;
+
+/** An exercise name as it is stored: control characters and angle brackets removed, spaces tidied, capped. */
+export function cleanExerciseName(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, EXTRA_NAME_MAX);
+}
+
+/** The most recent load and reps logged for an extra with this id, in `unit`, or null when it has no history. */
+export function lastExtraSet(history: WorkoutSession[], exerciseId: string, unit: 'lb' | 'kg'): { load: number; reps: number } | null {
+  const recent = history
+    .filter((session) => countsTowardStats(session))
+    .sort((a, b) => (b.completedTime ?? b.startTime) - (a.completedTime ?? a.startTime));
+  for (const session of recent) {
+    for (const exercise of session.exercises) {
+      if (exercise.exerciseId !== exerciseId) continue;
+      const logged = [...exercise.sets].reverse().find((set) => set.completed && set.load !== null && set.load > 0 && set.actualReps !== null && set.actualReps > 0);
+      if (logged && logged.load !== null && logged.actualReps !== null) {
+        return { load: Math.round(normalizeWeight(logged.load, logged.unit, unit) * 100) / 100, reps: logged.actualReps };
+      }
+    }
+  }
+  return null;
+}
+
+function blankExtraSet(exercise: LoggedExercise, number: number, unit: 'lb' | 'kg', load: number | null, reps: number): LoggedSet {
+  return {
+    setId: `${exercise.slotId}-s${number}`,
+    type: 'straight',
+    prescribedReps: reps,
+    actualReps: null,
+    load,
+    unit,
+    rir: 2,
+    completed: false,
+  };
+}
+
+/**
+ * Adds an exercise the program doesn't prescribe, with one blank set. The load starts at the last one logged for
+ * the same exercise, if any. The name's slug is its id, so "Hip Abduction" typed here shares history with the same
+ * exercise anywhere else in the app.
+ */
+export function addExtraExercise(session: WorkoutSession, name: string, history: WorkoutSession[] = [], now = Date.now()): WorkoutSession {
+  const cleaned = cleanExerciseName(name);
+  if (cleaned.length < EXTRA_NAME_MIN) throw new Error(`Give the exercise a name (at least ${EXTRA_NAME_MIN} characters).`);
+  const exerciseId = slug(cleaned);
+  if (!exerciseId) throw new Error('That name needs some letters or numbers.');
+  if (session.exercises.some((exercise) => exercise.exerciseId === exerciseId)) throw new Error(`${cleaned} is already in this workout.`);
+  const slotId = `${EXTRA_SLOT_PREFIX}${exerciseId}`;
+  if (session.exercises.some((exercise) => exercise.slotId === slotId)) throw new Error(`${cleaned} is already in this workout.`);
+  const unit = session.settingsSnapshot.unit;
+  const last = lastExtraSet(history, exerciseId, unit);
+  const exercise: LoggedExercise = {
+    isExtra: true,
+    slotId,
+    exerciseId,
+    tier: EXTRA_TIER,
+    exerciseName: cleaned,
+    status: 'work',
+    sets: [],
+    sourceRefs: [],
+    loadNotation: loadNotationFor(exerciseId, cleaned),
+  };
+  exercise.sets = [blankExtraSet(exercise, 1, unit, last?.load ?? null, last?.reps ?? EXTRA_DEFAULT_REPS)];
+  return { ...session, updatedTime: now, exercises: [...session.exercises, exercise] };
+}
+
+function findExtra(session: WorkoutSession, slotId: string): LoggedExercise {
+  const exercise = findExercise(session, slotId);
+  if (!isExtra(exercise)) throw new Error('Only exercises you added yourself can be changed this way.');
+  return exercise;
+}
+
+/** Adds another blank set to an extra, starting from the previous set's load and reps. */
+export function addExtraSet(session: WorkoutSession, slotId: string, now = Date.now()): WorkoutSession {
+  const extra = findExtra(session, slotId);
+  const previous = extra.sets[extra.sets.length - 1];
+  const number = extra.sets.reduce((highest, set) => Math.max(highest, Number(set.setId.split('-s').pop()) || 0), 0) + 1;
+  const next = blankExtraSet(extra, number, previous?.unit ?? session.settingsSnapshot.unit, previous?.load ?? null, previous?.actualReps ?? previous?.prescribedReps ?? EXTRA_DEFAULT_REPS);
+  return {
+    ...session,
+    updatedTime: now,
+    exercises: session.exercises.map((exercise) => (exercise.slotId === slotId ? { ...exercise, sets: [...exercise.sets, next] } : exercise)),
+  };
+}
+
+/** Removes a set that hasn't been logged. A logged set is undone first, so a result is never deleted by accident. */
+export function removeExtraSet(session: WorkoutSession, slotId: string, setId: string, now = Date.now()): WorkoutSession {
+  const extra = findExtra(session, slotId);
+  const set = extra.sets.find((item) => item.setId === setId);
+  if (!set) throw new Error(`Unknown set: ${setId}`);
+  if (set.completed) throw new Error('Undo this set before removing it.');
+  return {
+    ...session,
+    updatedTime: now,
+    exercises: session.exercises.map((exercise) => (exercise.slotId === slotId ? { ...exercise, sets: exercise.sets.filter((item) => item.setId !== setId) } : exercise)),
+  };
+}
+
+/** Removes an added exercise. Refused while any of its sets is logged. */
+export function removeExtraExercise(session: WorkoutSession, slotId: string, now = Date.now()): WorkoutSession {
+  const extra = findExtra(session, slotId);
+  if (extra.sets.some((set) => set.completed)) throw new Error('Undo its logged sets before removing this exercise.');
+  return { ...session, updatedTime: now, exercises: session.exercises.filter((exercise) => exercise.slotId !== slotId) };
 }

@@ -1,3 +1,4 @@
+import { findTopSet } from './extras';
 import { cycleOf } from './cycles';
 import type { EncouragementTone, LoggedExercise, SessionResult, WorkoutSession } from '../types';
 import { normalizeWeight } from './jnt2Engine';
@@ -16,12 +17,7 @@ export interface EncouragementContext {
 export type ComparableResult = SessionResult;
 
 function topPerformance(exercise: LoggedExercise) {
-  const set = exercise.sets.find((item) =>
-    item.completed
-    && (item.type === 'rm_target' || item.type === 'test')
-    && item.actualReps !== null
-    && item.load !== null,
-  );
+  const set = findTopSet(exercise, (item) => item.completed && item.actualReps !== null && item.load !== null);
   if (!set || set.actualReps === null || set.load === null) return null;
   return { reps: set.actualReps, load: set.load, unit: set.unit };
 }

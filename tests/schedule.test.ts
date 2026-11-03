@@ -213,7 +213,7 @@ test('training days can change; dragged workouts keep their dates', () => {
 
 test('lifts and lower/upper groups follow the program', () => {
   assert.equal(liftOf(1, 1), 'Back Squat');
-  assert.equal(liftOf(1, 3), 'Front Squat');
+  assert.equal(liftOf(1, 3), 'Back Squat');
   assert.equal(liftOf(7, 3), 'Deadlift');
   assert.equal(liftOf(1, 4), 'Military Press');
   assert.deepEqual([1, 2, 3, 4].map(groupOfDay), ['legs', 'upper', 'legs', 'upper']);

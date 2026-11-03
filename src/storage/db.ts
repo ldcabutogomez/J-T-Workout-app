@@ -61,7 +61,17 @@ function validateExercise(value: unknown): value is LoggedExercise {
     && Array.isArray(value.sets)
     && value.sets.every(validateSet)
     && uniqueIds(value.sets as LoggedSet[], (item) => item.setId)
-    && validateSourceRefs(value.sourceRefs);
+    && validateExtraShape(value)
+    // An exercise the lifter added has no workbook cell to point at; program exercises always do.
+    && (value.isExtra === true ? Array.isArray(value.sourceRefs) && value.sourceRefs.length === 0 : validateSourceRefs(value.sourceRefs));
+}
+
+/** `isExtra` is only ever `true`. An extra uses the `extra-` slot id (so it can't collide with a program slot) and straight sets only. */
+function validateExtraShape(value: Record<string, unknown>): boolean {
+  if (value.isExtra === undefined) return !String(value.slotId).startsWith('extra-');
+  return value.isExtra === true
+    && String(value.slotId).startsWith('extra-')
+    && (value.sets as Array<{ type?: unknown }>).every((set) => set.type === 'straight');
 }
 
 function validateSettingsSnapshot(value: unknown): boolean {
@@ -139,7 +149,14 @@ function validateSession(value: unknown, profileIds: Set<string>): value is Work
     && validateSettingsSnapshot(value.settingsSnapshot)
     && Array.isArray(value.exercises)
     && value.exercises.every(validateExercise)
-    && uniqueIds(value.exercises as LoggedExercise[], (item) => item.slotId);
+    && uniqueIds(value.exercises as LoggedExercise[], (item) => item.slotId)
+    && extrasStayOutOfTheSnapshot(value);
+}
+
+/** An added exercise lives only in the logged exercises; a slot id that is also in the prescription would be a program slot. */
+function extrasStayOutOfTheSnapshot(value: Record<string, unknown>): boolean {
+  const snapshotSlots = new Set(((value.prescriptionSnapshot as { exercises?: Array<{ slotId: string }> }).exercises ?? []).map((item) => item.slotId));
+  return (value.exercises as LoggedExercise[]).every((exercise) => !exercise.isExtra || !snapshotSlots.has(exercise.slotId));
 }
 
 function validateStringRecord(value: unknown): boolean {

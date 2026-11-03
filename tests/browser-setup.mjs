@@ -26,7 +26,7 @@ try {
   await fresh.getByLabel('Squat (kg)', { exact: true }).fill('-5');
   await fresh.getByText('Must be more than zero.').waitFor();
   assert.equal(await fresh.getByRole('button', { name: /Next|Skip for now/ }).isDisabled(), true, 'a negative max cannot be accepted');
-  for (const [label, value] of [['Squat', '140'], ['Bench Press', '100'], ['Deadlift', '180'], ['Military Press', '60'], ['Front Squat', '110']]) await fresh.getByLabel(new RegExp(`^${label} \\(kg\\)`)).fill(value);
+  for (const [label, value] of [['Squat', '140'], ['Bench Press', '100'], ['Deadlift', '180'], ['Military Press', '60']]) await fresh.getByLabel(new RegExp(`^${label} \\(kg\\)`)).fill(value);
   await fresh.getByRole('button', { name: 'Next' }).click();
   await fresh.getByRole('heading', { name: 'Your week' }).waitFor();
   await fresh.getByRole('button', { name: 'Next' }).click();
@@ -55,7 +55,7 @@ try {
   await cyclePage.getByRole('button', { name: 'Next' }).click();
   await cyclePage.getByRole('heading', { name: 'Your new training maxes' }).waitFor();
   assert.equal(await cyclePage.getByRole('button', { name: 'Next' }).isDisabled(), true, 'every training max is needed to start');
-  for (const [label, value] of [['Squat', '205'], ['Bench Press', '185'], ['Deadlift', '305'], ['Military Press', '125'], ['Front Squat', '165']]) await cyclePage.getByLabel(new RegExp(`^${label} \\(lb\\)`)).fill(value);
+  for (const [label, value] of [['Squat', '205'], ['Bench Press', '185'], ['Deadlift', '305'], ['Military Press', '125']]) await cyclePage.getByLabel(new RegExp(`^${label} \\(lb\\)`)).fill(value);
   await cyclePage.getByRole('button', { name: 'Next' }).click();
   await cyclePage.getByRole('heading', { name: 'When do you start?' }).waitFor();
   await cyclePage.getByRole('button', { name: 'Next' }).click();
@@ -92,7 +92,7 @@ try {
   await inputPage.getByRole('button', { name: 'Program' }).click();
   const tmBlock = inputPage.locator('section').filter({ has: inputPage.getByRole('heading', { name: 'Block 1 training maxes' }) });
   await tmBlock.getByRole('button', { name: /Edit/ }).click();
-  for (const [index, value] of ['200', '180', '300', '120', '160'].entries()) await tmBlock.locator('input[type="number"]').nth(index).fill(value);
+  for (const [index, value] of ['200', '180', '300', '120'].entries()) await tmBlock.locator('input[type="number"]').nth(index).fill(value);
   await tmBlock.getByRole('button', { name: /Save/ }).click();
   await inputPage.getByText('Block 1 TMs confirmed').waitFor();
   await inputPage.getByRole('button', { name: 'Today' }).click();
@@ -118,6 +118,79 @@ try {
   await inputPage.getByText('Finish a workout and your trends will start here.').waitFor();
   await assertNoHorizontalClipping(inputPage, 'Progress with trends');
   await inputContext.close();
+
+  // Adding an exercise the program doesn't prescribe: from the list and by typing, logged, kept across a reload,
+  // and it leaves the workout "completed" (extras never make a finished workout partial).
+  const extraContext = await lockedContext(browser);
+  await extraContext.clock.setFixedTime(new Date('2024-05-13T09:00:00'));
+  const extraPage = await extraContext.newPage();
+  extraPage.on('dialog', (dialog) => dialog.accept());
+  await extraPage.goto(origin, { waitUntil: 'networkidle' });
+  await extraPage.getByRole('button', { name: 'Program' }).click();
+  const extraTms = extraPage.locator('section').filter({ has: extraPage.getByRole('heading', { name: 'Block 1 training maxes' }) });
+  await extraTms.getByRole('button', { name: /Edit/ }).click();
+  for (const [index, value] of ['200', '180', '300', '120'].entries()) await extraTms.locator('input[type="number"]').nth(index).fill(value);
+  await extraTms.getByRole('button', { name: /Save/ }).click();
+  await extraPage.getByText('Block 1 TMs confirmed').waitFor();
+  await extraPage.getByRole('button', { name: 'Today' }).click();
+  await extraPage.getByRole('button', { name: 'Start workout' }).click();
+  await extraPage.getByText('Workout in progress').waitFor();
+  await extraPage.getByRole('button', { name: 'Add exercise' }).click();
+  const sheet = extraPage.getByRole('dialog', { name: 'Add exercise' });
+  await sheet.waitFor();
+  await assertNoHorizontalClipping(extraPage, 'add exercise sheet');
+  await sheet.getByLabel('Search or type an exercise name').fill('abduc');
+  await sheet.getByRole('button', { name: 'Hip Abduction' }).click();
+  await sheet.waitFor({ state: 'detached' });
+  const hip = extraPage.locator('section').filter({ has: extraPage.getByRole('heading', { name: 'Hip Abduction' }) });
+  await hip.getByText('Added by you').waitFor();
+  assert.equal(await hip.getByText('Extra', { exact: true }).count(), 1);
+  assert.equal(await extraPage.getByLabel(/Swap Hip Abduction/).count(), 0, 'an added exercise has no swap menu');
+  await hip.locator('input[type="number"]').first().fill('80');
+  await hip.getByRole('button', { name: 'Log set' }).click();
+  await hip.getByText('10 reps @ 80 lb').waitFor();
+  await hip.getByRole('button', { name: 'Add set' }).click();
+  assert.equal(await hip.getByRole('button', { name: 'Log set' }).count(), 1, 'a second blank set appeared');
+  assert.equal(await hip.getByRole('button', { name: /^Remove Hip Abduction$/ }).count(), 0, 'cannot remove an exercise once a set is logged');
+
+  // A name typed by hand, then taken out again before logging anything.
+  await extraPage.getByRole('button', { name: 'Add exercise' }).click();
+  const sheet2 = extraPage.getByRole('dialog', { name: 'Add exercise' });
+  await sheet2.getByLabel('Search or type an exercise name').fill('Banded Clamshell');
+  await sheet2.getByRole('button', { name: /Add “Banded Clamshell”/ }).click();
+  await extraPage.getByRole('heading', { name: 'Banded Clamshell' }).waitFor();
+  await extraPage.getByRole('button', { name: 'Remove Banded Clamshell' }).click();
+  await extraPage.getByRole('heading', { name: 'Banded Clamshell' }).waitFor({ state: 'detached' });
+  // An exercise already in the workout is not offered twice.
+  await extraPage.getByRole('button', { name: 'Add exercise' }).click();
+  const sheet3 = extraPage.getByRole('dialog', { name: 'Add exercise' });
+  await sheet3.getByLabel('Search or type an exercise name').fill('Hip Abduction');
+  assert.equal(await sheet3.getByRole('button', { name: /Hip Abduction/ }).isDisabled(), true);
+  await sheet3.getByRole('button', { name: 'Cancel' }).click();
+
+  await extraPage.reload({ waitUntil: 'networkidle' });
+  await extraPage.getByText('Workout in progress').waitFor();
+  await extraPage.getByText('10 reps @ 80 lb').waitFor();
+
+  for (let guard = 0; guard < 80; guard += 1) {
+    const buttons = extraPage.getByRole('button', { name: 'Log set' });
+    if (await buttons.count() === 0) break;
+    const row = buttons.first().locator('..').locator('..');
+    const inputs = row.locator('input');
+    if (!(await inputs.nth(0).inputValue())) await inputs.nth(0).fill('100');
+    if (!(await inputs.nth(1).inputValue())) await inputs.nth(1).fill('5');
+    await buttons.first().click();
+  }
+  await extraPage.getByRole('button', { name: 'Finish' }).click();
+  const extraSummary = extraPage.getByRole('dialog', { name: 'Workout summary' });
+  await extraSummary.waitFor();
+  await extraPage.keyboard.press('Escape');
+  await extraPage.getByRole('button', { name: 'Progress' }).click();
+  await extraPage.getByText('completed', { exact: true }).waitFor();
+  await extraPage.getByText('Week 1 · Day 1').click();
+  await extraPage.getByText('Extra · Hip Abduction').waitFor();
+  await assertNoHorizontalClipping(extraPage, 'history with an added exercise');
+  await extraContext.close();
 
   console.log('PASS: setup wizard, new cycle, storage recovery, input checks and notes.');
 } catch (error) {

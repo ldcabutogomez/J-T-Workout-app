@@ -25,7 +25,8 @@ const weeks = [
 const mainRows = {
   1: [57, 58, 15, 'Back Squat', 'Back Squat', 'squat', 'squat'],
   2: [69, 70, 18, 'Bench Press', 'Bench Press', 'bench', 'bench'],
-  3: [81, 82, 21, 'Front Squat', 'Deadlift', 'front_squat', 'deadlift'],
+  // Intentional deviation from the workbook: Day 3 Block 1 / T2a Block 2 use Back Squat (Front Squat is a swap option).
+  3: [81, 82, 21, 'Back Squat', 'Deadlift', 'squat', 'deadlift'],
   4: [93, 94, 24, 'Military Press', 'Military Press', 'ohp', 'ohp'],
 } as const;
 
@@ -47,12 +48,12 @@ const t2aRows = { 1: [60, 37], 2: [72, 39], 3: [84, 41], 4: [99, 43] } as const;
 const t2aNames = {
   1: ['2" Deficit Deadlift', '2" Deficit Deadlift', '2" Deficit Deadlift', '2" Deficit Deadlift', '2" Deficit Deadlift', '2" Deficit Deadlift', '1" Deficit Deadlift', '1" Deficit Deadlift', '1" Deficit Deadlift', 'Deadlift', 'Deadlift', 'Deadlift'],
   2: Array(12).fill('Close Grip Bench'),
-  3: ['Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Front Squat', 'Front Squat', 'Front Squat', 'Front Squat', 'Front Squat', 'Front Squat'],
+  3: ['Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat'],
   4: Array(12).fill('Legs Up Bench'),
 } as const;
 const t2aKeys = {
   1: ['deadlift', 'deadlift'], 2: ['bench', 'bench'],
-  3: ['squat', 'front_squat'], 4: ['bench', 'bench'],
+  3: ['squat', 'squat'], 4: ['bench', 'bench'],
 } as const;
 const t2aPercentages = {
   1: [0.5, 0.6, 0.7, 0.75, 0.8, null, 0.7, 0.75, 0.8, 0.825, 0.85, null],

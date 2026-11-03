@@ -47,14 +47,14 @@ const BLOCK2_BACKOFFS: Record<number, { count: number; reps: number; percentage:
 const DAY_TITLES = [
   'Day 1 — Back Squat',
   'Day 2 — Bench Press',
-  'Day 3 — Front Squat / Deadlift',
+  'Day 3 — Back Squat / Deadlift',
   'Day 4 — Military Press',
 ] as const;
 
 const MAIN_T1 = {
   1: { topRow: 57, backoffRow: 58, progressionRow: 15, block1Name: 'Back Squat', block2Name: 'Back Squat', block1Key: 'squat', block2Key: 'squat' },
   2: { topRow: 69, backoffRow: 70, progressionRow: 18, block1Name: 'Bench Press', block2Name: 'Bench Press', block1Key: 'bench', block2Key: 'bench' },
-  3: { topRow: 81, backoffRow: 82, progressionRow: 21, block1Name: 'Front Squat', block2Name: 'Deadlift', block1Key: 'front_squat', block2Key: 'deadlift' },
+  3: { topRow: 81, backoffRow: 82, progressionRow: 21, block1Name: 'Back Squat', block2Name: 'Deadlift', block1Key: 'squat', block2Key: 'deadlift' },
   4: { topRow: 93, backoffRow: 94, progressionRow: 24, block1Name: 'Military Press', block2Name: 'Military Press', block1Key: 'ohp', block2Key: 'ohp' },
 } satisfies Record<number, {
   topRow: number;
@@ -99,14 +99,14 @@ const T2A_SCHEMES: Array<{ count: number; reps: number } | null> = [
 const T2A_NAMES: Record<number, string[]> = {
   1: ['2" Deficit Deadlift', '2" Deficit Deadlift', '2" Deficit Deadlift', '2" Deficit Deadlift', '2" Deficit Deadlift', '2" Deficit Deadlift', '1" Deficit Deadlift', '1" Deficit Deadlift', '1" Deficit Deadlift', 'Deadlift', 'Deadlift', 'Deadlift'],
   2: Array(12).fill('Close Grip Bench'),
-  3: ['Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Front Squat', 'Front Squat', 'Front Squat', 'Front Squat', 'Front Squat', 'Front Squat'],
+  3: ['Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat', 'Back Squat'],
   4: Array(12).fill('Legs Up Bench'),
 };
 
 const T2A_KEYS: Record<number, { block1: TrainingMaxKey; block2: TrainingMaxKey }> = {
   1: { block1: 'deadlift', block2: 'deadlift' },
   2: { block1: 'bench', block2: 'bench' },
-  3: { block1: 'squat', block2: 'front_squat' },
+  3: { block1: 'squat', block2: 'squat' },
   4: { block1: 'bench', block2: 'bench' },
 };
 
@@ -570,6 +570,6 @@ export const WORKBOOK_AMBIGUITIES = [
   {
     id: 'week12-day3-t2-conflict',
     cells: ['J&T2.0!BG84:BJ84', 'J&T2.0!BG85', 'J&T2.0 KGS!BG84:BJ84', 'J&T2.0 KGS!BG85'],
-    decision: 'The explicit Front Squat “Find 1RM” remains visible as a manual test and is not silently flattened into the broader T2 Rest label.',
+    decision: 'The explicit Back Squat (formerly Front Squat) “Find 1RM” remains visible as a manual test and is not silently flattened into the broader T2 Rest label.',
   },
 ] as const;

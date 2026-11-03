@@ -16,10 +16,10 @@ const withSwap = (slotId: string, original: string, alternative: string, extra =
 const names = (options: ReturnType<typeof getSwapOptions>) => options?.alternatives.map((a) => a.name);
 
 test('every main lift offers its own alternatives, in work and test weeks alike', () => {
-  assert.deepEqual(names(getSwapOptions(slotOf(1, 1, 'd1-t1-primary'))), ['Pause Squat', 'Belted Squat', 'Safety Bar Squat', 'Box Squat']);
+  assert.deepEqual(names(getSwapOptions(slotOf(1, 1, 'd1-t1-primary'))), ['Pause Squat', 'Belted Squat', 'Safety Bar Squat', 'Box Squat', 'Front Squat']);
   assert.deepEqual(names(getSwapOptions(slotOf(1, 2, 'd2-t1-primary'))), ['Pause Bench Press', 'Spoto Press', 'Sling Shot Bench', 'Floor Press']);
-  assert.deepEqual(names(getSwapOptions(slotOf(1, 3, 'd3-t1-primary'))), ['Zercher Squat', 'Safety Bar Squat']);
-  assert.deepEqual(names(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))), ['Sumo Deadlift', 'Trap Bar Deadlift', 'Rack Pull'], 'no leg exercises or hinges inherit the deadlift cycle');
+  assert.deepEqual(names(getSwapOptions(slotOf(1, 3, 'd3-t1-primary'))), ['Pause Squat', 'Belted Squat', 'Safety Bar Squat', 'Box Squat', 'Front Squat']);
+  assert.deepEqual(names(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))), ['Sumo Deadlift', 'Trap Bar Deadlift', 'Rack Pull', 'Romanian Deadlift', 'Hip Thrust'], 'RDL and hip thrust rescale sets and reps');
   assert.deepEqual(names(getSwapOptions(slotOf(1, 4, 'd4-t1-secondary'))), ['Bench Press', 'Pause Bench Press', 'Floor Press']);
   for (const week of [1, 6, 7, 12]) assert.equal(getSwapOptions(slotOf(week, 1, 'd1-t1-primary'))?.group, 'main', `week ${week}`);
   assert.equal(getSwapOptions(slotOf(6, 2, 'd2-t1-primary'))?.alternatives.length, 4, 'test weeks too');
@@ -65,9 +65,9 @@ test('a swapped main lift keeps its sets, reps and percentages, but never the pr
 });
 
 test('Block 2 swaps keep achieved-RM back-offs, and a swap does not carry over when the program changes the lift', () => {
-  const p = withSwap('d3-t1-primary', 'front-squat', 'zercher-squat');
-  assert.equal(slotOf(2, 3, 'd3-t1-primary', p).exerciseId, 'zercher-squat');
-  assert.equal(slotOf(8, 3, 'd3-t1-primary', p).exerciseId, 'deadlift', 'Week 8 Day 3 is Deadlift, so the Front Squat swap does not apply');
+  const p = withSwap('d3-t1-primary', 'back-squat', 'front-squat');
+  assert.equal(slotOf(2, 3, 'd3-t1-primary', p).exerciseId, 'front-squat');
+  assert.equal(slotOf(8, 3, 'd3-t1-primary', p).exerciseId, 'deadlift', 'Week 8 Day 3 is Deadlift, so the squat swap does not apply');
 
   const block2 = withSwap('d1-t1-primary', 'back-squat', 'safety-bar-squat');
   let session = createWorkoutSession(block2, getDayPrescription(8, 1, block2), 1_000);
@@ -168,6 +168,28 @@ test('names resolve from ids, including main-lift alternatives', () => {
 test('the deadlift no longer offers leg exercises or hinges as automatic replacements', () => {
   const slot = { slotId: 'd1-t1-primary', tier: 'T1' as const, status: 'work' as const, exerciseId: 'deadlift', exerciseName: 'Deadlift' };
   const ids = getSwapOptions(slot)!.alternatives.map((item) => item.id);
-  assert.deepEqual(ids, ['sumo-deadlift', 'trap-bar-deadlift', 'rack-pull']);
-  for (const id of ['leg-press', 'hack-squat', 'romanian-deadlift', 'hip-thrust', 'bulgarian-split-squat', 'walking-lunge']) assert.ok(!ids.includes(id), id);
+  assert.deepEqual(ids, ['sumo-deadlift', 'trap-bar-deadlift', 'rack-pull', 'romanian-deadlift', 'hip-thrust']);
+  for (const id of ['leg-press', 'hack-squat', 'bulgarian-split-squat', 'walking-lunge']) assert.ok(!ids.includes(id), id);
+});
+
+test('deadlift to RDL or hip thrust rescales sets and reps, with loads only from the replacement', () => {
+  for (const [alt, minReps, maxReps] of [['romanian-deadlift', 6, 10], ['hip-thrust', 8, 12]] as const) {
+    for (const week of [7, 8, 9, 10, 11]) {
+      const base = slotOf(week, 3, 'd3-t1-primary');
+      const swapped = slotOf(week, 3, 'd3-t1-primary', withSwap('d3-t1-primary', 'deadlift', alt));
+      assert.equal(swapped.exerciseId, alt, `${alt} wk${week}`);
+      assert.equal(swapped.swapReview, undefined);
+      assert.equal(swapped.setCount, swapped.prescribedSets.length);
+      assert.equal(swapped.repTarget, swapped.prescribedSets[0].prescribedReps);
+      assert.ok(swapped.prescribedSets.every((set) => set.prescribedReps >= minReps && set.prescribedReps <= maxReps), `${alt} wk${week} reps`);
+      const work = (s: typeof base) => s.prescribedSets.reduce((sum, set) => sum + set.prescribedReps, 0);
+      assert.ok(work(swapped) >= work(base), 'total reps never drop below the heavy scheme');
+      assert.ok(swapped.prescribedSets.filter((set) => set.type === 'backoff').every((set) => set.loadBasis.kind === 'achieved_rm' && (set.percentage ?? 2) < 1), 'back-offs stay a fraction of the logged top set');
+    }
+    const test12 = slotOf(12, 3, 'd3-t1-primary', withSwap('d3-t1-primary', 'deadlift', alt));
+    assert.equal(test12.exerciseId, 'deadlift', '1RM test week is not rescaled');
+    assert.equal(test12.swapReview?.reason, 'reps');
+    const option = getSwapOptions(slotOf(12, 3, 'd3-t1-primary'))!.alternatives.find((item) => item.id === alt)!;
+    assert.ok(option.disabledReason && option.schemeSummary);
+  }
 });

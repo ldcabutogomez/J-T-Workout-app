@@ -6,7 +6,7 @@ import { tmProblem } from '../lib/validateTm';
 import { DEFAULT_TRAINING_DAYS, buildProfileFromWizard, defaultsForUnit, wizardProblems, type WizardInput } from '../lib/wizard';
 
 const STEPS = ['You', 'Equipment', 'Training maxes', 'Schedule', 'Ready'] as const;
-const DAY_NAMES = ['Day 1 · Squat', 'Day 2 · Bench', 'Day 3 · Front Squat / Deadlift', 'Day 4 · Military Press'];
+const DAY_NAMES = ['Day 1 · Squat', 'Day 2 · Bench', 'Day 3 · Back Squat / Deadlift', 'Day 4 · Military Press'];
 
 interface Props {
   /** Called with the finished profile; the caller saves it. */

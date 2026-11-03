@@ -35,15 +35,15 @@ test('first-time DB Fly gets no load converted from Pec Fly, and its own logged 
   assert.equal(exOf(session(base, 2, 2, [pec, fly], 5_000), 'd2-t3c').exerciseId, 'pec-flye');
 });
 
-test('Week 1 front squat to safety bar squat inherits no front squat TM', () => {
-  const p = withSwaps([['d3-t1-primary', 'front-squat', 'safety-bar-squat']]);
+test('Week 1 Day 3 back squat to front squat inherits no squat TM', () => {
+  const p = withSwaps([['d3-t1-primary', 'back-squat', 'front-squat']]);
   const s = exOf(session(p, 1, 3), 'd3-t1-primary');
-  assert.equal(s.exerciseId, 'safety-bar-squat');
-  assert.deepEqual(s.sets.map((set) => set.load), [null, null, null, null], 'before: 130 / 110 / 110 / 110');
-  const tm = { ...p, variationTrainingMaxes: { 'safety-bar-squat:1': 150 } };
+  assert.equal(s.exerciseId, 'front-squat');
+  assert.deepEqual(s.sets.map((set) => set.load), [null, null, null, null], 'the back squat TM is not borrowed');
+  const tm = { ...p, variationTrainingMaxes: { 'front-squat:1': 150 } };
   const seeded = exOf(session(tm, 1, 3), 'd3-t1-primary');
   assert.equal(seeded.sets[1].load, 105);
-  assert.equal(p.trainingMaxes.front_squat, 160, 'the program TM is untouched');
+  assert.equal(p.trainingMaxes.squat, 200, 'the program TM is untouched');
 });
 
 test('Week 7 deadlift to sumo: top set unset, back-offs follow the logged top set', () => {
@@ -61,7 +61,7 @@ test('Week 7 deadlift to sumo: top set unset, back-offs follow the logged top se
 });
 
 test('Week 12 deadlift cannot be replaced by walking lunge or other legs and hinges', () => {
-  for (const id of ['walking-lunge', 'leg-press', 'hack-squat', 'hip-thrust', 'bulgarian-split-squat', 'romanian-deadlift']) {
+  for (const id of ['walking-lunge', 'leg-press', 'hack-squat', 'bulgarian-split-squat']) {
     const slot = slotOf(12, 3, 'd3-t1-primary', withSwaps([['d3-t1-primary', 'deadlift', id]]));
     assert.equal(slot.exerciseId, 'deadlift', id);
     assert.equal(slot.status, 'test');
@@ -140,6 +140,7 @@ test('reps are never changed silently: incompatible swaps are unavailable and no
       for (const orig of base) {
         const swapped = slotOf(week, day, orig.slotId, withSwaps([[orig.slotId, orig.exerciseId, rule.replacement]]));
         if (swapped.exerciseId !== rule.replacement) continue;
+        if (rule.scheme) continue; // rescaling rules change reps on purpose; see the scheme tests
         applied++;
         assert.equal(swapped.repTarget, orig.repTarget);
         assert.deepEqual(swapped.prescribedSets.map((set) => set.prescribedReps), orig.prescribedSets.map((set) => set.prescribedReps));

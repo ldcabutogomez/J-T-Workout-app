@@ -215,6 +215,8 @@ export interface LoggedSet {
 }
 
 export interface LoggedExercise {
+  /** True for an exercise the lifter added themselves. It has no program slot and never affects completion or credit. */
+  isExtra?: true;
   slotId: string;
   exerciseId: string;
   tier: TierType;

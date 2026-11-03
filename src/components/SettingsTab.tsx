@@ -297,7 +297,7 @@ function FlairPicker({ profile, onUpdateProfile, level }: { profile: UserProfile
   );
 }
 
-const DAY_NAMES = ['Day 1 · Squat', 'Day 2 · Bench', 'Day 3 · Front Squat / Deadlift', 'Day 4 · Military Press'];
+const DAY_NAMES = ['Day 1 · Squat', 'Day 2 · Bench', 'Day 3 · Back Squat / Deadlift', 'Day 4 · Military Press'];
 
 function TrainingDays({ profile, onUpdateProfile }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void }) {
   const schedule = profile.schedule ?? defaultSchedule(profile);

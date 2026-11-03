@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { e1rmSeries, estimateOneRepMax, trendableExercises, volumeByWeek } from '../src/engine/trends';
+import {
+  activityDays,
+  analyticsInsights,
+  analyticsSummary,
+  analyticsVolumeByWeek,
+  analyticsWindow,
+  e1rmSeries,
+  estimateOneRepMax,
+  prsByWeek,
+  trendableExercises,
+  volumeByWeek,
+  workoutDurationSeries,
+} from '../src/engine/trends';
 import { NOTE_MAX, cleanNote, setExerciseNote, setSessionNote } from '../src/engine/sessionEngine';
 import { StorageService } from '../src/storage/db';
 import type { WorkoutSession } from '../src/types';
@@ -78,6 +90,59 @@ test('trendable exercises list only lifts with data', () => {
   const list = trendableExercises([lift('a', MONDAY, 100, 5), lift('b', MONDAY + DAY, 100, 5)], 'lb');
   assert.deepEqual(list.map((i) => [i.id, i.points]), [[first.exerciseId, 2]]);
   assert.deepEqual(trendableExercises([], 'lb'), []);
+});
+
+test('analytics ranges use complete local calendar weeks and compare the preceding equal period', () => {
+  const now = MONDAY + 23 * DAY; // Wednesday in the fourth selected week.
+  const previous = lift('previous', MONDAY - 7 * DAY, 90, 5);
+  const currentA = lift('current-a', MONDAY, 100, 5);
+  const currentB = lift('current-b', MONDAY + 21 * DAY, 110, 5);
+  const history = [currentB, previous, currentA];
+  const window = analyticsWindow('4w', history, now);
+  assert.equal(window.start, MONDAY - 9 * 60 * 60 * 1000, 'range begins at local Monday midnight');
+  assert.equal(window.previousEnd, window.start);
+  const summary = analyticsSummary(history, 'lb', '4w', now);
+  assert.equal(summary.current.workouts, 2);
+  assert.equal(summary.previous?.workouts, 1);
+  assert.equal(summary.current.volume, 1050, '100x5 plus 110x5');
+  assert.equal(summary.previous?.volume, 450);
+  assert.equal(summary.current.prs, 2, 'both current lifts beat the earlier benchmark');
+  assert.equal(analyticsWindow('all', history, now).previousStart, undefined);
+});
+
+test('activity heatmap fills days, groups same-day workouts and marks only later dates as future', () => {
+  const now = MONDAY + 23 * DAY;
+  const sameDay = MONDAY + 22 * DAY;
+  const days = activityDays([lift('a', sameDay, 100, 5), lift('b', sameDay + 60_000, 105, 5)], '4w', now);
+  assert.equal(days.length, 28);
+  assert.equal(days.find((day) => day.at === new Date(2024, 5, 4).setHours(0, 0, 0, 0))?.count, 2);
+  assert.equal(days.filter((day) => day.future).length, 4, 'Thursday through Sunday are future cells');
+  assert.equal(days.find((day) => day.at === new Date(now).setHours(0, 0, 0, 0))?.future, false, 'today is not future');
+});
+
+test('weekly analytics include empty weeks, PR counts and only timestamp-backed duration points', () => {
+  const now = MONDAY + 23 * DAY;
+  const firstLift = lift('a', MONDAY, 100, 5);
+  const secondLift = lift('b', MONDAY + 7 * DAY, 110, 5);
+  secondLift.exercises[0].sets.push({ ...structuredClone(secondLift.exercises[0].sets[0]), setId: 'timed-2', timestamp: secondLift.completedTime! - 5 * 60_000 });
+  secondLift.exercises[0].sets[0].timestamp = secondLift.completedTime! - 35 * 60_000;
+  const history = [firstLift, secondLift];
+  assert.deepEqual(analyticsVolumeByWeek(history, 'lb', '4w', now).map((point) => point.value), [500, 1100, 0, 0]);
+  assert.deepEqual(prsByWeek(history, '4w', now).map((point) => point.value), [0, 1, 0, 0]);
+  assert.deepEqual(workoutDurationSeries(history, '4w', now).map((point) => point.value), [30]);
+  const summary = analyticsSummary(history, 'lb', '4w', now);
+  assert.equal(summary.current.averageDurationMinutes, 30);
+  assert.equal(summary.current.durationCoverage, 1);
+});
+
+test('insights are deterministic, label estimated strength and handle an empty history', () => {
+  const now = MONDAY + 23 * DAY;
+  const history = [lift('old', MONDAY - 7 * DAY, 90, 5), lift('a', MONDAY, 100, 5), lift('b', MONDAY + 21 * DAY, 110, 5)];
+  const insights = analyticsInsights(history, 'lb', 2, '4w', now);
+  assert.equal(insights[0].kind, 'volume');
+  assert.ok(insights.some((insight) => insight.kind === 'strength' && /Estimated 1RM/.test(insight.body)));
+  assert.ok(insights.some((insight) => insight.kind === 'consistency'));
+  assert.equal(analyticsInsights([], 'lb', 4, '12w', now)[0].kind, 'start');
 });
 
 test('notes are cleaned, capped, set on one exercise, and cleared when empty', () => {

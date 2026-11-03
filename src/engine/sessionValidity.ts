@@ -1,3 +1,4 @@
+import { isExtra } from './extras';
 import type { WorkoutSession } from '../types';
 
 /** A real, fully completed session: the only kind that supports rewards and completion claims. */
@@ -18,7 +19,8 @@ export function weekStart(timestamp: number): number {
   return d.getTime();
 }
 
-const loggedSets = (session: WorkoutSession) => session.exercises.flatMap((exercise) => exercise.sets);
+// Extras are the lifter's own additions: they never count toward whether a workout is finished or its weekly credit.
+const loggedSets = (session: WorkoutSession) => session.exercises.filter((exercise) => !isExtra(exercise)).flatMap((exercise) => exercise.sets);
 
 export const completedSetCount = (session: WorkoutSession) => loggedSets(session).filter((set) => set.completed).length;
 export const plannedSetCount = (session: WorkoutSession) => loggedSets(session).length;

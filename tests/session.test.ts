@@ -29,9 +29,9 @@ test('missing and invalid block training maxes prevent session generation', () =
   assert.ok(t2a.sets.every((set) => set.load !== null), 'Block 2 T2a loads are filled from the Block 1 TM');
 
   // Still missing (and still blocking) when neither block has a value for the lift.
-  const neither = profile({ trainingMaxes: { squat: 200, bench: 180, deadlift: 300, ohp: 120 }, block2ConfirmedTMs: { squat: 210 } });
-  assert.deepEqual(missingTrainingMaxes(getDayPrescription(7, 3, neither), neither), ['Block 2 front squat TM']);
-  assert.throws(() => createWorkoutSession(neither, getDayPrescription(7, 3, neither)), /front squat TM/);
+  const neither = profile({ trainingMaxes: { bench: 180, deadlift: 300, ohp: 120 }, block2ConfirmedTMs: {} });
+  assert.deepEqual(missingTrainingMaxes(getDayPrescription(7, 3, neither), neither), ['Block 2 squat TM']);
+  assert.throws(() => createWorkoutSession(neither, getDayPrescription(7, 3, neither)), /squat TM/);
 
   const invalid = profile({ trainingMaxes: { ...profile().trainingMaxes, deadlift: Number.NaN } });
   assert.throws(() => createWorkoutSession(invalid, getDayPrescription(1, 1, invalid)), /deadlift TM/);

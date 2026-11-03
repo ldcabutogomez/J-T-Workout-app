@@ -7,7 +7,8 @@ React + TypeScript PWA (Vite). Commands: `npm run dev`, `npx tsc --noEmit`, `npm
 - Swaps are explicit pairs in `SWAP_RULES` (`src/program/swapOptions.ts`). Every rule needs a `fit` (`direct`, `conditional`, `different`). Never infer compatibility from group membership. `different` pairs are shown but never applied.
 - Never convert load between different exercises (no load factors). A swapped-in exercise suggests a load only from its own logged history.
 - A swapped main lift keeps the day's sets, reps and percentages but never the program lift's training max. Block 1 uses `profile.variationTrainingMaxes` (`${exerciseId}:${block}`); Block 2 back-offs follow the logged target-RM set. The deadlift offers only Sumo, Trap Bar and Rack Pull.
-- Reps are never changed silently. A rule's `reps` range is a compatibility check against the slot's initial target; outside it the option is unavailable that week.
+- Reps are never changed silently. A rule's `reps` range is a compatibility check against the slot's initial target; outside it the option is unavailable that week. The one exception is a rule with an explicit `scheme` (deadlift to Romanian Deadlift or Hip Thrust): it rescales sets and reps, the picker says so, and it is unavailable on 1RM test weeks.
+- Day 3 programs Back Squat (Block 1 T1, Block 2 T2a) on the `squat` TM; Front Squat is only a swap option on Back Squat slots, with its own variation TM. This deliberately differs from the workbook, and `tests/workbookExpectations.ts` says so.
 - Duplicates are settled by `resolveDaySwaps` on final exercise ids, used by both the engine and the picker. Earlier slot wins; the loser keeps the program exercise with a `swapReview`. Program-intended repeats (EZ Bar Curl, Day 3 Block 2) are never touched.
 - Completed sets are never relabeled: `swapExercise` refuses once any set in the slot is completed, and clears all unlogged loads otherwise.
 - Historical sessions, snapshots and calendar labels never depend on the profile's current swaps.
@@ -24,3 +25,10 @@ React + TypeScript PWA (Vite). Commands: `npm run dev`, `npx tsc --noEmit`, `npm
 - `loadNotationFor` classifies by exercise name. Ambiguous ones (for example walking lunge) read as "notation not recorded". That fallback is an assumption.
 - A later swap can be rejected when an earlier slot's unswapped exercise happens to match it.
 - Rep ranges and the fit classification of each pair are programming judgment, not measured data.
+
+## Added exercises ("extras")
+
+- An extra is an exercise the lifter adds to a workout (`LoggedExercise.isExtra`, slot id `extra-<exerciseId>`, straight sets, empty `sourceRefs`). It lives only in `session.exercises`, never in `prescriptionSnapshot`; the validator enforces this.
+- Extras must never affect completion or credit: use `programExercises(session)` (`src/engine/extras.ts`) for anything about "is the workout finished", `sessionCredit`, progress bars, nudges and the live-workout count. `finalizeSession` drops unlogged extra sets and empty extras.
+- An extra's heaviest logged set stands for it in PRs, "last time" and records (`findTopSet`). Its id is `slug(name)`, so it shares history with the same exercise anywhere in the app.
+- Extras have no swap menu, warm-up or workbook source.

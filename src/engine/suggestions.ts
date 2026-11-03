@@ -1,3 +1,4 @@
+import { findTopSet } from './extras';
 import type { LoadNotation, ProgramSetPrescription, TrainingMaxKey, UserProfile, WeightUnit, WorkoutSession } from '../types';
 import { normalizeWeight, resolveTrainingMax, roundLoad } from './jnt2Engine';
 
@@ -46,9 +47,7 @@ export function suggestFromHistory(
   for (const session of usableHistory(history)) {
     for (const exercise of session.exercises) {
       if (exercise.exerciseId !== exerciseId) continue;
-      const top = exercise.sets.find((set) => set.completed
-        && (set.type === 'rm_target' || set.type === 'test')
-        && set.load !== null && set.actualReps !== null && set.actualReps > 0 && set.load > 0);
+      const top = findTopSet(exercise, (set) => set.completed && set.load !== null && set.actualReps !== null && set.actualReps > 0 && set.load > 0);
       if (!top || top.load === null || top.actualReps === null) continue;
       const load = normalizeWeight(top.load, top.unit, unit);
       const oneRm = load * (1 + top.actualReps / 30);
@@ -72,9 +71,7 @@ export function lastLoggedFor(exerciseId: string, history: WorkoutSession[]): La
   for (const session of usableHistory(history)) {
     for (const exercise of session.exercises) {
       if (exercise.exerciseId !== exerciseId) continue;
-      const top = exercise.sets.find((set) => set.completed
-        && (set.type === 'rm_target' || set.type === 'test')
-        && set.load !== null && set.actualReps !== null && set.actualReps > 0 && set.load > 0);
+      const top = findTopSet(exercise, (set) => set.completed && set.load !== null && set.actualReps !== null && set.actualReps > 0 && set.load > 0);
       if (!top || top.load === null || top.actualReps === null) continue;
       return { load: top.load, reps: top.actualReps, unit: top.unit, completedAt: session.completedTime ?? session.startTime, notation: exercise.loadNotation ?? 'unspecified' };
     }

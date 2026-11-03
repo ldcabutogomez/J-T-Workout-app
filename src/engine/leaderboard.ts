@@ -5,6 +5,7 @@ import { liftOf, nextWorkout, defaultSchedule, fromDateKey, isWeekCode, todayKey
 import { countResults, deriveHighlights, streakFromCounts } from './achievements';
 import { normalizeWeight } from './jnt2Engine';
 import { levelFor } from './xp';
+import { programExercises } from './extras';
 import { historyForCycle, profileCycleId } from './cycles';
 import { batteryDebuff } from './debuff';
 import { flairById, tauntText, type Taunt } from '../lib/perks';
@@ -203,11 +204,12 @@ function liveFields(profile: UserProfile, history: WorkoutSession[], now: number
   if (next) out.today = { week: next.week, day: next.day, lift: liftOf(next.week, next.day, profile).slice(0, 40) };
   out.weekCodes = weekCodes(schedule, cycleHistory, today);
   if (active && !active.isEditingCompleted && active.status === 'active') {
-    const sets = active.exercises.flatMap((exercise) => exercise.sets);
+    // Progress is about the program's own sets; an exercise the lifter added doesn't move it.
+    const sets = programExercises(active).flatMap((exercise) => exercise.sets);
     out.workout = {
       week: active.week,
       day: active.day,
-      lift: (active.exercises[0]?.exerciseName ?? liftOf(active.week, active.day, profile)).slice(0, 40),
+      lift: (programExercises(active)[0]?.exerciseName ?? liftOf(active.week, active.day, profile)).slice(0, 40),
       done: sets.filter((set) => set.completed).length,
       total: sets.length,
       updatedAt: now,

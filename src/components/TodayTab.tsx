@@ -1,3 +1,5 @@
+import { AddExerciseSheet } from './AddExerciseSheet';
+import { programExercises } from '../engine/extras';
 import { PlateCalculatorModal } from './PlateCalculatorModal';
 import { setInputProblem } from '../lib/setInput';
 import React, { useEffect, useRef, useState } from 'react';
@@ -23,6 +25,13 @@ import { fromDateKey, type NextWorkout } from '../engine/schedule';
 import type { CoachMessage } from '../engine/coach';
 
 interface TodayTabProps {
+  /** Exercises the lifter adds to the workout themselves. */
+  extras?: {
+    onAdd: (name: string) => Promise<boolean>;
+    onAddSet: (slotId: string) => void;
+    onRemoveSet: (slotId: string, setId: string) => void;
+    onRemove: (slotId: string) => void;
+  };
   /** Opens the new-cycle flow; offered once the 12 weeks are done. */
   onStartNewCycle?: () => void;
   profile: UserProfile | null;
@@ -60,6 +69,7 @@ function formatSources(refs: SourceReference[]): string {
 }
 
 export function TodayTab({
+  extras,
   onStartNewCycle,
   profile,
   activeSession,
@@ -89,6 +99,7 @@ export function TodayTab({
   const [showHelp, setShowHelp] = useState(false);
   // The weight the plate calculator is open for, or null when it is closed.
   const [plateTarget, setPlateTarget] = useState<number | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [reopened, setReopened] = useState<Record<string, boolean>>({});
   // The load currently typed into each T1 exercise's first (RM) set, so the warm-up ramp follows it.
   const [topDraft, setTopDraft] = useState<Record<string, number | ''>>({});
@@ -172,6 +183,7 @@ export function TodayTab({
     );
   }
 
+  const programCount = programExercises(activeSession).length;
   let currentSetId: string | undefined;
   for (const exercise of activeSession.exercises) {
     const next = exercise.sets.find((set) => !set.completed && !(exercise.manualLoadDecisionPending && set.type === 'backoff'));
@@ -195,7 +207,8 @@ export function TodayTab({
       {activeSession.exercises.map((exercise, exerciseIndex) => {
         const isActive = exercise.sets.some((set) => set.setId === currentSetId);
         const tierColor = exercise.tier === 'T1' ? 'var(--color-accent)' : exercise.tier.startsWith('T2') ? 'var(--color-ink-2, var(--color-ink))' : 'var(--color-muted, var(--color-line))';
-        const finished = exercise.sets.length > 0 && exercise.sets.every((set) => set.completed);
+        // An added exercise stays open so another set can always be added.
+        const finished = !exercise.isExtra && exercise.sets.length > 0 && exercise.sets.every((set) => set.completed);
         if (finished && !reopened[exercise.slotId]) {
           return (
             <section key={exercise.slotId} className="bg-surface/60 border border-ok/40 rounded-2xl animate-pop">
@@ -213,14 +226,14 @@ export function TodayTab({
         return (
         <section key={exercise.slotId} style={{ '--tier-color': tierColor } as React.CSSProperties} className={`exercise-card ${isActive ? 'exercise-card-active' : ''} ${exercise.manualLoadDecisionPending ? 'exercise-card-alert' : ''}`}>
           <div className="exercise-head">
-            <p className="text-xs font-bold uppercase tracking-wider text-muted mb-1">Exercise {exerciseIndex + 1} of {activeSession.exercises.length}</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-muted mb-1">{exercise.isExtra ? 'Added by you' : `Exercise ${exerciseIndex + 1} of ${programCount}`}</p>
             {finished && <button onClick={() => setReopened((value) => ({ ...value, [exercise.slotId]: false }))} className="mb-2 min-h-11 px-3 rounded-xl bg-sunk text-xs font-bold text-ink-2">Hide completed exercise</button>}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-black px-2 py-0.5 rounded bg-sunk text-accent-ink">{exercise.tier}</span>
+              <span className="text-xs font-black px-2 py-0.5 rounded bg-sunk text-accent-ink">{exercise.isExtra ? 'Extra' : exercise.tier}</span>
               <h2 className="font-black text-ink">{exercise.exerciseName}</h2>
               {exercise.status !== 'work' && <span className="text-xs uppercase text-muted">{exercise.status}</span>}
             </div>
-            <ExerciseSwap slot={exercise} profile={profile} history={history} onSetVariationTm={onSetVariationTm} onClearLoads={onClearLoads} siblings={activeSession.exercises.filter((other) => other.slotId !== exercise.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} locked={activeSession.isEditingCompleted || exercise.sets.some((set) => set.completed)} lockedReason={activeSession.isEditingCompleted ? 'Swaps are disabled while editing history.' : 'Completed sets stay attached to this exercise, so it cannot be replaced now. Undo them to swap it.'} onSwap={onSwapExercise} />
+            {!exercise.isExtra && <ExerciseSwap slot={exercise} profile={profile} history={history} onSetVariationTm={onSetVariationTm} onClearLoads={onClearLoads} siblings={activeSession.exercises.filter((other) => other.slotId !== exercise.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} locked={activeSession.isEditingCompleted || exercise.sets.some((set) => set.completed)} lockedReason={activeSession.isEditingCompleted ? 'Swaps are disabled while editing history.' : 'Completed sets stay attached to this exercise, so it cannot be replaced now. Undo them to swap it.'} onSwap={onSwapExercise} />}
             {exercise.notes && <p className="text-xs text-muted mt-1">{exercise.notes}</p>}
           </div>
 
@@ -241,13 +254,23 @@ export function TodayTab({
           {exercise.sets.length === 0 ? (
             <div className="rounded-2xl bg-paper/60 border border-line p-3 text-xs text-muted">No logged sets for this {exercise.status} slot.</div>
           ) : exercise.sets.map((set, index) => (
-            <SetRow key={set.setId} large={profile.largeGymMode === true} onPlates={setPlateTarget} set={set} setNumber={index + 1} unit={set.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} onLoadChange={index === 0 && exercise.tier === 'T1' ? (value) => setTopDraft((drafts) => (drafts[exercise.slotId] === value ? drafts : { ...drafts, [exercise.slotId]: value })) : undefined} isCurrent={set.setId === currentSetId} context={set.completed || (set.type !== 'rm_target' && set.type !== 'test') ? undefined : contextLine(exercise.exerciseId, set.prescribedReps, history, set.unit, activeSession.sessionId)} disabled={Boolean(exercise.manualLoadDecisionPending && set.type === 'backoff')} onLog={(reps, load, rir, declined) => onLogSet(exercise.slotId, set.setId, reps, load, rir, declined)} onUndo={() => onUndoSet(exercise.slotId, set.setId)} />
+            <SetRow key={set.setId} extra={exercise.isExtra === true} onRemove={exercise.isExtra && extras && !set.completed && exercise.sets.length > 1 ? () => extras.onRemoveSet(exercise.slotId, set.setId) : undefined} large={profile.largeGymMode === true} onPlates={setPlateTarget} set={set} setNumber={index + 1} unit={set.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} onLoadChange={index === 0 && exercise.tier === 'T1' ? (value) => setTopDraft((drafts) => (drafts[exercise.slotId] === value ? drafts : { ...drafts, [exercise.slotId]: value })) : undefined} isCurrent={set.setId === currentSetId} context={set.completed || (set.type !== 'rm_target' && set.type !== 'test') ? undefined : contextLine(exercise.exerciseId, set.prescribedReps, history, set.unit, activeSession.sessionId)} disabled={Boolean(exercise.manualLoadDecisionPending && set.type === 'backoff')} onLog={(reps, load, rir, declined) => onLogSet(exercise.slotId, set.setId, reps, load, rir, declined)} onUndo={() => onUndoSet(exercise.slotId, set.setId)} />
           ))}
           {onExerciseNote && <NoteField label="Exercise note" value={exercise.userNote ?? ''} onSave={(text) => onExerciseNote(exercise.slotId, text)} />}
-          <SourceDetails refs={exercise.sourceRefs} />
+          {exercise.isExtra && extras && (
+            <div className="flex gap-2">
+              <button type="button" onClick={() => extras.onAddSet(exercise.slotId)} className="btn-secondary flex-1">Add set</button>
+              {!exercise.sets.some((set) => set.completed) && <button type="button" onClick={() => extras.onRemove(exercise.slotId)} className="btn-danger" aria-label={`Remove ${exercise.exerciseName}`}>Remove</button>}
+            </div>
+          )}
+          {!exercise.isExtra && <SourceDetails refs={exercise.sourceRefs} />}
         </section>
         );
       })}
+
+      {extras && (
+        <button type="button" onClick={() => setAddOpen(true)} className="btn-secondary w-full">Add exercise</button>
+      )}
 
       {onSessionNote && <section className="card p-4"><NoteField label="Workout note" value={activeSession.note ?? ''} onSave={onSessionNote} /></section>}
 
@@ -257,6 +280,7 @@ export function TodayTab({
         <button onClick={onCompleteWorkout} className="min-h-12 bg-ok text-on-accent rounded-2xl text-xs font-black uppercase">{activeSession.isEditingCompleted ? 'Save edits' : 'Finish'}</button>
       </section>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {addOpen && extras && <AddExerciseSheet history={history} existingIds={activeSession.exercises.map((item) => item.exerciseId)} onAdd={extras.onAdd} onClose={() => setAddOpen(false)} />}
       <PlateCalculatorModal isOpen={plateTarget !== null} onClose={() => setPlateTarget(null)} targetWeight={plateTarget ?? 0} barbellWeight={activeSession.settingsSnapshot.barbellWeight} unit={activeSession.settingsSnapshot.unit} />
     </div>
   );
@@ -310,7 +334,7 @@ function ExerciseSwap({ slot, profile, history, siblings = [], locked = false, l
                 <optgroup key={fit} label={label}>
                   {items.map((item) => {
                     const why = reasonOf(item);
-                    return <option key={item.id} value={item.id} disabled={Boolean(item.disabledReason)} title={item.disabledReason}>{item.name}{why ? ` (${why})` : ''}</option>;
+                    return <option key={item.id} value={item.id} disabled={Boolean(item.disabledReason)} title={item.disabledReason ?? item.schemeSummary}>{item.name}{why ? ` (${why})` : ''}{item.schemeSummary && !why ? ' (rescaled sets and reps)' : ''}</option>;
                   })}
                 </optgroup>
               );
@@ -324,6 +348,7 @@ function ExerciseSwap({ slot, profile, history, siblings = [], locked = false, l
           {options.alternatives.filter((item) => item.disabledReason && item.fit !== 'different').map((item) => <li key={item.id}>{item.name}: {item.disabledReason}</li>)}
         </ul>
       )}
+      {selected?.schemeSummary && <p className="mt-1 text-xs text-muted">{selected.schemeSummary}.</p>}
       {selected?.note && <p className="mt-1 text-xs text-muted">{selected.note}</p>}
       {slot.swappedFrom && !locked && <p className="mt-1 text-xs text-muted">Swapped from {slot.swappedFrom.exerciseName}. Remembered for this slot while it is the same program exercise. Loads here come only from {slot.exerciseName}'s own history.</p>}
       {variation && onSetVariationTm && (
@@ -405,7 +430,8 @@ function WeekCard({ profile, streak, battery }: { profile: UserProfile; streak: 
 }
 
 function SessionProgress({ session }: { session: WorkoutSession }) {
-  const sets = session.exercises.flatMap((exercise) => exercise.sets);
+  // The bar is about the program's own sets; extras the lifter adds don't move it.
+  const sets = programExercises(session).flatMap((exercise) => exercise.sets);
   const done = sets.filter((set) => set.completed).length;
   if (!sets.length) return null;
   const pct = Math.round((done / sets.length) * 100);
@@ -422,7 +448,7 @@ function SessionProgress({ session }: { session: WorkoutSession }) {
   );
 }
 
-function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context, large = false, onPlates, onLoadChange, onLog, onUndo }: {
+function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context, large = false, onPlates, onRemove, extra = false, onLoadChange, onLog, onUndo }: {
   set: LoggedSet;
   setNumber: number;
   unit: 'lb' | 'kg';
@@ -434,6 +460,10 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
   large?: boolean;
   /** Opens the plate calculator for the typed load. */
   onPlates?: (weight: number) => void;
+  /** Set only for an added exercise's unlogged set: takes that set out again. */
+  onRemove?: () => void;
+  /** An added exercise's set: no prescribed target to show. */
+  extra?: boolean;
   onLoadChange?: (value: number | '') => void;
   onLog: (reps: number, load: number, rir: number, declined?: boolean) => void;
   onUndo: () => void;
@@ -474,7 +504,8 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
       {isCurrent && <p className="mb-1 text-xs font-black uppercase tracking-wider text-accent-ink">Up next</p>}
       {context && <p className="mb-2 text-xs text-muted">{context}</p>}
       <div className="flex justify-between gap-2 items-center mb-2">
-        <div className="text-xs"><strong>Set {setNumber}</strong> <span className="text-muted">{set.type === 'mrs' ? 'MRS · reps may decline' : `target ${set.prescribedReps}${set.isAmrap ? '+' : ''}`}</span></div>
+        <div className="text-xs"><strong>Set {setNumber}</strong> <span className="text-muted">{extra ? 'your set' : set.type === 'mrs' ? 'MRS · reps may decline' : `target ${set.prescribedReps}${set.isAmrap ? '+' : ''}`}</span></div>
+        {onRemove && <button type="button" onClick={onRemove} className="min-h-9 rounded-lg px-2 text-xs font-bold text-muted underline underline-offset-2" aria-label={`Remove set ${setNumber}`}>Remove set</button>}
         {set.isAmrap && <span className="text-xs px-2 py-0.5 rounded bg-bad/10 text-bad">optional rep-out</span>}
       </div>
       <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">

@@ -18,7 +18,6 @@ export const REQUIRED_TRAINING_MAXES: Array<{ key: TrainingMaxKey; label: string
   { key: 'bench', label: 'Bench Press' },
   { key: 'deadlift', label: 'Deadlift' },
   { key: 'ohp', label: 'Military Press' },
-  { key: 'front_squat', label: 'Front Squat' },
 ];
 
 export function roundLoad(value: number, increment: number): number {

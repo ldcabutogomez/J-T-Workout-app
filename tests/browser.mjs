@@ -24,7 +24,7 @@ try {
   const block1 = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Block 1 training maxes' }) });
   await block1.getByRole('button', { name: /Edit/ }).click();
   const tmInputs = block1.locator('input[type="number"]');
-  for (const [index, value] of ['200', '180', '300', '120', '160'].entries()) await tmInputs.nth(index).fill(value);
+  for (const [index, value] of ['200', '180', '300', '120'].entries()) await tmInputs.nth(index).fill(value);
   await block1.getByRole('button', { name: /Save/ }).click();
   await page.getByText('Block 1 TMs confirmed').waitFor();
   await assertNoHorizontalClipping(page, 'Program screen');
@@ -92,6 +92,15 @@ try {
   await page.keyboard.press('Escape');
   await summary.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Progress' }).click();
+  await page.getByRole('heading', { name: 'Progress analytics' }).waitFor();
+  assert.equal(await page.getByRole('radio', { name: '12 weeks' }).getAttribute('aria-checked'), 'true', 'analytics opens on the cycle-sized range');
+  await page.getByRole('heading', { name: 'Training activity' }).waitFor();
+  await page.getByRole('heading', { name: 'Training trends' }).waitFor();
+  await page.getByRole('heading', { name: 'Training insights' }).waitFor();
+  await page.getByRole('radio', { name: '4 weeks' }).click();
+  assert.equal(await page.getByRole('radio', { name: '4 weeks' }).getAttribute('aria-checked'), 'true');
+  await page.getByRole('radio', { name: 'Volume', exact: true }).click();
+  await page.getByText('Completed-workout volume by calendar week').waitFor();
   await page.getByText('Week 1 · Day 1').waitFor();
   await page.getByText('completed', { exact: true }).waitFor();
   await assertNoHorizontalClipping(page, 'Progress screen');
@@ -257,7 +266,7 @@ try {
   await pp.getByRole('button', { name: 'Program' }).click();
   const pBlock1 = pp.locator('section').filter({ has: pp.getByRole('heading', { name: 'Block 1 training maxes' }) });
   await pBlock1.getByRole('button', { name: /Edit/ }).click();
-  for (const [index, value] of ['200', '180', '300', '120', '160'].entries()) await pBlock1.locator('input[type="number"]').nth(index).fill(value);
+  for (const [index, value] of ['200', '180', '300', '120'].entries()) await pBlock1.locator('input[type="number"]').nth(index).fill(value);
   await pBlock1.getByRole('button', { name: /Save/ }).click();
   await pp.getByText('Block 1 TMs confirmed').waitFor();
   await pp.getByRole('button', { name: 'Today' }).click();
@@ -391,7 +400,7 @@ try {
   await ooo.getByRole('button', { name: 'Program' }).click();
   const oooBlock1 = ooo.locator('section').filter({ has: ooo.getByRole('heading', { name: 'Block 1 training maxes' }) });
   await oooBlock1.getByRole('button', { name: /Edit/ }).click();
-  for (const [index, value] of ['200', '180', '300', '120', '160'].entries()) await oooBlock1.locator('input[type="number"]').nth(index).fill(value);
+  for (const [index, value] of ['200', '180', '300', '120'].entries()) await oooBlock1.locator('input[type="number"]').nth(index).fill(value);
   await oooBlock1.getByRole('button', { name: /Save/ }).click();
   await ooo.getByText('Block 1 TMs confirmed').waitFor();
   await ooo.getByRole('button', { name: 'Move Week 1 Day 3' }).click();

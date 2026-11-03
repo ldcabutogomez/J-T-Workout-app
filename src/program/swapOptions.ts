@@ -1,4 +1,4 @@
-import type { ExerciseSlotPrescription, LoadBasis, SlotStatus, SwappedFrom, SwapReview, TierType } from '../types';
+import type { ExerciseSlotPrescription, LoadBasis, ProgramSetPrescription, SlotStatus, SwappedFrom, SwapReview, TierType } from '../types';
 import { slug } from '../lib/slug';
 
 /**
@@ -30,7 +30,7 @@ export const EXERCISES: Record<string, { name: string; bodyweight?: boolean }> =
   'incline-db-press': { name: 'Incline DB Press' }, 'cable-fly': { name: 'Cable Fly' }, 'db-fly': { name: 'DB Fly' },
   'cable-chest-press': { name: 'Cable Chest Press' }, 'db-pullover': { name: 'DB Pullover' },
   'hip-thrust': { name: 'Hip Thrust' }, 'romanian-deadlift': { name: 'Romanian Deadlift' }, 'bulgarian-split-squat': { name: 'Bulgarian Split Squat' },
-  'step-ups': { name: 'Step-Ups' }, 'goblet-squat': { name: 'Goblet Squat' }, 'walking-lunge': { name: 'Walking Lunge' },
+  'step-ups': { name: 'Step-Ups' }, 'goblet-squat': { name: 'Goblet Squat' }, 'front-squat': { name: 'Front Squat' }, 'walking-lunge': { name: 'Walking Lunge' },
   'glute-kickback': { name: 'Glute Kickback' }, 'hip-abduction': { name: 'Hip Abduction' },
   'pull-ups': { name: 'Pull-Ups', bodyweight: true }, 'inverted-row': { name: 'Inverted Row', bodyweight: true }, 'one-arm-db-row': { name: 'One-Arm DB Row' },
   'cable-lateral-raise': { name: 'Cable Lateral Raise' }, 'upright-row': { name: 'Upright Row' },
@@ -49,6 +49,24 @@ export interface SwapRule {
    * reps are never changed behind the lifter's back, so a swap outside the range is unavailable that week.
    */
   reps?: { min: number; max: number };
+  /**
+   * Rescales the day's sets and reps to a different kind of lift, so the work stays comparable to the program lift
+   * (a heavy low-rep deadlift scheme is the wrong stimulus for a hip thrust). It replaces the `reps` compatibility
+   * check, and the picker shows it, so reps never change silently.
+   */
+  scheme?: VolumeScheme;
+}
+
+/** Heavier lifts run low reps; hinge and glute work runs higher reps and more sets for similar total work. */
+export interface VolumeScheme {
+  repScale: number;
+  minReps: number;
+  maxReps: number;
+  /** Multiplies the back-off set count. */
+  setScale: number;
+  minBackoffs: number;
+  /** Shown in the picker, e.g. "Rescaled to about 8-12 reps and more sets". */
+  summary: string;
 }
 
 const D = 'direct' as const;
@@ -61,6 +79,7 @@ export const SWAP_RULES: SwapRule[] = [
   { original: 'back-squat', replacement: 'belted-squat', fit: C, note: 'Belt-supported squat: a different load than the back squat.' },
   { original: 'back-squat', replacement: 'safety-bar-squat', fit: C, note: 'A different bar position changes how heavy it feels.' },
   { original: 'back-squat', replacement: 'box-squat', fit: C, note: 'The box changes depth and the stretch at the bottom.' },
+  { original: 'back-squat', replacement: 'front-squat', fit: C, note: 'A more upright squat limited by the upper back, so loads run lower.' },
   { original: 'bench-press', replacement: 'pause-bench-press', fit: D },
   { original: 'bench-press', replacement: 'spoto-press', fit: D },
   { original: 'bench-press', replacement: 'sling-shot-bench', fit: C, note: 'The sling assists the press, so loads run higher.' },
@@ -70,6 +89,10 @@ export const SWAP_RULES: SwapRule[] = [
   { original: 'deadlift', replacement: 'sumo-deadlift', fit: D },
   { original: 'deadlift', replacement: 'trap-bar-deadlift', fit: C, note: 'A different handle position changes how heavy it feels.' },
   { original: 'deadlift', replacement: 'rack-pull', fit: C, note: 'Starts above the floor, so loads run higher.' },
+  { original: 'deadlift', replacement: 'romanian-deadlift', fit: C, note: 'A hinge with no floor pull. Reps and sets are rescaled to keep the work comparable.',
+    scheme: { repScale: 1.5, minReps: 6, maxReps: 10, setScale: 1, minBackoffs: 3, summary: 'Rescaled to about 6-10 reps per set at a lighter relative load' } },
+  { original: 'deadlift', replacement: 'hip-thrust', fit: C, note: 'Glute-focused hip extension. Reps and sets are rescaled to keep the work comparable.',
+    scheme: { repScale: 2, minReps: 8, maxReps: 12, setScale: 1.25, minBackoffs: 3, summary: 'Rescaled to about 8-12 reps and more sets at a lighter relative load' } },
   { original: 'military-press', replacement: 'seated-military-press', fit: D },
   { original: 'military-press', replacement: 'push-press', fit: C, note: 'Leg drive assists the press.' },
   { original: 'sling-shot-bench', replacement: 'bench-press', fit: C, note: 'No sling assistance, so loads run lower.' },
@@ -155,6 +178,8 @@ export interface SwapAlternative {
   fit: SwapFit;
   note?: string;
   reps?: { min: number; max: number };
+  /** Set when choosing this rescales the day's sets and reps. */
+  schemeSummary?: string;
   disabledReason?: string;
 }
 
@@ -216,6 +241,9 @@ const repTargetOf = (slot: SwappableSlot): number | null => slot.repTarget ?? sl
 function blockedReason(slot: SwappableSlot, rule: SwapRule, finalIdsOnDay: string[]): { reason: SwapReview['reason']; detail: string } | undefined {
   if (rule.fit === 'different') return { reason: 'ineligible', detail: DIFFERENT_JOB_REASON };
   const target = repTargetOf(slot);
+  if (rule.scheme && slot.status === 'test') {
+    return { reason: 'reps', detail: `This is a 1RM test week; ${exerciseNameFor(rule.replacement)} is not tested for a max, so it is available on the other weeks.` };
+  }
   if (rule.reps && target !== null && (target < rule.reps.min || target > rule.reps.max)) {
     return { reason: 'reps', detail: `This slot is programmed for ${target} reps; ${exerciseNameFor(rule.replacement)} runs ${rule.reps.min}-${rule.reps.max}. Changing reps needs a custom prescription.` };
   }
@@ -251,6 +279,7 @@ export function getSwapOptions(slot: SwappableSlot, finalIdsOnDay: string[] = []
         fit: rule.fit,
         ...(rule.note ? { note: rule.note } : {}),
         ...(rule.reps ? { reps: rule.reps } : {}),
+        ...(rule.scheme ? { schemeSummary: rule.scheme.summary } : {}),
         ...(blocked ? { disabledReason: blocked.detail } : {}),
       };
     }),
@@ -258,10 +287,43 @@ export function getSwapOptions(slot: SwappableSlot, finalIdsOnDay: string[] = []
 }
 
 /**
- * Applies a rule to a program slot. Reps and sets are never touched. A main lift keeps that day's structure, but its
+ * Applies a rule to a program slot. Reps and sets are only touched by a rule with an explicit `scheme`. A main lift keeps that day's structure, but its
  * loads cannot come from the program lift's training max: Block 1 back-offs use the variation's own TM (unset until
  * the lifter enters it) and Block 2 back-offs follow the target-RM set actually logged.
  */
+/** Rep-max style intensity: how heavy a set of n reps is relative to a 1RM. */
+const intensity = (reps: number) => 1 / (1 + reps / 30);
+
+/**
+ * Rebuilds a slot's sets under a rule's scheme. The top set keeps its type; back-offs get scaled reps and count, and
+ * their percentage is lowered so the relative effort of each set matches the program's. Loads still come only from the
+ * replacement's own training max or the logged top set, never the program lift's.
+ */
+function rescaleSets(sets: ProgramSetPrescription[], scheme: VolumeScheme): ProgramSetPrescription[] {
+  const clamp = (reps: number) => Math.min(scheme.maxReps, Math.max(scheme.minReps, Math.round(reps * scheme.repScale)));
+  const top = sets.find((set) => set.type === 'rm_target');
+  const backoffs = sets.filter((set) => set.type === 'backoff');
+  const newTop = top ? clamp(top.prescribedReps) : null;
+  const count = backoffs.length === 0 ? 0 : Math.max(scheme.minBackoffs, Math.round(backoffs.length * scheme.setScale));
+  const out: ProgramSetPrescription[] = [];
+  if (top && newTop !== null) out.push({ ...top, setNumber: 1, prescribedReps: newTop });
+  const template = backoffs[0];
+  if (template) {
+    const reps = clamp(template.prescribedReps);
+    const relative = template.loadBasis.kind === 'achieved_rm' && top && newTop !== null
+      ? (intensity(reps) / intensity(newTop)) / (intensity(template.prescribedReps) / intensity(top.prescribedReps))
+      : intensity(reps) / intensity(template.prescribedReps);
+    const percentage = template.percentage === undefined ? undefined : Math.round(template.percentage * relative * 1000) / 1000;
+    for (let i = 0; i < count; i += 1) {
+      const last = i === count - 1;
+      const { isAmrap: _a, amrapOptional: _o, ...rest } = template;
+      out.push({ ...rest, setNumber: out.length + 1, prescribedReps: reps, ...(percentage === undefined ? {} : { percentage }),
+        ...(template.isAmrap || template.amrapOptional ? { isAmrap: last, amrapOptional: last } : {}) });
+    }
+  }
+  return out;
+}
+
 function applyRule(slot: ExerciseSlotPrescription, rule: SwapRule, original: SwappedFrom): ExerciseSlotPrescription {
   const info = EXERCISES[rule.replacement];
   const name = exerciseNameFor(rule.replacement);
@@ -271,20 +333,29 @@ function applyRule(slot: ExerciseSlotPrescription, rule: SwapRule, original: Swa
     ? ` Set your own training max for ${name} to get loads; the ${original.exerciseName} training max is not used.`
     : info?.bodyweight ? ' Bodyweight: enter 0, or the added weight.' : '';
   const note = rule.note && rule.fit !== 'direct' ? ` ${rule.note}` : '';
+  const swapped = slot.prescribedSets.map((set) => {
+    const { suggestFrom, ...rest } = set;
+    return {
+      ...rest,
+      loadBasis: variate(set.loadBasis),
+      ...(t1 && suggestFrom ? { suggestFrom: { ...suggestFrom, variationId: rule.replacement } } : {}),
+    };
+  });
+  const prescribedSets = rule.scheme ? rescaleSets(swapped, rule.scheme) : swapped;
+  const firstTop = prescribedSets.find((set) => set.type === 'rm_target');
+  const firstBackoff = prescribedSets.find((set) => set.type === 'backoff');
   return {
     ...slot,
+    ...(rule.scheme ? {
+      setCount: prescribedSets.length,
+      repTarget: firstTop?.prescribedReps ?? slot.repTarget,
+      ...(firstBackoff?.percentage !== undefined ? { percentage: firstBackoff.percentage } : {}),
+    } : {}),
     exerciseId: rule.replacement,
     exerciseName: name,
     swappedFrom: original,
     ...(slot.loadBasis ? { loadBasis: variate(slot.loadBasis) } : {}),
-    prescribedSets: slot.prescribedSets.map((set) => {
-      const { suggestFrom, ...rest } = set;
-      return {
-        ...rest,
-        loadBasis: variate(set.loadBasis),
-        ...(t1 && suggestFrom ? { suggestFrom: { ...suggestFrom, variationId: rule.replacement } } : {}),
-      };
-    }),
+    prescribedSets,
     notes: `${slot.notes ?? ''}${hint}${note}`.trim() || undefined,
   };
 }
