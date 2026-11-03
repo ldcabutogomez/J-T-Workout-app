@@ -6,6 +6,9 @@ const externalServer = process.env.JNT2_EXTERNAL_SERVER === '1';
 export const preview = externalServer ? null : spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'preview'], {
   stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, NO_COLOR: '1' },
+  // Its own process group, so stopPreview() can stop npm AND the vite server it starts. Stopping only npm leaves
+  // vite holding the output pipes open, and the test process would then never exit.
+  detached: process.platform !== 'win32',
 });
 let previewLog = '';
 preview?.stdout.on('data', (chunk) => { previewLog += String(chunk); });
@@ -68,3 +71,14 @@ export async function assertNoHorizontalClipping(page, label) {
   assert.ok(sizes.document <= sizes.viewport + 1, `${label} clipped horizontally: ${JSON.stringify(sizes)}`);
 }
 
+
+/** Stops the preview server and everything it started. Safe to call when no server was started here. */
+export function stopPreview() {
+  if (!preview || preview.killed) return;
+  try {
+    if (process.platform !== 'win32' && preview.pid) process.kill(-preview.pid, 'SIGTERM');
+    else preview.kill('SIGTERM');
+  } catch {
+    preview.kill('SIGTERM');
+  }
+}

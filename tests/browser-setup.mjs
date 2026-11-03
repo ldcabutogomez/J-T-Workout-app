@@ -2,7 +2,7 @@
 // the long workout flow in browser.mjs.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { assertNoHorizontalClipping, lockedContext, origin, preview, waitForPreview } from './browserHelpers.mjs';
+import { assertNoHorizontalClipping, lockedContext, origin, stopPreview, waitForPreview } from './browserHelpers.mjs';
 
 let browser;
 try {
@@ -120,7 +120,12 @@ try {
   await inputContext.close();
 
   console.log('PASS: setup wizard, new cycle, storage recovery, input checks and notes.');
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
 } finally {
   await browser?.close().catch(() => {});
-  preview?.kill('SIGTERM');
+  stopPreview();
+  // Exit explicitly: a lingering handle must never keep a finished test run alive (CI would wait for the job limit).
+  process.exit(process.exitCode ?? 0);
 }

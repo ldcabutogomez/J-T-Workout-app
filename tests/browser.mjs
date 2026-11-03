@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { assertNoHorizontalClipping, lockedContext, origin, preview, seedPhone, waitForPreview } from './browserHelpers.mjs';
+import { assertNoHorizontalClipping, lockedContext, origin, seedPhone, stopPreview, waitForPreview } from './browserHelpers.mjs';
 
 let browser;
 try {
@@ -438,7 +438,12 @@ try {
 
   assert.deepEqual(browserErrors, [], `browser console/page errors: ${browserErrors.join('\n')}`);
   console.log('PASS: production mobile-width workflow, refresh/resume, completion/history, and offline logging/reload.');
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
 } finally {
   await browser?.close().catch(() => {});
-  preview?.kill('SIGTERM');
+  stopPreview();
+  // Exit explicitly: a lingering handle must never keep a finished test run alive (CI would wait for the job limit).
+  process.exit(process.exitCode ?? 0);
 }
