@@ -45,8 +45,9 @@ export interface SwapRule {
   /** What changes versus the program exercise. */
   note?: string;
   /**
-   * The rep range this exercise is programmed for. The slot's initial target must already sit inside it:
-   * reps are never changed behind the lifter's back, so a swap outside the range is unavailable that week.
+   * The rep range this exercise is programmed for. A slot whose rep target sits outside it is rescaled into it
+   * (the picker says so): a T3 uses the range as is; a T2 may run up to 4 reps lower, never below 5, so it stays as
+   * hard as a main-lift set. Sets stay as programmed (1 target set plus 3 MRS sets).
    */
   reps?: { min: number; max: number };
   /**
@@ -102,13 +103,13 @@ export const SWAP_RULES: SwapRule[] = [
   // Chest / push.
   { original: 'pec-fly', replacement: 'cable-fly', fit: D, reps: { min: 10, max: 20 } },
   { original: 'pec-fly', replacement: 'db-fly', fit: D, reps: { min: 10, max: 20 } },
-  { original: 'pec-fly', replacement: 'db-pullover', fit: X, note: 'Works the chest and lats through a different path. It is not a fly.' },
+  { original: 'pec-fly', replacement: 'db-pullover', fit: X, reps: { min: 10, max: 15 }, note: 'Works the chest and lats through a different path. It is not a fly.' },
   { original: 'incline-bench', replacement: 'incline-db-press', fit: D },
   { original: 'incline-bench', replacement: 'cable-chest-press', fit: C, reps: { min: 8, max: 20 }, note: 'Cable resistance and stability differ from the barbell.' },
   { original: 'incline-bench', replacement: 'db-bench-press', fit: C, note: 'Flat instead of incline, so the emphasis moves.' },
   { original: 'incline-bench', replacement: 'dips', fit: C, note: 'Bodyweight and a different angle.' },
   { original: 'incline-bench', replacement: 'push-ups', fit: C, note: 'Bodyweight and a different angle.' },
-  { original: 'incline-bench', replacement: 'db-pullover', fit: X, note: 'Not a press.' },
+  { original: 'incline-bench', replacement: 'db-pullover', fit: X, reps: { min: 10, max: 15 }, note: 'Not a press.' },
   { original: 'db-bench-press', replacement: 'incline-db-press', fit: D },
   { original: 'db-bench-press', replacement: 'cable-chest-press', fit: C, reps: { min: 8, max: 20 }, note: 'Cable resistance and stability differ from dumbbells.' },
   { original: 'db-bench-press', replacement: 'dips', fit: C, note: 'Bodyweight and a different angle.' },
@@ -125,36 +126,36 @@ export const SWAP_RULES: SwapRule[] = [
   { original: 'single-leg-press', replacement: 'walking-lunge', fit: D },
   { original: 'single-leg-press', replacement: 'step-ups', fit: C, note: 'Lighter, balance-limited loading.' },
   { original: 'single-leg-press', replacement: 'goblet-squat', fit: C, note: 'Two legs, and limited by what you can hold.' },
-  { original: 'single-leg-press', replacement: 'hip-thrust', fit: X, note: 'A hip extension, not a knee-dominant press.' },
-  { original: 'single-leg-press', replacement: 'romanian-deadlift', fit: X, note: 'A hinge, not a press.' },
-  { original: 'single-leg-press', replacement: 'glute-kickback', fit: X, note: 'Isolates hip extension.' },
-  { original: 'single-leg-press', replacement: 'hip-abduction', fit: X, note: 'Trains the hip abductors.' },
+  { original: 'single-leg-press', replacement: 'hip-thrust', fit: X, reps: { min: 8, max: 15 }, note: 'A hip extension, not a knee-dominant press.' },
+  { original: 'single-leg-press', replacement: 'romanian-deadlift', fit: X, reps: { min: 6, max: 12 }, note: 'A hinge, not a press.' },
+  { original: 'single-leg-press', replacement: 'glute-kickback', fit: X, reps: { min: 12, max: 20 }, note: 'Isolates hip extension.' },
+  { original: 'single-leg-press', replacement: 'hip-abduction', fit: X, reps: { min: 12, max: 25 }, note: 'Trains the hip abductors.' },
   { original: 'back-step-lunge', replacement: 'walking-lunge', fit: D },
   { original: 'back-step-lunge', replacement: 'bulgarian-split-squat', fit: D },
   { original: 'back-step-lunge', replacement: 'step-ups', fit: C, note: 'Lighter, balance-limited loading.' },
   { original: 'back-step-lunge', replacement: 'goblet-squat', fit: C, note: 'Two legs, and limited by what you can hold.' },
-  { original: 'back-step-lunge', replacement: 'hip-thrust', fit: X, note: 'A hip extension, not a lunge.' },
-  { original: 'back-step-lunge', replacement: 'romanian-deadlift', fit: X, note: 'A hinge, not a lunge.' },
-  { original: 'back-step-lunge', replacement: 'glute-kickback', fit: X, note: 'Isolates hip extension.' },
-  { original: 'back-step-lunge', replacement: 'hip-abduction', fit: X, note: 'Trains the hip abductors.' },
+  { original: 'back-step-lunge', replacement: 'hip-thrust', fit: X, reps: { min: 8, max: 15 }, note: 'A hip extension, not a lunge.' },
+  { original: 'back-step-lunge', replacement: 'romanian-deadlift', fit: X, reps: { min: 6, max: 12 }, note: 'A hinge, not a lunge.' },
+  { original: 'back-step-lunge', replacement: 'glute-kickback', fit: X, reps: { min: 12, max: 20 }, note: 'Isolates hip extension.' },
+  { original: 'back-step-lunge', replacement: 'hip-abduction', fit: X, reps: { min: 12, max: 25 }, note: 'Trains the hip abductors.' },
   { original: 'stiff-leg-deadlift', replacement: 'romanian-deadlift', fit: D },
   { original: 'stiff-leg-deadlift', replacement: 'hip-thrust', fit: C, note: 'Glutes without the hamstring stretch under load.' },
-  { original: 'stiff-leg-deadlift', replacement: 'glute-kickback', fit: X, note: 'Isolates hip extension.' },
-  { original: 'leg-curl', replacement: 'hip-thrust', fit: X, note: 'A hip extension. It does not train the knee-flexing hamstring work of a curl.' },
-  { original: 'leg-curl', replacement: 'romanian-deadlift', fit: X, note: 'A hinge, not a knee flexion.' },
-  { original: 'leg-extension', replacement: 'hip-thrust', fit: X, note: 'A hip extension. It does not train the quads.' },
-  { original: 'leg-extension', replacement: 'romanian-deadlift', fit: X, note: 'A hinge, not a knee extension.' },
+  { original: 'stiff-leg-deadlift', replacement: 'glute-kickback', fit: X, reps: { min: 12, max: 20 }, note: 'Isolates hip extension.' },
+  { original: 'leg-curl', replacement: 'hip-thrust', fit: X, reps: { min: 8, max: 15 }, note: 'A hip extension. It does not train the knee-flexing hamstring work of a curl.' },
+  { original: 'leg-curl', replacement: 'romanian-deadlift', fit: X, reps: { min: 6, max: 12 }, note: 'A hinge, not a knee flexion.' },
+  { original: 'leg-extension', replacement: 'hip-thrust', fit: X, reps: { min: 8, max: 15 }, note: 'A hip extension. It does not train the quads.' },
+  { original: 'leg-extension', replacement: 'romanian-deadlift', fit: X, reps: { min: 6, max: 12 }, note: 'A hinge, not a knee extension.' },
 
   // Back / pull.
   ...['chest-supported-row', 'v-grip-cable-row', 'wide-grip-cable-row'].flatMap((original): SwapRule[] => [
     { original, replacement: 'one-arm-db-row', fit: D },
     { original, replacement: 'inverted-row', fit: C, note: 'Bodyweight, with the load set by body angle.' },
-    { original, replacement: 'pull-ups', fit: X, note: 'A vertical pull, not a row.' },
+    { original, replacement: 'pull-ups', fit: X, reps: { min: 5, max: 12 }, note: 'A vertical pull, not a row.' },
   ]),
   ...['v-grip-lat-pull-down', 'lat-pull-down', 'wide-grip-lat-pull-down'].flatMap((original): SwapRule[] => [
     { original, replacement: 'pull-ups', fit: C, note: 'Bodyweight: enter 0, or the added weight.' },
-    { original, replacement: 'one-arm-db-row', fit: X, note: 'A row, not a vertical pull.' },
-    { original, replacement: 'inverted-row', fit: X, note: 'A row, not a vertical pull.' },
+    { original, replacement: 'one-arm-db-row', fit: X, reps: { min: 8, max: 15 }, note: 'A row, not a vertical pull.' },
+    { original, replacement: 'inverted-row', fit: X, reps: { min: 8, max: 20 }, note: 'A row, not a vertical pull.' },
   ]),
 ];
 
@@ -182,8 +183,6 @@ export interface SwapAlternative {
   schemeSummary?: string;
   disabledReason?: string;
 }
-
-export const DIFFERENT_JOB_REASON = 'Different job: needs a custom prescription (not available yet).';
 
 /** The minimal slot shape shared by prescriptions and logged exercises. */
 export interface SwappableSlot {
@@ -228,7 +227,7 @@ const rulesFor = (originalId: string): SwapRule[] => SWAP_RULES.filter((rule) =>
 
 /** Whether a stored swap is still a supported, automatically applicable pairing. */
 export const isSwapSupported = (originalId: string, replacementId: string): boolean =>
-  rulesFor(originalId).some((rule) => rule.replacement === replacementId && rule.fit !== 'different');
+  rulesFor(originalId).some((rule) => rule.replacement === replacementId);
 
 const isEligibleSlot = (slot: SwappableSlot): boolean => {
   if (slot.tier === 'T1') return slot.status === 'work' || slot.status === 'test';
@@ -237,20 +236,34 @@ const isEligibleSlot = (slot: SwappableSlot): boolean => {
 
 const repTargetOf = (slot: SwappableSlot): number | null => slot.repTarget ?? slot.targetRM ?? null;
 
+/** The rep range a non-T1 slot is held to under a rule: a T2 may go a little lower than a T3 to stay main-lift hard. */
+const slotRange = (tier: TierType, reps: { min: number; max: number }): { min: number; max: number } =>
+  tier === 'T2b' || tier === 'T2c' ? { min: Math.min(reps.min, Math.max(5, reps.min - 4)), max: reps.max } : reps;
+
+/** The rep target a non-T1 slot gets under a rule, or null when its own target already fits. */
+function rescaledTarget(tier: TierType, target: number | null, rule: SwapRule): number | null {
+  if (tier === 'T1' || !rule.reps || target === null) return null;
+  const range = slotRange(tier, rule.reps);
+  const next = Math.min(range.max, Math.max(range.min, target));
+  return next === target ? null : next;
+}
+
 /** Why a rule cannot be applied to this slot right now, or undefined when it can. */
 function blockedReason(slot: SwappableSlot, rule: SwapRule, finalIdsOnDay: string[]): { reason: SwapReview['reason']; detail: string } | undefined {
-  if (rule.fit === 'different') return { reason: 'ineligible', detail: DIFFERENT_JOB_REASON };
-  const target = repTargetOf(slot);
   if (rule.scheme && slot.status === 'test') {
     return { reason: 'reps', detail: `This is a 1RM test week; ${exerciseNameFor(rule.replacement)} is not tested for a max, so it is available on the other weeks.` };
-  }
-  if (rule.reps && target !== null && (target < rule.reps.min || target > rule.reps.max)) {
-    return { reason: 'reps', detail: `This slot is programmed for ${target} reps; ${exerciseNameFor(rule.replacement)} runs ${rule.reps.min}-${rule.reps.max}. Changing reps needs a custom prescription.` };
   }
   if (finalIdsOnDay.includes(rule.replacement)) {
     return { reason: 'duplicate', detail: `${exerciseNameFor(rule.replacement)} is already in this workout.` };
   }
   return undefined;
+}
+
+function schemeSummaryFor(slot: SwappableSlot, rule: SwapRule): string | undefined {
+  if (rule.scheme) return rule.scheme.summary;
+  const target = repTargetOf(slot);
+  const next = rescaledTarget(slot.tier, target, rule);
+  return next === null ? undefined : `Reps rescaled from ${target} to ${next} for ${exerciseNameFor(rule.replacement)}, same 4-set effort`;
 }
 
 /**
@@ -279,7 +292,7 @@ export function getSwapOptions(slot: SwappableSlot, finalIdsOnDay: string[] = []
         fit: rule.fit,
         ...(rule.note ? { note: rule.note } : {}),
         ...(rule.reps ? { reps: rule.reps } : {}),
-        ...(rule.scheme ? { schemeSummary: rule.scheme.summary } : {}),
+        ...(schemeSummaryFor(slot, rule) ? { schemeSummary: schemeSummaryFor(slot, rule) } : {}),
         ...(blocked ? { disabledReason: blocked.detail } : {}),
       };
     }),
@@ -287,7 +300,7 @@ export function getSwapOptions(slot: SwappableSlot, finalIdsOnDay: string[] = []
 }
 
 /**
- * Applies a rule to a program slot. Reps and sets are only touched by a rule with an explicit `scheme`. A main lift keeps that day's structure, but its
+ * Applies a rule to a program slot. Reps and sets are only touched by a rule with an explicit `scheme`, or when a non-T1 slot's rep target falls outside the rule's `reps` range (then reps move into it). A main lift keeps that day's structure, but its
  * loads cannot come from the program lift's training max: Block 1 back-offs use the variation's own TM (unset until
  * the lifter enters it) and Block 2 back-offs follow the target-RM set actually logged.
  */
@@ -341,11 +354,15 @@ function applyRule(slot: ExerciseSlotPrescription, rule: SwapRule, original: Swa
       ...(t1 && suggestFrom ? { suggestFrom: { ...suggestFrom, variationId: rule.replacement } } : {}),
     };
   });
-  const prescribedSets = rule.scheme ? rescaleSets(swapped, rule.scheme) : swapped;
+  const nextTarget = rescaledTarget(slot.tier, slot.repTarget, rule);
+  const prescribedSets = rule.scheme
+    ? rescaleSets(swapped, rule.scheme)
+    : nextTarget === null ? swapped : swapped.map((set) => ({ ...set, prescribedReps: nextTarget }));
   const firstTop = prescribedSets.find((set) => set.type === 'rm_target');
   const firstBackoff = prescribedSets.find((set) => set.type === 'backoff');
   return {
     ...slot,
+    ...(nextTarget !== null ? { repTarget: nextTarget } : {}),
     ...(rule.scheme ? {
       setCount: prescribedSets.length,
       repTarget: firstTop?.prescribedReps ?? slot.repTarget,
@@ -356,7 +373,7 @@ function applyRule(slot: ExerciseSlotPrescription, rule: SwapRule, original: Swa
     swappedFrom: original,
     ...(slot.loadBasis ? { loadBasis: variate(slot.loadBasis) } : {}),
     prescribedSets,
-    notes: `${slot.notes ?? ''}${hint}${note}`.trim() || undefined,
+    notes: `${nextTarget === null ? slot.notes ?? '' : (slot.notes ?? '').replace(/Initial \d+RM/, `Initial ${nextTarget}RM`)}${hint}${note}${nextTarget === null ? '' : ` Reps rescaled from ${slot.repTarget} to ${nextTarget} to fit ${name}.`}`.trim() || undefined,
   };
 }
 

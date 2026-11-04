@@ -74,17 +74,24 @@ test('Week 12 deadlift cannot be replaced by walking lunge or other legs and hin
   assert.equal(reviewed.exerciseName, 'Deadlift');
 });
 
-test('leg curl to hip thrust and leg extension to RDL are different-job pairs, never applied or called direct', () => {
+test('leg curl to hip thrust and leg extension to RDL are different-job pairs: applied, with reps rescaled into the exercise range', () => {
   for (const [slotId, original, alt] of [['d1-t3b', 'leg-curl', 'hip-thrust'], ['d1-t3b', 'leg-curl', 'romanian-deadlift'], ['d1-t3c', 'leg-extension', 'hip-thrust'], ['d1-t3c', 'leg-extension', 'romanian-deadlift']] as const) {
     const options = getSwapOptions(slotOf(1, 1, slotId))!;
     const option = options.alternatives.find((item) => item.id === alt)!;
     assert.equal(option.fit, 'different', `${original} -> ${alt}`);
-    assert.ok(option.disabledReason);
+    assert.equal(option.disabledReason, undefined);
+    const base = slotOf(1, 1, slotId);
     const applied = slotOf(1, 1, slotId, withSwaps([[slotId, original, alt]]));
-    assert.equal(applied.exerciseId, original);
-    assert.equal(applied.swapReview?.reason, 'ineligible');
+    assert.equal(applied.exerciseId, alt);
+    assert.equal(applied.swapReview, undefined);
+    assert.equal(applied.setCount, base.setCount, 'still 4 sets');
+    const range = alt === 'hip-thrust' ? { min: 8, max: 15 } : { min: 6, max: 12 };
+    assert.ok(applied.prescribedSets.every((set) => set.prescribedReps >= range.min && set.prescribedReps <= range.max), `${alt} reps in range`);
+    assert.equal(applied.repTarget, applied.prescribedSets[0].prescribedReps);
+    assert.match(applied.notes ?? '', new RegExp(`Initial ${applied.repTarget}RM`));
+    assert.ok(option.schemeSummary, 'the picker says reps are rescaled');
   }
-  for (const slotId of ['d1-t3b', 'd1-t3c']) assert.ok(getSwapOptions(slotOf(1, 1, slotId))!.alternatives.every((item) => item.fit === 'different'), 'no direct or conditional option');
+  for (const slotId of ['d1-t3b', 'd1-t3c']) assert.ok(getSwapOptions(slotOf(1, 1, slotId))!.alternatives.every((item) => item.fit === 'different'), 'labelled as a different movement');
   // Press-to-fly and row-to-vertical-pull are not offered as direct either.
   assert.equal(getSwapOptions(slotOf(1, 2, 'd2-t3c'))!.alternatives.find((item) => item.id === 'db-pullover')!.fit, 'different');
   assert.equal(getSwapOptions(slotOf(1, 1, 'd1-t2c'))!.alternatives.find((item) => item.id === 'pull-ups')!.fit, 'different');
@@ -117,16 +124,19 @@ test('changing exercise mid-session clears typed, unlogged loads and leaves comp
   assert.ok(s.exercises.length > 0);
 });
 
-test('reps are never changed silently: incompatible swaps are unavailable and notes always match the target', () => {
+test('reps are rescaled into the replacement range, shown in the picker, and notes always match the target', () => {
   // Week 5 incline bench is a 6RM; Cable Chest Press runs 8-20 reps.
   const slot5 = slotOf(5, 2, 'd2-t2b');
   assert.equal(slot5.repTarget, 6);
   const cable5 = getSwapOptions(slot5)!.alternatives.find((item) => item.id === 'cable-chest-press')!;
-  assert.match(cable5.disabledReason ?? '', /programmed for 6 reps/);
+  assert.equal(cable5.disabledReason, undefined);
+  assert.equal(cable5.schemeSummary, undefined, 'a T2 may run 4 below the 8-20 range, so a 6RM needs no rescale');
+  // A T3 is held to the exercise's range: week 1 leg curl is a 20RM, Hip Thrust runs 8-15.
+  const thrust = getSwapOptions(slotOf(1, 1, 'd1-t3b'))!.alternatives.find((item) => item.id === 'hip-thrust')!;
+  assert.match(thrust.schemeSummary ?? '', /rescaled from 20 to 15/);
   const stored = slotOf(5, 2, 'd2-t2b', withSwaps([['d2-t2b', 'incline-bench', 'cable-chest-press']]));
-  assert.equal(stored.exerciseId, 'incline-bench');
-  assert.equal(stored.swapReview?.reason, 'reps');
-  assert.equal(stored.repTarget, 6);
+  assert.equal(stored.exerciseId, 'cable-chest-press');
+  assert.equal(stored.repTarget, 6, 'a 6RM is inside the T2 range (8-4=4, floor 5): untouched');
   // Week 1 is a 15RM, inside the range: it applies with the original prescription untouched.
   const original1 = slotOf(1, 2, 'd2-t2b');
   const swapped1 = slotOf(1, 2, 'd2-t2b', withSwaps([['d2-t2b', 'incline-bench', 'cable-chest-press']]));
@@ -142,8 +152,11 @@ test('reps are never changed silently: incompatible swaps are unavailable and no
         if (swapped.exerciseId !== rule.replacement) continue;
         if (rule.scheme) continue; // rescaling rules change reps on purpose; see the scheme tests
         applied++;
-        assert.equal(swapped.repTarget, orig.repTarget);
-        assert.deepEqual(swapped.prescribedSets.map((set) => set.prescribedReps), orig.prescribedSets.map((set) => set.prescribedReps));
+        const inRange = rule.reps && orig.tier !== 'T1'
+          && swapped.prescribedSets.every((set) => set.prescribedReps >= (orig.tier === 'T3a' || orig.tier.startsWith('T3') ? rule.reps!.min : Math.min(rule.reps!.min, Math.max(5, rule.reps!.min - 4))) && set.prescribedReps <= rule.reps!.max);
+        if (swapped.repTarget !== orig.repTarget) assert.ok(inRange, `${rule.original} -> ${rule.replacement} wk${week} d${day} rescaled into range`);
+        else assert.deepEqual(swapped.prescribedSets.map((set) => set.prescribedReps), orig.prescribedSets.map((set) => set.prescribedReps));
+        assert.equal(swapped.setCount, orig.setCount, 'sets are never changed');
         const claimed = /Initial (\d+)RM/.exec(swapped.notes ?? '');
         if (claimed) assert.equal(Number(claimed[1]), swapped.repTarget, `${rule.replacement} wk${week} d${day}`);
       }

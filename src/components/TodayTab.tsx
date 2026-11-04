@@ -307,7 +307,7 @@ function ExerciseSwap({ slot, profile, history, siblings = [], locked = false, l
   const variation = slot.tier === 'T1' && slot.swappedFrom && slot.loadBasis?.kind === 'training_max' ? slot.loadBasis : null;
   if (!options && !review) return null;
   const selected = options?.alternatives.find((item) => item.id === options.selectedId);
-  const reasonOf = (item: { disabledReason?: string; fit: string }) => (item.fit === 'different' ? 'different job, not available yet' : item.disabledReason ? 'unavailable' : '');
+  const reasonOf = (item: { disabledReason?: string; fit: string }) => (item.disabledReason ? 'unavailable' : '');
   return (
     <div className="mt-2">
       {review && (
@@ -329,7 +329,7 @@ function ExerciseSwap({ slot, profile, history, siblings = [], locked = false, l
             {(['direct', 'conditional', 'different'] as const).map((fit) => {
               const items = options.alternatives.filter((item) => item.fit === fit);
               if (items.length === 0) return null;
-              const label = fit === 'direct' ? 'Same job' : fit === 'conditional' ? 'Changes the emphasis' : 'Different job (not available yet)';
+              const label = fit === 'direct' ? 'Same job' : fit === 'conditional' ? 'Changes the emphasis' : 'Different movement (reps rescaled)';
               return (
                 <optgroup key={fit} label={label}>
                   {items.map((item) => {
@@ -343,9 +343,9 @@ function ExerciseSwap({ slot, profile, history, siblings = [], locked = false, l
         </label>
       )}
       {locked && lockedReason && <p className="mt-1 text-xs text-muted">{lockedReason}</p>}
-      {options && options.alternatives.some((item) => item.disabledReason && item.fit !== 'different') && (
+      {options && options.alternatives.some((item) => item.disabledReason) && (
         <ul className="mt-1 space-y-0.5 text-xs text-muted">
-          {options.alternatives.filter((item) => item.disabledReason && item.fit !== 'different').map((item) => <li key={item.id}>{item.name}: {item.disabledReason}</li>)}
+          {options.alternatives.filter((item) => item.disabledReason).map((item) => <li key={item.id}>{item.name}: {item.disabledReason}</li>)}
         </ul>
       )}
       {selected?.schemeSummary && <p className="mt-1 text-xs text-muted">{selected.schemeSummary}.</p>}
