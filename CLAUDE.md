@@ -26,6 +26,13 @@ React + TypeScript PWA (Vite). Commands: `npm run dev`, `npx tsc --noEmit`, `npm
 - A later swap can be rejected when an earlier slot's unswapped exercise happens to match it.
 - Rep ranges and the fit classification of each pair are programming judgment, not measured data.
 
+## Supplemental runs
+
+- Runs are `RunSession` records in their own `runs` store. They never become `WorkoutSession`s, advance the four-day program, count toward the lifting goal, create lifting PRs/XP, or enter partner snapshots.
+- Distance is stored canonically in meters while `distanceUnit` preserves what the athlete entered. Pace is always derived from elapsed seconds and distance.
+- Manual and future Strava records share the same shape. Provider imports must use `source: 'strava'` plus `externalId`; storage de-duplicates that pair.
+- Gold balls in the month calendar mean completed runs. Backup format 4 includes runs; versions 2 and 3 migrate with an empty run collection.
+
 ## Added exercises ("extras")
 
 - An extra is an exercise the lifter adds to a workout (`LoggedExercise.isExtra`, slot id `extra-<exerciseId>`, straight sets, empty `sourceRefs`). It lives only in `session.exercises`, never in `prescriptionSnapshot`; the validator enforces this.

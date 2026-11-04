@@ -1,6 +1,6 @@
 import { findTopSet } from '../engine/extras';
 import React, { useState } from 'react';
-import type { UserProfile, WorkoutSession } from '../types';
+import type { RunSession, UserProfile, WorkoutSession } from '../types';
 import { normalizeWeight } from '../engine/jnt2Engine';
 import { BADGES, computeStreak, countResults, deriveHighlights, loggedDurationMs } from '../engine/achievements';
 import { validCompleted } from '../engine/encouragement';
@@ -13,15 +13,18 @@ import { RepLoadChart, type RepLoadPoint } from './charts/Charts';
 import { levelFor } from '../engine/xp';
 import { cycleNumber, cycleOf } from '../engine/cycles';
 import { ChevronDown, ChevronUp, Trash2, Trophy } from 'lucide-react';
+import { RunProgress } from './RunProgress';
 
 interface ProgressTabProps {
   profile: UserProfile | null;
   history: WorkoutSession[];
+  runs: RunSession[];
   onEditSession: (session: WorkoutSession) => void;
   onDeleteSession: (sessionId: string, isDemo?: boolean) => void;
+  onDeleteRun: (runId: string) => void;
 }
 
-export function ProgressTab({ profile, history, onEditSession, onDeleteSession }: ProgressTabProps) {
+export function ProgressTab({ profile, history, runs, onEditSession, onDeleteSession, onDeleteRun }: ProgressTabProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [selectedExercise, setSelectedExercise] = useState<string>('');
   const [selectedBadgeId, setSelectedBadgeId] = useState<string | null>(null);
@@ -64,6 +67,7 @@ export function ProgressTab({ profile, history, onEditSession, onDeleteSession }
   return (
     <div className="space-y-4">
       <AnalyticsDashboard profile={profile} history={history} />
+      <RunProgress runs={runs} onDelete={onDeleteRun} />
 
       <section className="animate-slide-up flex items-center gap-4 card p-5">
         <ProgressRing value={streak.weeklyCount} max={streak.weeklyGoal} size={84}>

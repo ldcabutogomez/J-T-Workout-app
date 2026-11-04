@@ -37,10 +37,11 @@ The workbook has no warm-up sets and leaves some weights to the lifter (`Find nR
 - **T1 warm-ups.** A checklist above the main lift ramps to that day's heaviest planned set: bar x10, 40% x5, 60% x3, 80% x2, or 40/60/75/90% for 1 to 3 rep days and tests, rounded to the plate increment. Warm-ups are tracked separately and never count toward volume, PRs, set totals or partial-session detection.
 - **Coach messages.** A coach card on Today (welcome back, phase milestones, weekly recap, the day's lift), short nudges mid-workout, and a personal note after a finished workout, in the lifter's chosen tone. Messages are deterministic: the same situation gives the same words.
 - **Partner leaderboard.** Partial workouts count toward pounds lifted, PRs and session totals, and toward the weekly goal, 4-week compliance and streak in proportion to the sets logged (18 of 32 sets is 0.56 of a session). Badges, the 48-session cycle check and "workout complete" claims still require a finished workout. Your own stats appear immediately after a workout without waiting for a partner.
+- **Supplemental runs.** Log distance, elapsed time, run type, effort and notes from Today; pace is calculated before saving. Runs use separate records, gold calendar balls and an eight-week distance chart, so they never advance the four-day lifting program or alter lifting volume and PRs. The source field and provider ID are ready for a later Strava importer.
 
 ## Calendar
 
-The Program tab opens with a week-by-week schedule. Each of the four program days has a date: by default Day 1 to Day 4 sit on Mon, Tue, Thu and Fri (change the weekdays in Settings).
+The Program tab opens with a numbered month view: lift-colored balls show planned and completed workouts, while gold balls show logged runs. Selecting a date opens its activity details; the collapsible week editor handles scheduling. Each of the four program days has a date: by default Day 1 to Day 4 sit on Mon, Tue, Thu and Fri (change the weekdays in Settings).
 
 - **Reschedule by dragging.** Press and hold a workout, then drag it to another day in the same Monday-to-Sunday week. Dropping on a day that already has a workout swaps the two. The **Move** button does the same thing without dragging (a day picker, plus Start now and Skip). Finished workouts stay where they were done, and nothing can be moved onto a day that has passed.
 - **Missed days stay put.** A workout whose day passes unfinished is flagged Missed; nothing moves on its own. If you fall a week or more behind, **Move plan to this week** re-dates the unfinished workouts, starting from today.
@@ -53,9 +54,9 @@ Each logged set is serialized through a write queue and saved immediately. Refre
 
 A session stores a snapshot of its prescription, source ranges, unit, equipment increment, TMs, and customizations. Later settings changes do not rewrite historical prescriptions. Completed-session edits upsert the same record and do not advance the program again. Week 12 Day 4 records the end state and does not silently restart.
 
-Backup format version 2 validates profiles, sessions, exercises, sets, stable IDs, cell references, and nested values before writing. Duplicate profile/session IDs and duplicate active-profile records are rejected by default. The UI offers replace-all only after explicit confirmation; import is one IndexedDB transaction (or a rollback-protected localStorage fallback).
+Backup format version 4 validates profiles, sessions, runs, exercises, sets, stable IDs, provider IDs, cell references, and nested values before writing. Version 2 and 3 backups migrate forward with an empty run collection. Duplicate profile/session/run IDs and duplicate active-profile records are rejected by default. The UI offers replace-all only after explicit confirmation; import is one IndexedDB transaction (or a rollback-protected localStorage fallback).
 
-All workout records stay in the browser. Export backups regularly, especially before clearing browser storage.
+All workout and run records stay in the browser. Export backups regularly, especially before clearing browser storage.
 
 ## Who uses this phone
 
@@ -116,7 +117,7 @@ After one successful online production load, the tested desktop-Chromium flow ca
 
 ## Verification scope and limitations
 
-The automated suite independently transcribes workbook expectations and checks all 48 week/day combinations for identity, tier, status, set type, counts, reps, percentages, load bases, transitions, exceptions, and real source ranges. It also covers numeric loads, missing TMs, invalid positions, RM overrides/corrections, MRS/AMRAP semantics, profile isolation, autosave/reload, units, backups, one-time advancement, partial/skipped records, completion messages, comparisons, PRs, and production offline operation.
+The automated suite independently transcribes workbook expectations and checks all 48 week/day combinations for identity, tier, status, set type, counts, reps, percentages, load bases, transitions, exceptions, and real source ranges. It also covers numeric loads, missing TMs, invalid positions, RM overrides/corrections, MRS/AMRAP semantics, profile isolation, autosave/reload, units, run calculations and persistence, backups, one-time advancement, partial/skipped records, completion messages, comparisons, PRs, and production offline operation.
 
 The in-app Workbook Mapping screen contains isolated, non-destructive smoke checks only. It does not write to workout storage and does not claim to prove workbook fidelity.
 

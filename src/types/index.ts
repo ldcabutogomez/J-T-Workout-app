@@ -5,6 +5,9 @@ export type SetType = 'rm_target' | 'backoff' | 'straight' | 'mrs' | 'test';
 export type SlotStatus = 'work' | 'rest' | 'test' | 'omitted';
 export type TrainingMaxKey = 'squat' | 'bench' | 'deadlift' | 'ohp' | 'front_squat';
 export type SessionStatus = 'active' | 'partial' | 'completed' | 'skipped';
+export type RunDistanceUnit = 'mi' | 'km';
+export type RunType = 'easy' | 'tempo' | 'intervals' | 'long' | 'other';
+export type RunSource = 'manual' | 'strava';
 
 export interface SourceReference {
   sheet: 'J&T2.0' | 'J&T2.0 KGS';
@@ -270,11 +273,32 @@ export interface WorkoutSession {
   rewardsDelivered?: string[];
 }
 
+/** A supplemental run. It never advances the lifting program or contributes lifting volume/PRs. */
+export interface RunSession {
+  runId: string;
+  profileId: string;
+  startTime: number;
+  durationSeconds: number;
+  /** Canonical distance for totals and future provider imports. */
+  distanceMeters: number;
+  /** Unit the athlete chose when entering the run. */
+  distanceUnit: RunDistanceUnit;
+  runType: RunType;
+  effort?: number;
+  notes?: string;
+  source: RunSource;
+  /** Provider activity ID. Manual entries do not have one. */
+  externalId?: string;
+  createdTime: number;
+  updatedTime: number;
+}
+
 export interface BackupExportData {
-  version: 2 | 3;
+  version: 2 | 3 | 4;
   timestamp: number;
   profiles: UserProfile[];
   sessions: WorkoutSession[];
   activeSessions: WorkoutSession[];
+  runs: RunSession[];
   app: 'GZCL_Jacked_And_Tan_2_Partner_Engine';
 }

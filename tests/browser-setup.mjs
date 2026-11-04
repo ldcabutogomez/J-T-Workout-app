@@ -42,6 +42,35 @@ try {
   assert.equal(await fresh.getByRole('heading', { name: 'Welcome' }).count(), 0, 'the wizard does not run again once a profile exists');
   await newContext.close();
 
+  // Runs are supplemental records: log one from Today, see its calendar ball, and keep it after reload.
+  const runContext = await lockedContext(browser);
+  await runContext.clock.setFixedTime(new Date('2024-05-13T09:00:00'));
+  const runPage = await runContext.newPage();
+  await runPage.goto(origin, { waitUntil: 'networkidle' });
+  await runPage.getByRole('button', { name: 'Log a run' }).click();
+  const runDialog = runPage.getByRole('dialog', { name: 'Log a run' });
+  await runDialog.getByLabel('Distance').fill('3.1');
+  await runDialog.getByLabel('Minutes').fill('30');
+  await runDialog.getByLabel('Seconds').fill('0');
+  await runDialog.getByText('9:41 /mi').waitFor();
+  await assertNoHorizontalClipping(runPage, 'run logger');
+  await runDialog.getByRole('button', { name: 'Save run' }).click();
+  await runPage.getByText('Run saved.').waitFor();
+  await runPage.getByRole('button', { name: 'Program' }).click();
+  assert.equal(await runPage.locator('[data-day="2024-05-13"] [data-run-dot][data-state="done"]').count(), 1, 'a logged run gets its own calendar ball');
+  await runPage.getByRole('button', { name: 'Progress' }).click();
+  const runProgress = runPage.locator('section').filter({ has: runPage.getByRole('heading', { name: 'Running' }) });
+  await runProgress.getByText('Recent runs').waitFor();
+  const recentRunText = await runProgress.locator('ol li').first().innerText();
+  assert.match(recentRunText, /3\.1 mi/);
+  assert.match(recentRunText, /30:00/);
+  assert.match(recentRunText, /9:41 \/mi/);
+  await assertNoHorizontalClipping(runPage, 'run progress');
+  await runPage.reload({ waitUntil: 'networkidle' });
+  await runPage.getByRole('button', { name: 'Program' }).click();
+  assert.equal(await runPage.locator('[data-day="2024-05-13"] [data-run-dot][data-state="done"]').count(), 1, 'the run survives a reload');
+  await runContext.close();
+
   // Starting another cycle from Settings: review, new maxes, dates, confirm; the old cycle is closed and Week 1 is next again.
   const cycleContext = await lockedContext(browser);
   await cycleContext.clock.setFixedTime(new Date('2024-05-13T09:00:00'));

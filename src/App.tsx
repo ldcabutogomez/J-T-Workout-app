@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { UserProfile, WorkoutSession } from './types';
+import type { RunSession, UserProfile, WorkoutSession } from './types';
 import { dbService } from './storage/db';
 import { getDayPrescription } from './engine/jnt2Engine';
 import {
@@ -57,6 +57,8 @@ import { RestTimer, type RestRequest } from './components/RestTimer';
 import { ToastStack, type ToastItem } from './components/Toast';
 import { WorkoutSummary, type WorkoutSummaryData } from './components/WorkoutSummary';
 import { PWAInstallButton } from './components/PWAInstallButton';
+import { RunLogSheet, type ManualRunInput } from './components/RunLogSheet';
+import { newRunId, preferredRunUnit } from './engine/runs';
 import { Avatar } from './components/Avatar';
 import { WhoUsesPhone } from './components/WhoUsesPhone';
 import { makeAvatarThumb } from './lib/avatar';
@@ -79,6 +81,8 @@ export default function App() {
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const activeSessionRef = useRef<WorkoutSession | null>(null);
   const [history, setHistory] = useState<WorkoutSession[]>([]);
+  const [runs, setRuns] = useState<RunSession[]>([]);
+  const [runLogOpen, setRunLogOpen] = useState(false);
   const cloudConfig = useMemo(() => readCloudConfig(), []);
   const deviceId = useMemo(() => getDeviceId(), []);
   const [pairing, setPairing] = useState(() => loadPairing());
@@ -189,17 +193,20 @@ export default function App() {
     activeSessionRef.current = null;
     setActiveSession(null);
     setHistory([]);
+    setRuns([]);
     setHistoryReady(false);
     void (async () => {
       try {
-        const [active, records] = await Promise.all([
+        const [active, records, runRecords] = await Promise.all([
           dbService.getActiveSession(profile.id),
           dbService.getSessionHistory(profile.id, true),
+          dbService.getRunHistory(profile.id),
         ]);
         if (cancelled) return;
         activeSessionRef.current = active;
         setActiveSession(active);
         setHistory(records);
+        setRuns(runRecords);
         setHistoryReady(true);
       } catch (error) {
         if (!cancelled) showBanner((error as Error).message, true);
@@ -860,9 +867,48 @@ export default function App() {
     showToast('Plan moved to this week.');
   };
 
+  const handleSaveRun = async (input: ManualRunInput) => {
+    if (!profile) throw new Error('Choose a profile before logging a run.');
+    const now = Date.now();
+    const run: RunSession = {
+      runId: newRunId(profile.id, now),
+      profileId: profile.id,
+      ...input,
+      source: 'manual',
+      createdTime: now,
+      updatedTime: now,
+    };
+    await dbService.saveRun(run);
+    setRuns(await dbService.getRunHistory(profile.id));
+    haptic('finish');
+    showToast('Run saved.', 'badge');
+  };
+
+  const handleDeleteRun = async (runId: string) => {
+    if (!profile || !window.confirm('Delete this run? This cannot be undone.')) return;
+    try {
+      await dbService.deleteRun(runId);
+      setRuns(await dbService.getRunHistory(profile.id));
+      showBanner('Run deleted.');
+    } catch (error) {
+      showBanner((error as Error).message, true);
+    }
+  };
+
   const refreshAfterImport = async () => {
     const refreshed = await dbService.getProfiles();
     setProfiles(refreshed);
+    if (profile && refreshed.some((item) => item.id === profile.id)) {
+      const [active, records, runRecords] = await Promise.all([
+        dbService.getActiveSession(profile.id),
+        dbService.getSessionHistory(profile.id, true),
+        dbService.getRunHistory(profile.id),
+      ]);
+      activeSessionRef.current = active;
+      setActiveSession(active);
+      setHistory(records);
+      setRuns(runRecords);
+    }
     // An import never changes who owns this phone; if their profile is gone, the chooser asks again.
   };
 
@@ -962,14 +1008,14 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[calc(57px+env(safe-area-inset-top))] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
       <main key={tab} className={`flex-1 p-3 sm:p-4 pb-[calc(7rem+env(safe-area-inset-bottom))] mx-auto w-full animate-fade-in ${tab === 'progress' ? 'max-w-5xl' : 'max-w-xl'}`}>
-        {tab === 'today' && <TodayTab extras={{ onAdd: handleAddExtra, onAddSet: handleAddExtraSet, onRemoveSet: handleRemoveExtraSet, onRemove: handleRemoveExtra }} onExerciseNote={handleExerciseNote} onSessionNote={handleSessionNote} onStartNewCycle={() => setNewCycleOpen(true)} profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onSetVariationTm={handleSetVariationTm} onClearLoads={handleClearLoads} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'today' && <TodayTab extras={{ onAdd: handleAddExtra, onAddSet: handleAddExtraSet, onRemoveSet: handleRemoveExtraSet, onRemove: handleRemoveExtra }} onExerciseNote={handleExerciseNote} onSessionNote={handleSessionNote} onStartNewCycle={() => setNewCycleOpen(true)} profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onSetVariationTm={handleSetVariationTm} onClearLoads={handleClearLoads} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} runs={runs} onLogRun={() => setRunLogOpen(true)} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && (
           <div className="space-y-4">
-            {schedule && <TrainingCalendar schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
+            {schedule && <TrainingCalendar schedule={schedule} profile={profile ?? undefined} history={cycleHistory} runs={runs} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
             <ProgramTab profile={profile} onUpdateProfile={updateProfile} />
           </div>
         )}
-        {tab === 'progress' && <ProgressTab profile={profile} history={history} onEditSession={editCompletedSession} onDeleteSession={async (id, demo) => {
+        {tab === 'progress' && <ProgressTab profile={profile} history={history} runs={runs} onEditSession={editCompletedSession} onDeleteRun={(id) => void handleDeleteRun(id)} onDeleteSession={async (id, demo) => {
           if (!profile || !window.confirm('Delete this session record? This cannot be undone.')) return;
           try {
             await dbService.deleteSession(id, demo);
@@ -1002,6 +1048,7 @@ export default function App() {
       <RestTimer key={profile?.id ?? 'none'} profileId={profile?.id} restRequest={restRequest} setsLogged={activeSession ? activeSession.exercises.reduce((sum, item) => sum + item.sets.filter((set) => set.completed).length, 0) : 0} />
       <ToastStack toasts={toasts} />
       {summary && <WorkoutSummary data={summary} onDone={() => { setSummary(null); setTab('today'); }} />}
+      {runLogOpen && profile && <RunLogSheet defaultUnit={preferredRunUnit(runs)} onSave={handleSaveRun} onClose={() => setRunLogOpen(false)} />}
       {moveSlot && sheetData && (
         <MoveSheet
           item={sheetData.item}

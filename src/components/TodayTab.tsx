@@ -3,10 +3,10 @@ import { programExercises } from '../engine/extras';
 import { PlateCalculatorModal } from './PlateCalculatorModal';
 import { setInputProblem } from '../lib/setInput';
 import React, { useEffect, useRef, useState } from 'react';
-import type { LoggedExercise, LoggedSet, SourceReference, UserProfile, WorkoutSession } from '../types';
+import type { LoggedExercise, LoggedSet, RunSession, SourceReference, UserProfile, WorkoutSession } from '../types';
 import { getDayPrescription } from '../engine/jnt2Engine';
 import { missingTrainingMaxes } from '../engine/sessionEngine';
-import { AlertTriangle, Check, ChevronDown, HelpCircle, Minus, Plus, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Footprints, Gauge, HelpCircle, Minus, Plus, RotateCcw } from 'lucide-react';
 import { priorContext } from '../engine/encouragement';
 import { useDialog } from '../lib/useDialog';
 import { warmupSets } from '../engine/warmup';
@@ -23,6 +23,7 @@ import { BATTERY_FLAIR } from '../lib/perks';
 import { CoachCard } from './CoachCard';
 import { fromDateKey, type NextWorkout } from '../engine/schedule';
 import type { CoachMessage } from '../engine/coach';
+import { currentWeekRunSummary, formatRunDistance } from '../engine/runs';
 
 interface TodayTabProps {
   /** Exercises the lifter adds to the workout themselves. */
@@ -62,6 +63,8 @@ interface TodayTabProps {
   /** Set when last week's goal was missed: The Battery debuff, with the time it ends. */
   battery?: { until: number; missedCount: number } | null;
   history: WorkoutSession[];
+  runs: RunSession[];
+  onLogRun: () => void;
 }
 
 function formatSources(refs: SourceReference[]): string {
@@ -95,6 +98,8 @@ export function TodayTab({
   streak,
   battery,
   history,
+  runs,
+  onLogRun,
 }: TodayTabProps) {
   const [showHelp, setShowHelp] = useState(false);
   // The weight the plate calculator is open for, or null when it is closed.
@@ -106,6 +111,7 @@ export function TodayTab({
   if (!profile) return <div className="p-6 text-center text-muted">Loading local profiles…</div>;
 
   if (!activeSession) {
+    const runSummary = currentWeekRunSummary(runs);
     const slot = next ?? { week: profile.currentWeek, day: profile.currentDay, date: '', reason: 'upcoming' as const };
     const prescription = getDayPrescription(slot.week, slot.day, profile);
     const missing = missingTrainingMaxes(prescription, profile);
@@ -149,6 +155,22 @@ export function TodayTab({
               {missed > 0 && <span className="text-xs font-semibold text-bad">{missed} missed workout{missed === 1 ? '' : 's'}</span>}
             </div>
           )}
+        </section>
+
+        <section className="card overflow-hidden border-gold/40">
+          <div className="flex items-center justify-between gap-3 bg-gold/10 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gold/20 text-gold-ink"><Footprints className="h-5 w-5" aria-hidden /></span>
+              <div><p className="eyebrow">Supplemental training</p><h2 className="text-lg font-black">Running</h2></div>
+            </div>
+            <button type="button" onClick={onLogRun} className="min-h-11 rounded-xl bg-gold px-4 text-sm font-black text-ink">Log a run</button>
+          </div>
+          <div className="grid grid-cols-3 divide-x divide-line p-4 text-center">
+            <div><strong className="block font-mono text-2xl">{runSummary.count}</strong><span className="text-xs text-muted">This week</span></div>
+            <div><strong className="block font-mono text-2xl">{runSummary.distanceMeters > 0 ? formatRunDistance(runSummary.distanceMeters, runSummary.unit).split(' ')[0] : '—'}</strong><span className="text-xs text-muted">{runSummary.unit}</span></div>
+            <div><strong className="block font-mono text-2xl">{runSummary.count > 0 ? runSummary.averagePace.split(' ')[0] : '—'}</strong><span className="inline-flex items-center gap-1 text-xs text-muted"><Gauge className="h-3 w-3" aria-hidden />/{runSummary.unit}</span></div>
+          </div>
+          {runSummary.count === 0 && <p className="px-4 pb-4 text-center text-xs text-muted">Runs sit beside the four lifting days and never advance the program.</p>}
         </section>
 
         <section className="space-y-2">
@@ -199,7 +221,10 @@ export function TodayTab({
             <h1 className="text-2xl font-black">Week {activeSession.week} · Day {activeSession.day}</h1>
             <p className="text-xs text-muted mt-1">Autosaves after every set. Prescription and setup are snapshotted with this session.</p>
           </div>
-          <button onClick={() => setShowHelp(true)} className="shrink-0 self-start min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-sunk" aria-label="Set notation help"><HelpCircle className="w-5 h-5" /></button>
+          <div className="flex shrink-0 gap-2">
+            <button type="button" onClick={onLogRun} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-gold/20 text-gold-ink" aria-label="Log a run"><Footprints className="h-5 w-5" /></button>
+            <button onClick={() => setShowHelp(true)} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-sunk" aria-label="Set notation help"><HelpCircle className="w-5 h-5" /></button>
+          </div>
         </div>
         <SessionProgress session={activeSession} />
       </section>

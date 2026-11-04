@@ -1,4 +1,4 @@
-import type { BackupExportData, LoggedExercise, LoggedSet, UserProfile, WorkoutSession } from '../types';
+import type { BackupExportData, LoggedExercise, LoggedSet, RunSession, UserProfile, WorkoutSession } from '../types';
 import { isValidAvatar } from '../lib/avatar';
 import { isColorTheme } from '../lib/theme';
 import { isValidSchedule } from '../engine/schedule';
@@ -6,8 +6,8 @@ import { nextProgramPosition } from '../engine/sessionEngine';
 import { BACKUP_APP, SCHEMA_VERSION, migrateBackup, sanitizeProfile } from './schema';
 
 const DEFAULT_DB_NAME = 'JackedAndTan2_LocalDB';
-const DB_VERSION = 2;
-const STORES = ['profiles', 'sessions', 'activeSessions', 'demoSessions'] as const;
+const DB_VERSION = 3;
+const STORES = ['profiles', 'sessions', 'activeSessions', 'demoSessions', 'runs'] as const;
 
 type ImportStrategy = 'reject-duplicates' | 'replace-all';
 
@@ -182,6 +182,25 @@ function validateProfile(value: unknown): value is UserProfile {
     && (value.schedule === undefined || isValidSchedule(value.schedule));
 }
 
+function validateRun(value: unknown, profileIds: Set<string>): value is RunSession {
+  if (!isObject(value)) return false;
+  return typeof value.runId === 'string' && value.runId.length > 0
+    && typeof value.profileId === 'string' && profileIds.has(value.profileId)
+    && finiteNonNegative(value.startTime)
+    && typeof value.durationSeconds === 'number' && Number.isFinite(value.durationSeconds) && value.durationSeconds > 0
+    && typeof value.distanceMeters === 'number' && Number.isFinite(value.distanceMeters) && value.distanceMeters > 0
+    && (value.distanceUnit === 'mi' || value.distanceUnit === 'km')
+    && ['easy', 'tempo', 'intervals', 'long', 'other'].includes(String(value.runType))
+    && (value.effort === undefined || (Number.isInteger(value.effort) && Number(value.effort) >= 1 && Number(value.effort) <= 10))
+    && (value.notes === undefined || (typeof value.notes === 'string' && value.notes.length <= 500))
+    && (value.source === 'manual' || value.source === 'strava')
+    && (value.externalId === undefined || (typeof value.externalId === 'string' && value.externalId.length > 0 && value.externalId.length <= 200))
+    && (value.source !== 'strava' || typeof value.externalId === 'string')
+    && finiteNonNegative(value.createdTime)
+    && finiteNonNegative(value.updatedTime)
+    && Number(value.updatedTime) >= Number(value.createdTime);
+}
+
 function uniqueIds<T>(items: T[], getId: (item: T) => string): boolean {
   const ids = items.map(getId);
   return new Set(ids).size === ids.length;
@@ -191,7 +210,7 @@ function validateBackup(raw: unknown): { ok: true; data: BackupExportData } | { 
   const migrated = migrateBackup(raw);
   if (!migrated.ok) return { ok: false, message: migrated.message };
   const value = migrated.value;
-  if (!Array.isArray(value.profiles) || !Array.isArray(value.sessions) || !Array.isArray(value.activeSessions)) {
+  if (!Array.isArray(value.profiles) || !Array.isArray(value.sessions) || !Array.isArray(value.activeSessions) || !Array.isArray(value.runs)) {
     return { ok: false, message: 'Backup collections are missing or malformed.' };
   }
   if (!value.profiles.every(validateProfile)) {
@@ -202,6 +221,9 @@ function validateBackup(raw: unknown): { ok: true; data: BackupExportData } | { 
     return { ok: false, message: 'The backup contains duplicate profile IDs.' };
   }
   const profileIds = new Set(profiles.map((item) => item.id));
+  if (!value.runs.every((item) => validateRun(item, profileIds))) {
+    return { ok: false, message: 'At least one run record is malformed.' };
+  }
   if (!value.sessions.every((item) => validateSession(item, profileIds) && item.status !== 'active')) {
     return { ok: false, message: 'At least one completed session, exercise, or set is malformed.' };
   }
@@ -210,6 +232,7 @@ function validateBackup(raw: unknown): { ok: true; data: BackupExportData } | { 
   }
   const sessions = value.sessions as WorkoutSession[];
   const activeSessions = value.activeSessions as WorkoutSession[];
+  const runs = value.runs as RunSession[];
   if (!uniqueIds(sessions, (item) => item.sessionId) || !uniqueIds(activeSessions, (item) => item.sessionId)) {
     return { ok: false, message: 'The backup contains duplicate session IDs.' };
   }
@@ -219,6 +242,13 @@ function validateBackup(raw: unknown): { ok: true; data: BackupExportData } | { 
   const completedIds = new Set(sessions.map((item) => item.sessionId));
   if (activeSessions.some((item) => completedIds.has(item.sessionId))) {
     return { ok: false, message: 'A session ID appears in both active and completed collections.' };
+  }
+  if (!uniqueIds(runs, (item) => item.runId)) {
+    return { ok: false, message: 'The backup contains duplicate run IDs.' };
+  }
+  const providerIds = runs.filter((item) => item.externalId).map((item) => `${item.source}:${item.externalId}`);
+  if (new Set(providerIds).size !== providerIds.length) {
+    return { ok: false, message: 'The backup contains duplicate provider activity IDs.' };
   }
   return { ok: true, data: value as unknown as BackupExportData };
 }
@@ -252,7 +282,7 @@ export class StorageService {
         const database = request.result;
         for (const name of STORES) {
           if (!database.objectStoreNames.contains(name)) {
-            database.createObjectStore(name, { keyPath: name === 'profiles' ? 'id' : name === 'activeSessions' ? 'profileId' : 'sessionId' });
+            database.createObjectStore(name, { keyPath: name === 'profiles' ? 'id' : name === 'activeSessions' ? 'profileId' : name === 'runs' ? 'runId' : 'sessionId' });
           }
         }
       };
@@ -515,6 +545,58 @@ export class StorageService {
       .sort((a, b) => (b.completedTime ?? b.startTime) - (a.completedTime ?? a.startTime));
   }
 
+  async getRunHistory(profileId: string): Promise<RunSession[]> {
+    const runs = await this.getAll<RunSession>('runs');
+    return runs
+      .filter((item) => item.profileId === profileId)
+      .sort((a, b) => b.startTime - a.startTime);
+  }
+
+  async saveRun(input: RunSession): Promise<void> {
+    const profileIds = new Set((await this.getProfiles()).map((item) => item.id));
+    const providerMatch = input.externalId
+      ? (await this.getAll<RunSession>('runs')).find((item) => item.source === input.source && item.externalId === input.externalId)
+      : undefined;
+    const run = providerMatch ? { ...input, runId: providerMatch.runId, createdTime: providerMatch.createdTime } : input;
+    if (!validateRun(run, profileIds)) throw new Error('Refusing to save a malformed run.');
+    return this.enqueue(async () => {
+      await this.init();
+      if (this.fallback) {
+        const runs = this.fallbackRead<RunSession[]>('runs', []);
+        const providerDuplicate = run.externalId
+          ? runs.findIndex((item) => item.source === run.source && item.externalId === run.externalId)
+          : -1;
+        const index = providerDuplicate >= 0 ? providerDuplicate : runs.findIndex((item) => item.runId === run.runId);
+        if (index >= 0) runs[index] = run; else runs.push(run);
+        localStorage.setItem(this.key('runs'), JSON.stringify(runs));
+        return;
+      }
+      await new Promise<void>((resolve, reject) => {
+        const transaction = this.db!.transaction('runs', 'readwrite');
+        transaction.objectStore('runs').put(run);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(new Error(`Run save failed: ${transaction.error?.message ?? 'unknown error'}`));
+      });
+    });
+  }
+
+  async deleteRun(runId: string): Promise<void> {
+    return this.enqueue(async () => {
+      await this.init();
+      if (this.fallback) {
+        const runs = this.fallbackRead<RunSession[]>('runs', []).filter((item) => item.runId !== runId);
+        localStorage.setItem(this.key('runs'), JSON.stringify(runs));
+        return;
+      }
+      await new Promise<void>((resolve, reject) => {
+        const transaction = this.db!.transaction('runs', 'readwrite');
+        transaction.objectStore('runs').delete(runId);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(new Error(`Run delete failed: ${transaction.error?.message ?? 'unknown error'}`));
+      });
+    });
+  }
+
   async saveDemoSession(session: WorkoutSession): Promise<void> {
     if (!session.isDemo || !validateSession(session, new Set([session.profileId]))) {
       throw new Error('Refusing to save a malformed or unlabelled demo session.');
@@ -575,18 +657,20 @@ export class StorageService {
   }
 
   async exportBackup(): Promise<string> {
-    const [profiles, sessions, activeSessions] = await Promise.all([
+    const [profiles, sessions, activeSessions, runs] = await Promise.all([
       this.getProfiles(),
       this.getAll<WorkoutSession>('sessions'),
       this.getAll<WorkoutSession>('activeSessions'),
+      this.getAll<RunSession>('runs'),
     ]);
     const payload: BackupExportData = {
-      version: SCHEMA_VERSION as 3,
+      version: SCHEMA_VERSION as 4,
       timestamp: Date.now(),
       app: BACKUP_APP,
       profiles,
       sessions: sessions.filter((item) => !item.isDemo),
       activeSessions,
+      runs,
     };
     return JSON.stringify(payload, null, 2);
   }
@@ -607,38 +691,44 @@ export class StorageService {
 
     await this.init();
     if (strategy === 'reject-duplicates') {
-      const [profiles, sessions, activeSessions] = await Promise.all([
+      const [profiles, sessions, activeSessions, runs] = await Promise.all([
         this.getProfiles(),
         this.getAll<WorkoutSession>('sessions'),
         this.getAll<WorkoutSession>('activeSessions'),
+        this.getAll<RunSession>('runs'),
       ]);
       const profileIds = new Set(profiles.map((item) => item.id));
       const sessionIds = new Set([...sessions, ...activeSessions].map((item) => item.sessionId));
       const activeProfileIds = new Set(activeSessions.map((item) => item.profileId));
+      const runIds = new Set(runs.map((item) => item.runId));
+      const providerIds = new Set(runs.filter((item) => item.externalId).map((item) => `${item.source}:${item.externalId}`));
       const profileDuplicate = data.profiles.find((item) => profileIds.has(item.id));
       const sessionDuplicate = [...data.sessions, ...data.activeSessions].find((item) => sessionIds.has(item.sessionId));
       const activeProfileDuplicate = data.activeSessions.find((item) => activeProfileIds.has(item.profileId));
-      if (profileDuplicate || sessionDuplicate || activeProfileDuplicate) {
+      const runDuplicate = data.runs.find((item) => runIds.has(item.runId) || (item.externalId && providerIds.has(`${item.source}:${item.externalId}`)));
+      if (profileDuplicate || sessionDuplicate || activeProfileDuplicate || runDuplicate) {
         return {
           success: false,
-          message: `Import stopped before writing because duplicate IDs exist${profileDuplicate ? ` (profile ${profileDuplicate.id})` : ''}${sessionDuplicate ? ` (session ${sessionDuplicate.sessionId})` : ''}${activeProfileDuplicate ? ` (active profile ${activeProfileDuplicate.profileId})` : ''}. Choose explicit replace-all import to overwrite local data.`,
+          message: `Import stopped before writing because duplicate IDs exist${profileDuplicate ? ` (profile ${profileDuplicate.id})` : ''}${sessionDuplicate ? ` (session ${sessionDuplicate.sessionId})` : ''}${activeProfileDuplicate ? ` (active profile ${activeProfileDuplicate.profileId})` : ''}${runDuplicate ? ` (run ${runDuplicate.runId})` : ''}. Choose explicit replace-all import to overwrite local data.`,
         };
       }
     }
 
     return this.enqueue(async () => {
       if (this.fallback) {
-        const names = ['profiles', 'sessions', 'activeSessions'] as const;
+        const names = ['profiles', 'sessions', 'activeSessions', 'runs'] as const;
         const prior = Object.fromEntries(names.map((name) => [name, localStorage.getItem(this.key(name))]));
         try {
           if (strategy === 'replace-all') {
             localStorage.setItem(this.key('profiles'), JSON.stringify(data.profiles));
             localStorage.setItem(this.key('sessions'), JSON.stringify(data.sessions));
             localStorage.setItem(this.key('activeSessions'), JSON.stringify(data.activeSessions));
+            localStorage.setItem(this.key('runs'), JSON.stringify(data.runs));
           } else {
             localStorage.setItem(this.key('profiles'), JSON.stringify([...this.fallbackRead<UserProfile[]>('profiles', []), ...data.profiles]));
             localStorage.setItem(this.key('sessions'), JSON.stringify([...this.fallbackRead<WorkoutSession[]>('sessions', []), ...data.sessions]));
             localStorage.setItem(this.key('activeSessions'), JSON.stringify([...this.fallbackRead<WorkoutSession[]>('activeSessions', []), ...data.activeSessions]));
+            localStorage.setItem(this.key('runs'), JSON.stringify([...this.fallbackRead<RunSession[]>('runs', []), ...data.runs]));
           }
         } catch (error) {
           names.forEach((name) => prior[name] === null ? localStorage.removeItem(this.key(name)) : localStorage.setItem(this.key(name), prior[name]!));
@@ -646,18 +736,21 @@ export class StorageService {
         }
       } else {
         await new Promise<void>((resolve, reject) => {
-          const transaction = this.db!.transaction(['profiles', 'sessions', 'activeSessions'], 'readwrite');
+          const transaction = this.db!.transaction(['profiles', 'sessions', 'activeSessions', 'runs'], 'readwrite');
           const profileStore = transaction.objectStore('profiles');
           const sessionStore = transaction.objectStore('sessions');
           const activeStore = transaction.objectStore('activeSessions');
+          const runStore = transaction.objectStore('runs');
           if (strategy === 'replace-all') {
             profileStore.clear();
             sessionStore.clear();
             activeStore.clear();
+            runStore.clear();
           }
           data.profiles.forEach((item) => profileStore.put(item));
           data.sessions.forEach((item) => sessionStore.put(item));
           data.activeSessions.forEach((item) => activeStore.put(item));
+          data.runs.forEach((item) => runStore.put(item));
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(new Error(`Import transaction failed: ${transaction.error?.message ?? 'unknown error'}`));
           transaction.onabort = () => reject(new Error('Import was aborted; local data was not partially replaced.'));
@@ -665,7 +758,7 @@ export class StorageService {
       }
       return {
         success: true,
-        message: `Imported ${data.profiles.length} profiles, ${data.sessions.length} historical sessions, and ${data.activeSessions.length} active sessions.`,
+        message: `Imported ${data.profiles.length} profiles, ${data.sessions.length} historical sessions, ${data.activeSessions.length} active sessions, and ${data.runs.length} runs.`,
       };
     });
   }

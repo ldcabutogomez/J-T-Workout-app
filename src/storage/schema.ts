@@ -4,9 +4,10 @@ import type { BackupExportData, UserProfile } from '../types';
  * Version of the stored data shape (profiles inside the database, and backup files).
  *   2: original format.
  *   3: every optional profile field is checked at runtime; records carry `schemaVersion`.
+ *   4: supplemental run records are included in backups.
  * Add a step to `migrateBackup` / `sanitizeProfile` whenever the shape changes, never edit an old one.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const BACKUP_APP = 'GZCL_Jacked_And_Tan_2_Partner_Engine';
 /** Oldest backup version this build can still read. */
 export const OLDEST_BACKUP_VERSION = 2;
@@ -108,7 +109,12 @@ export function migrateBackup(raw: unknown): BackupMigration {
   // 2 -> 3: the shape is unchanged; optional profile fields are now checked, and records carry schemaVersion.
   if (value.version === 2) {
     value = { ...value, version: 3, profiles: Array.isArray(value.profiles) ? value.profiles.map((p) => sanitizeProfile(p)) : value.profiles };
-  } else if (Array.isArray(value.profiles)) {
+  }
+  // 3 -> 4: runs are a separate collection. Old backups simply start with none.
+  if (value.version === 3) {
+    value = { ...value, version: 4, runs: [] };
+  }
+  if (Array.isArray(value.profiles)) {
     value = { ...value, profiles: value.profiles.map((p) => sanitizeProfile(p)) };
   }
   return { ok: true, value };
