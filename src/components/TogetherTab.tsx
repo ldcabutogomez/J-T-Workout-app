@@ -193,10 +193,10 @@ function PartnerLive({ stats }: { stats: PartnerStats }) {
 }
 
 const CATEGORIES: { key: LeaderboardCategory; label: string; value: (s: PartnerStats) => string }[] = [
-  { key: 'compliance', label: '4-wk compliance', value: (s) => `${s.compliancePct}%` },
+  { key: 'compliance', label: 'Weekly compliance', value: (s) => `${s.weeklyCompliancePct}%` },
   { key: 'streak', label: 'Week streak', value: (s) => `${s.streakWeeks}` },
-  { key: 'volume', label: 'Volume (lb)', value: (s) => s.volumeLb.toLocaleString() },
-  { key: 'prs', label: 'All-time PRs', value: (s) => `${s.prCount}` },
+  { key: 'volume', label: 'Volume trend', value: (s) => (s.volumeTrendPct === null ? 'n/a' : `${s.volumeTrendPct > 0 ? '+' : ''}${s.volumeTrendPct}%`) },
+  { key: 'prs', label: 'PRs / session', value: (s) => (s.prPerSession === null ? 'n/a' : s.prPerSession.toFixed(2)) },
 ];
 
 function lastTrained(s: PartnerStats): { text: string; warn: boolean } {
@@ -262,6 +262,7 @@ export function TogetherTab({ board, youId, pairing, profiles, youLevel = 1, onT
               <tr className="text-xs text-muted text-left">
                 <th className="font-bold pb-2 pr-2">#</th>
                 <th className="font-bold pb-2 pr-2">Lifter</th>
+                <th className="font-bold pb-2 px-1 text-right">Score</th>
                 {CATEGORIES.map((c) => <th key={c.key} className="font-bold pb-2 px-1 text-right">{c.label}</th>)}
               </tr>
             </thead>
@@ -270,6 +271,7 @@ export function TogetherTab({ board, youId, pairing, profiles, youLevel = 1, onT
                 <tr key={s.profileId} className={`border-t border-line ${s.profileId === youId ? 'text-accent-ink' : 'text-ink'}`}>
                   <td className="py-2 pr-2 font-mono">{index + 1}</td>
                   <td className="py-2 pr-2 font-bold"><span className="flex items-center gap-2"><Avatar profile={personFor(s)} size={24} decorative />{s.name}</span></td>
+                  <td className="py-2 px-1 text-right font-mono font-black">{s.score}</td>
                   {CATEGORIES.map((c) => (
                     <td key={c.key} className="py-2 px-1 text-right font-mono">
                       {board.winners[c.key].includes(s.profileId) && <Trophy className="inline w-3 h-3 text-accent-ink mr-1 -mt-0.5" aria-label="Category leader" />}
@@ -281,7 +283,20 @@ export function TogetherTab({ board, youId, pairing, profiles, youLevel = 1, onT
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-muted mt-3">Ranked by 4-week compliance, then streak, volume and PRs. Compliance uses the last 4 full Mon–Sun weeks, capped at each lifter's weekly goal. Partner stats sync between your phones; set-level logs never leave this device.</p>
+        <details className="mt-3">
+          <summary className="min-h-9 cursor-pointer text-xs font-bold text-accent-ink">How the score is built</summary>
+          <ul className="mt-2 space-y-2">
+            {board.ranked.map((s) => (
+              <li key={s.profileId} className="text-xs">
+                <p className={`font-bold ${s.profileId === youId ? 'text-accent-ink' : 'text-ink'}`}>{s.name}: {s.score}</p>
+                <p className="text-muted">
+                  {s.scoreParts.map((part) => `${part.label} ${part.value === null ? 'n/a' : part.value} (${part.weightPct}%)`).join(' · ')}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </details>
+        <p className="text-xs text-muted mt-3">Ranked by a weighted score of weekly compliance (35%), consistency (20%), volume trend (15%), PRs per session (15%) and strength trend (15%). Each part compares a lifter with their own recent past, never raw pounds lifted, so a lighter lifter who trains consistently and improves ranks alongside a heavier one. A part with no baseline yet (new lifter, or a partner on an older build) is left out and its weight is shared by the rest. Weekly compliance is this Mon–Sun week against each lifter's weekly goal. Partner stats sync between your phones; set-level logs never leave this device.</p>
       </section>
     </div>
   );

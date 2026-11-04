@@ -26,7 +26,8 @@ test('snapshot survives JSON and recomputes against the receiver clock', () => {
   assert.ok(wire);
   const sameWeek = statsFromSnapshot(wire!, NOW);
   assert.equal(sameWeek.streakWeeks, 1, 'an unmet current week does not break last week\'s streak');
-  assert.equal(sameWeek.compliancePct, 25);
+  assert.equal(sameWeek.weeklyCompliancePct, 0, 'nothing done yet this week');
+  assert.ok(sameWeek.score >= 0 && sameWeek.score <= 100);
   // Three weeks later with no new push: last week's sessions fall out of "this week" and the old streak is gone.
   const later = statsFromSnapshot(wire!, NOW + 21 * DAY);
   assert.equal(later.weeklyCount, 0);

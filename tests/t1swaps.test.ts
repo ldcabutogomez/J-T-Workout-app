@@ -17,12 +17,12 @@ const names = (options: ReturnType<typeof getSwapOptions>) => options?.alternati
 
 test('every main lift offers its own alternatives, in work and test weeks alike', () => {
   assert.deepEqual(names(getSwapOptions(slotOf(1, 1, 'd1-t1-primary'))), ['Pause Squat', 'Belted Squat', 'Safety Bar Squat', 'Box Squat', 'Front Squat']);
-  assert.deepEqual(names(getSwapOptions(slotOf(1, 2, 'd2-t1-primary'))), ['Pause Bench Press', 'Spoto Press', 'Sling Shot Bench', 'Floor Press']);
+  assert.deepEqual(names(getSwapOptions(slotOf(1, 2, 'd2-t1-primary'))), ['Pause Bench Press', 'Spoto Press', 'Sling Shot Bench', 'DB Bench Press', 'Floor Press']);
   assert.deepEqual(names(getSwapOptions(slotOf(1, 3, 'd3-t1-primary'))), ['Pause Squat', 'Belted Squat', 'Safety Bar Squat', 'Box Squat', 'Front Squat']);
   assert.deepEqual(names(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))), ['Sumo Deadlift', 'Trap Bar Deadlift', 'Rack Pull', 'Romanian Deadlift', 'Hip Thrust'], 'RDL and hip thrust rescale sets and reps');
   assert.deepEqual(names(getSwapOptions(slotOf(1, 4, 'd4-t1-secondary'))), ['Bench Press', 'Pause Bench Press', 'Floor Press']);
   for (const week of [1, 6, 7, 12]) assert.equal(getSwapOptions(slotOf(week, 1, 'd1-t1-primary'))?.group, 'main', `week ${week}`);
-  assert.equal(getSwapOptions(slotOf(6, 2, 'd2-t1-primary'))?.alternatives.length, 4, 'test weeks too');
+  assert.equal(getSwapOptions(slotOf(6, 2, 'd2-t1-primary'))?.alternatives.length, 5, 'test weeks too');
   assert.ok(getSwapOptions(slotOf(7, 3, 'd3-t1-primary'))!.alternatives.every((item) => item.fit === 'direct' || item.fit === 'conditional'));
 });
 
@@ -191,5 +191,23 @@ test('deadlift to RDL or hip thrust rescales sets and reps, with loads only from
     assert.equal(test12.swapReview?.reason, 'reps');
     const option = getSwapOptions(slotOf(12, 3, 'd3-t1-primary'))!.alternatives.find((item) => item.id === alt)!;
     assert.ok(option.disabledReason && option.schemeSummary);
+  }
+});
+
+test('bench press to DB bench press: own training max, per-dumbbell loads, and never on a 1RM test week', () => {
+  const swapped = slotOf(1, 2, 'd2-t1-primary', withSwap('d2-t1-primary', 'bench-press', 'db-bench-press'));
+  assert.equal(swapped.exerciseId, 'db-bench-press');
+  assert.equal(swapped.swapReview, undefined);
+  const base = slotOf(1, 2, 'd2-t1-primary');
+  assert.deepEqual(swapped.prescribedSets.map((set) => set.prescribedReps), base.prescribedSets.map((set) => set.prescribedReps), 'the program reps are kept');
+  assert.deepEqual(swapped.loadBasis, { kind: 'training_max', key: 'bench', block: 1, variationId: 'db-bench-press' });
+  const sessionNoTm = createWorkoutSession(withSwap('d2-t1-primary', 'bench-press', 'db-bench-press'), getDayPrescription(1, 2, withSwap('d2-t1-primary', 'bench-press', 'db-bench-press')), 1_000);
+  const logged = sessionNoTm.exercises.find((e) => e.slotId === 'd2-t1-primary')!;
+  assert.ok(logged.sets.slice(1).every((set) => set.load === null), 'the barbell bench TM is not borrowed');
+  assert.equal(logged.loadNotation, 'per_dumbbell');
+  for (const week of [6, 12]) {
+    const test = slotOf(week, 2, 'd2-t1-primary', withSwap('d2-t1-primary', 'bench-press', 'db-bench-press'));
+    assert.equal(test.exerciseId, 'bench-press', `week ${week} is a test week`);
+    assert.equal(getSwapOptions(slotOf(week, 2, 'd2-t1-primary'))!.alternatives.find((item) => item.id === 'db-bench-press')?.disabledReason !== undefined, true);
   }
 });

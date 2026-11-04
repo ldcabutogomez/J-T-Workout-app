@@ -14,6 +14,9 @@ interface WeekCalendarProps {
   onMove: (slot: Slot, date: DateKey) => void;
   onOpenMove: (slot: Slot) => void;
   onCatchUp: () => void;
+  /** When set, the parent (the month calendar) owns which week is shown. */
+  monday?: DateKey;
+  onMondayChange?: (monday: DateKey) => void;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -35,8 +38,10 @@ const statusClass = (item: AgendaItem) =>
         : 'text-muted';
 
 /** One calendar week, Monday to Sunday. Unfinished workouts drag between days; the Move button does the same without dragging. */
-export function WeekCalendar({ schedule, profile, history, today, onMove, onOpenMove, onCatchUp }: WeekCalendarProps) {
-  const [monday, setMonday] = useState<DateKey>(() => mondayOf(today));
+export function WeekCalendar({ schedule, profile, history, today, onMove, onOpenMove, onCatchUp, monday: controlledMonday, onMondayChange }: WeekCalendarProps) {
+  const [ownMonday, setOwnMonday] = useState<DateKey>(() => mondayOf(today));
+  const monday = controlledMonday ?? ownMonday;
+  const setMonday = (next: DateKey) => { setOwnMonday(next); onMondayChange?.(next); };
   const days = useMemo(() => weekAgenda(schedule, history, monday, today, profile), [schedule, history, monday, today, profile]);
   const behind = weeksBehind(schedule, history, today);
   const items = days.flatMap((day) => day.items);

@@ -220,3 +220,15 @@ test('load notation is explicit for new sessions and unspecified for older ones'
   const cleared = clearSuggestedLoads(session(profile(), 1, 2, [legacy], 5_000), 'd2-t3c');
   assert.deepEqual(exOf(cleared, 'd2-t3c').sets.map((set) => set.load), [null, null, null, null]);
 });
+
+test('every fly substitute is offered as the same job, with a sensible load notation', () => {
+  const pec = getSwapOptions(slotOf(1, 2, 'd2-t3c'))!.alternatives.map((item) => item.id);
+  for (const id of ['cable-fly', 'db-fly', 'machine-pec-deck', 'incline-db-fly', 'low-to-high-cable-fly', 'high-to-low-cable-fly']) assert.ok(pec.includes(id), id);
+  const rear = getSwapOptions(slotOf(1, 2, 'd2-t3b'))!.alternatives.map((item) => item.id);
+  for (const id of ['bent-over-rear-delt-fly', 'reverse-pec-deck', 'cable-rear-delt-fly', 'chest-supported-db-rear-delt-fly']) assert.ok(rear.includes(id), id);
+  assert.equal(loadNotationFor('machine-pec-deck', 'Machine Pec Deck'), 'machine_stack');
+  assert.equal(loadNotationFor('reverse-pec-deck', 'Reverse Pec Deck'), 'machine_stack');
+  assert.equal(loadNotationFor('cable-rear-delt-fly', 'Cable Rear Delt Fly'), 'cable_stack');
+  assert.equal(loadNotationFor('incline-db-fly', 'Incline DB Fly'), 'per_dumbbell');
+  assert.equal(loadNotationFor('chest-supported-db-rear-delt-fly', 'Chest-Supported DB Rear Delt Fly'), 'per_dumbbell');
+});

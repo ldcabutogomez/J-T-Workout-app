@@ -24,7 +24,7 @@ export function loadNotationFor(exerciseId: string, exerciseName: string): LoadN
   if (BODYWEIGHT.has(id)) return 'added_bodyweight';
   if (/\bdb\b|dumbbell/.test(name) || /^db-|^one-arm-db|-db-/.test(id)) return 'per_dumbbell';
   if (/cable|face pull|pull ?down|pushdown|push down/.test(name)) return 'cable_stack';
-  if (/machine|leg press|leg curl|leg extension|pec fl|hip abduction|kickback|\bhack\b/.test(name)) return 'machine_stack';
+  if (/machine|leg press|leg curl|leg extension|pec fl|pec deck|hip abduction|kickback|\bhack\b/.test(name)) return 'machine_stack';
   if (/split|lunge|goblet|step-?up/.test(name)) return 'unspecified';
   if (/squat|deadlift|\bbench\b|military|press|rack pull|ez bar|barbell|hip thrust/.test(name)) return 'barbell_total';
   return 'unspecified';

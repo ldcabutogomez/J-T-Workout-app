@@ -49,7 +49,8 @@ test('approved example: weekly total, count display, and compliance', () => {
   const total = weeklyCounts(week).get(weekStart(day(5, 6)))!;
   assert.ok(Math.abs(total - 2.8125) < 1e-9, `1 + 0.5625 + 1 + 0.25 = ${total}`);
   assert.equal(fmtCount(total), '2.8');
-  assert.equal(computeCompliance(week, 4, NOW), 18, 'only the last 4 full weeks count, each capped at the goal');
+  assert.equal(computeCompliance(week, 4, day(5, 12, 20)), 70, 'weekly compliance: 2.8125 of 4 goal sessions, in the week they were done');
+  assert.equal(computeCompliance(week, 4, NOW), 0, 'a week that is over no longer counts');
   assert.equal(fmtCount(3), '3');
   // A week of partials can still meet the goal once the credits add up.
   const grind = [partial('a', day(5, 13), 24), partial('b', day(5, 14), 24), partial('c', day(5, 14, 18), 24), partial('d', day(5, 15, 8), 24), finished('e', day(5, 15, 9))];

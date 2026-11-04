@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   ALL_SLOTS, addDays, catchUp, defaultSchedule, planFromToday, doneSlots, firstUndone, fromDateKey, groupOfDay, isValidSchedule,
   liftOf, mondayOf, missedCount, moveWorkout, nextWorkout, parseSlotKey, positionAfter, slotDate, slotKey, toDateKey,
-  weekAgenda, weeksBehind, withTrainingDays,
+  weekAgenda, weeksBehind, withTrainingDays, rangeAgenda, monthGrid, addMonths,
 } from '../src/engine/schedule';
 import { isVerifiedCycleComplete } from '../src/engine/encouragement';
 import type { WorkoutSession } from '../src/types';
@@ -235,4 +235,25 @@ test('schedule validation accepts real schedules and rejects malformed ones', ()
   assert.equal(isValidSchedule({ ...ok, moves: { W3D3: 'soon' } }), false);
   assert.equal(isValidSchedule({ ...ok, moves: [] }), false);
   assert.equal(isValidSchedule(null), false);
+});
+
+test('monthGrid covers whole Monday-to-Sunday rows, and rangeAgenda matches weekAgenda', () => {
+  const grid = monthGrid('2024-05-17');
+  assert.equal(grid.length, 5);
+  assert.deepEqual(grid[0][0], { date: '2024-04-29', inMonth: false });
+  assert.deepEqual(grid[0][2], { date: '2024-05-01', inMonth: true });
+  assert.deepEqual(grid[4][6], { date: '2024-06-02', inMonth: false });
+  assert.ok(grid.every((row) => row.length === 7 && row[0].date === mondayOf(row[0].date)));
+  assert.equal(monthGrid('2024-02-10').length, 5);
+  assert.equal(monthGrid('2027-02-10').length, 4, 'a February that starts on Monday fits four rows');
+  assert.equal(monthGrid('2024-09-10').length, 6);
+  assert.equal(addMonths('2024-01-31', 1), '2024-02-01');
+  assert.equal(addMonths('2024-01-15', -1), '2023-12-01');
+  const schedule = planFromToday(1, [], '2024-05-13');
+  const week = weekAgenda(schedule, [], '2024-05-13', '2024-05-15');
+  assert.deepEqual(rangeAgenda(schedule, [], '2024-05-13', 7, '2024-05-15'), week);
+  const long = rangeAgenda(schedule, [], '2024-05-13', 14, '2024-05-15');
+  assert.equal(long.length, 14);
+  assert.equal(long[8].weekday, 'Tue');
+  assert.equal(long.flatMap((day) => day.items).length, 8, 'two program weeks of four workouts');
 });

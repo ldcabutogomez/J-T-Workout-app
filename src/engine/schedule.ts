@@ -180,10 +180,15 @@ function itemFor(slot: Slot, date: DateKey, today: DateKey, done: Map<SlotKey, D
  * appears on its scheduled date, so history never moves when the plan does.
  */
 export function weekAgenda(schedule: ProfileSchedule, history: WorkoutSession[], monday: DateKey, today: DateKey, profile?: UserProfile): AgendaDay[] {
+  return rangeAgenda(schedule, history, monday, 7, today, profile);
+}
+
+/** The same rows for any run of consecutive days, starting at `start`. The weekday label follows the real weekday. */
+export function rangeAgenda(schedule: ProfileSchedule, history: WorkoutSession[], start: DateKey, dayCount: number, today: DateKey, profile?: UserProfile): AgendaDay[] {
   const done = doneSlots(history);
-  const days: AgendaDay[] = Array.from({ length: 7 }, (_, i) => {
-    const date = addDays(monday, i);
-    return { date, weekday: WEEKDAY_LABELS[i], dayOfMonth: fromDateKey(date).getDate(), isToday: date === today, isPast: date < today, items: [] };
+  const days: AgendaDay[] = Array.from({ length: dayCount }, (_, i) => {
+    const date = addDays(start, i);
+    return { date, weekday: WEEKDAY_LABELS[(fromDateKey(date).getDay() + 6) % 7], dayOfMonth: fromDateKey(date).getDate(), isToday: date === today, isPast: date < today, items: [] };
   });
   const byDate = new Map(days.map((day) => [day.date, day]));
   for (const slot of ALL_SLOTS) {
@@ -192,6 +197,35 @@ export function weekAgenda(schedule: ProfileSchedule, history: WorkoutSession[],
     byDate.get(date)?.items.push(itemFor(slot, date, today, done, profile));
   }
   return days;
+}
+
+// ---- Month view ----
+
+/** The first day of the month a date falls in. */
+export const monthStartOf = (key: DateKey): DateKey => `${key.slice(0, 7)}-01`;
+
+/** The first day of the month `months` away from the month of `key`. */
+export function addMonths(key: DateKey, months: number): DateKey {
+  const d = fromDateKey(monthStartOf(key));
+  d.setMonth(d.getMonth() + months);
+  return toDateKey(d);
+}
+
+export interface MonthCell { date: DateKey; inMonth: boolean }
+
+/** Whole Monday-to-Sunday rows (five or six) that cover the month containing `key`. */
+export function monthGrid(key: DateKey): MonthCell[][] {
+  const first = monthStartOf(key);
+  const next = addMonths(first, 1);
+  const last = addDays(next, -1);
+  const rows: MonthCell[][] = [];
+  for (let monday = mondayOf(first); monday <= last; monday = addDays(monday, 7)) {
+    rows.push(Array.from({ length: 7 }, (_, i) => {
+      const date = addDays(monday, i);
+      return { date, inMonth: date >= first && date <= last };
+    }));
+  }
+  return rows;
 }
 
 // ---- Moving workouts ----

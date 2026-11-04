@@ -34,7 +34,10 @@ export const EXERCISES: Record<string, { name: string; bodyweight?: boolean }> =
   'glute-kickback': { name: 'Glute Kickback' }, 'hip-abduction': { name: 'Hip Abduction' },
   'pull-ups': { name: 'Pull-Ups', bodyweight: true }, 'inverted-row': { name: 'Inverted Row', bodyweight: true }, 'one-arm-db-row': { name: 'One-Arm DB Row' },
   'cable-lateral-raise': { name: 'Cable Lateral Raise' }, 'upright-row': { name: 'Upright Row' },
-  'bent-over-rear-delt-fly': { name: 'Bent-Over Rear Delt Fly' }, 'face-pull': { name: 'Face Pull' },
+  'bent-over-rear-delt-fly': { name: 'Bent-Over Rear Delt Fly' },
+  'machine-pec-deck': { name: 'Machine Pec Deck' }, 'incline-db-fly': { name: 'Incline DB Fly' }, 'low-to-high-cable-fly': { name: 'Low-to-High Cable Fly' },
+  'high-to-low-cable-fly': { name: 'High-to-Low Cable Fly' }, 'reverse-pec-deck': { name: 'Reverse Pec Deck' },
+  'cable-rear-delt-fly': { name: 'Cable Rear Delt Fly' }, 'chest-supported-db-rear-delt-fly': { name: 'Chest-Supported DB Rear Delt Fly' }, 'face-pull': { name: 'Face Pull' },
 };
 
 export interface SwapRule {
@@ -56,6 +59,8 @@ export interface SwapRule {
    * check, and the picker shows it, so reps never change silently.
    */
   scheme?: VolumeScheme;
+  /** Not offered on 1RM test weeks: a max is not tested on this exercise. */
+  noTest?: boolean;
 }
 
 /** Heavier lifts run low reps; hinge and glute work runs higher reps and more sets for similar total work. */
@@ -84,6 +89,7 @@ export const SWAP_RULES: SwapRule[] = [
   { original: 'bench-press', replacement: 'pause-bench-press', fit: D },
   { original: 'bench-press', replacement: 'spoto-press', fit: D },
   { original: 'bench-press', replacement: 'sling-shot-bench', fit: C, note: 'The sling assists the press, so loads run higher.' },
+  { original: 'bench-press', replacement: 'db-bench-press', fit: C, noTest: true, note: 'Dumbbells: enter the weight of one dumbbell. Loads run lower than the barbell and need their own training max.' },
   { original: 'bench-press', replacement: 'floor-press', fit: C, note: 'Shorter range of motion than the bench press.' },
   { original: 'front-squat', replacement: 'zercher-squat', fit: C, note: 'Loaded in the elbows, so it limits at a different point.' },
   { original: 'front-squat', replacement: 'safety-bar-squat', fit: C, note: 'A different bar position changes how heavy it feels.' },
@@ -103,6 +109,10 @@ export const SWAP_RULES: SwapRule[] = [
   // Chest / push.
   { original: 'pec-fly', replacement: 'cable-fly', fit: D, reps: { min: 10, max: 20 } },
   { original: 'pec-fly', replacement: 'db-fly', fit: D, reps: { min: 10, max: 20 } },
+  { original: 'pec-fly', replacement: 'machine-pec-deck', fit: D, reps: { min: 10, max: 20 } },
+  { original: 'pec-fly', replacement: 'incline-db-fly', fit: D, reps: { min: 10, max: 20 } },
+  { original: 'pec-fly', replacement: 'low-to-high-cable-fly', fit: D, reps: { min: 10, max: 20 } },
+  { original: 'pec-fly', replacement: 'high-to-low-cable-fly', fit: D, reps: { min: 10, max: 20 } },
   { original: 'pec-fly', replacement: 'db-pullover', fit: X, reps: { min: 10, max: 15 }, note: 'Works the chest and lats through a different path. It is not a fly.' },
   { original: 'incline-bench', replacement: 'incline-db-press', fit: D },
   { original: 'incline-bench', replacement: 'cable-chest-press', fit: C, reps: { min: 8, max: 20 }, note: 'Cable resistance and stability differ from the barbell.' },
@@ -119,6 +129,9 @@ export const SWAP_RULES: SwapRule[] = [
   { original: 'machine-lateral-raise', replacement: 'cable-lateral-raise', fit: D, reps: { min: 10, max: 25 } },
   { original: 'machine-lateral-raise', replacement: 'upright-row', fit: C, reps: { min: 10, max: 20 }, note: 'Side delts and upper traps. Keep it only if it feels comfortable on the shoulders.' },
   { original: 'rear-delt-fly', replacement: 'bent-over-rear-delt-fly', fit: D, reps: { min: 10, max: 25 } },
+  { original: 'rear-delt-fly', replacement: 'reverse-pec-deck', fit: D, reps: { min: 10, max: 25 } },
+  { original: 'rear-delt-fly', replacement: 'cable-rear-delt-fly', fit: D, reps: { min: 10, max: 25 } },
+  { original: 'rear-delt-fly', replacement: 'chest-supported-db-rear-delt-fly', fit: D, reps: { min: 10, max: 25 } },
   { original: 'rear-delt-fly', replacement: 'face-pull', fit: C, reps: { min: 12, max: 25 }, note: 'More upper back than rear delt, and the cable feels different.' },
 
   // Lower body. Curls and extensions have no supported replacement here: a hinge or a squat is a different job.
@@ -250,7 +263,7 @@ function rescaledTarget(tier: TierType, target: number | null, rule: SwapRule): 
 
 /** Why a rule cannot be applied to this slot right now, or undefined when it can. */
 function blockedReason(slot: SwappableSlot, rule: SwapRule, finalIdsOnDay: string[]): { reason: SwapReview['reason']; detail: string } | undefined {
-  if (rule.scheme && slot.status === 'test') {
+  if ((rule.scheme || rule.noTest) && slot.status === 'test') {
     return { reason: 'reps', detail: `This is a 1RM test week; ${exerciseNameFor(rule.replacement)} is not tested for a max, so it is available on the other weeks.` };
   }
   if (finalIdsOnDay.includes(rule.replacement)) {

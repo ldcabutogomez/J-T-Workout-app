@@ -287,7 +287,8 @@ try {
   await pp.getByRole('button', { name: 'Together' }).click();
   const ownRow = pp.getByRole('row').filter({ hasText: 'Lauren' });
   await ownRow.waitFor();
-  assert.match(await ownRow.innerText(), /\d{1,3},\d{3}/, 'pounds from the partial workout are on the leaderboard immediately');
+  assert.match(await ownRow.innerText(), /\b[1-9]\d?%/, 'the partial workout counts toward weekly compliance on the leaderboard immediately');
+  await pp.getByText('How the score is built').waitFor();
   await pp.getByText('1 session (1 partial)').waitFor();
   assert.equal(await pp.getByRole('row').filter({ hasText: 'Luis' }).count(), 0, 'the other local profile never appears on Lauren\'s phone');
   await partialContext.close();
@@ -333,6 +334,22 @@ try {
   await cal.getByRole('button', { name: 'Program' }).click();
   await cal.getByRole('heading', { name: 'Schedule' }).waitFor();
   await assertNoHorizontalClipping(cal, 'Program calendar');
+  // Month view: every workout is one dot on its day, and tapping a day shows that week in the list below.
+  await cal.getByRole('heading', { name: 'May 2024' }).waitFor();
+  assert.equal(await cal.locator('[data-day="2024-05-13"]').getAttribute('aria-label'), 'Mon May 13: Day 1 Back Squat, missed');
+  assert.match(await cal.locator('[data-day="2024-05-16"]').getAttribute('aria-label') ?? '', /Thu May 16: Day 3 Back Squat, planned/);
+  assert.equal(await cal.locator('[data-day="2024-05-15"]').getAttribute('aria-current'), 'date');
+  assert.equal(await cal.locator('[data-day="2024-05-15"]').getAttribute('aria-label'), 'Wed May 15, rest day');
+  await cal.getByRole('button', { name: 'Next month' }).click();
+  await cal.getByRole('heading', { name: 'June 2024' }).waitFor();
+  assert.match(await cal.locator('[data-day="2024-06-03"]').getAttribute('aria-label') ?? '', /Day 1 Back Squat, planned/);
+  await cal.locator('[data-day="2024-06-03"]').click();
+  await cal.locator('li[data-date="2024-06-03"]').waitFor();
+  assert.deepEqual(await dayOnRow('2024-06-03'), ['W4D1'], 'tapping a day in June shows that week below');
+  await cal.getByRole('button', { name: 'Current month' }).click();
+  await cal.getByRole('heading', { name: 'May 2024' }).waitFor();
+  await cal.locator('li[data-date="2024-05-13"]').waitFor();
+  await assertNoHorizontalClipping(cal, 'Month calendar');
   assert.deepEqual(await dayOnRow('2024-05-13'), ['W1D1'], 'Day 1 on Monday');
   assert.deepEqual(await dayOnRow('2024-05-14'), ['W1D2'], 'Day 2 on Tuesday');
   assert.deepEqual(await dayOnRow('2024-05-16'), ['W1D3'], 'Day 3 on Thursday');
