@@ -29,7 +29,7 @@ try {
   await page.getByText('Block 1 TMs confirmed').waitFor();
   await assertNoHorizontalClipping(page, 'Program screen');
 
-  await page.getByRole('button', { name: 'Today' }).click();
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Today' }).click();
   await page.getByRole('button', { name: 'Start workout' }).click();
   await page.getByText('Workout in progress').waitFor();
   await page.getByLabel('Swap Single Leg Press').selectOption('bulgarian-split-squat');
@@ -269,7 +269,7 @@ try {
   for (const [index, value] of ['200', '180', '300', '120'].entries()) await pBlock1.locator('input[type="number"]').nth(index).fill(value);
   await pBlock1.getByRole('button', { name: /Save/ }).click();
   await pp.getByText('Block 1 TMs confirmed').waitFor();
-  await pp.getByRole('button', { name: 'Today' }).click();
+  await pp.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Today' }).click();
   await pp.getByRole('button', { name: 'Start workout' }).click();
   await pp.getByText('Workout in progress').waitFor();
   for (let i = 0; i < 2; i += 1) {
@@ -462,7 +462,7 @@ try {
   const finishedDay3 = selectedDay.locator('article').filter({ hasText: 'Day 3' });
   await finishedDay3.getByText('Done').waitFor();
   assert.equal(await finishedDay3.getByRole('button', { name: 'Manage' }).count(), 0, 'finished workouts cannot be moved');
-  assert.equal(await ooo.locator('[data-day="2024-05-13"] [data-workout-dot]').getAttribute('data-state'), 'planned', 'Day 1 is still planned');
+  assert.equal(await ooo.locator('[data-day="2024-05-13"] [data-workout-dot][data-state="planned"]').count(), 1, 'Day 1 is still planned');
   await oooContext.close();
 
   // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).

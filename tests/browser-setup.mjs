@@ -95,7 +95,7 @@ try {
   for (const [index, value] of ['200', '180', '300', '120'].entries()) await tmBlock.locator('input[type="number"]').nth(index).fill(value);
   await tmBlock.getByRole('button', { name: /Save/ }).click();
   await inputPage.getByText('Block 1 TMs confirmed').waitFor();
-  await inputPage.getByRole('button', { name: 'Today' }).click();
+  await inputPage.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Today' }).click();
   await inputPage.getByRole('button', { name: 'Start workout' }).click();
   await inputPage.getByText('Workout in progress').waitFor();
   const logButton = inputPage.getByRole('button', { name: 'Log set' }).first();
@@ -132,7 +132,7 @@ try {
   for (const [index, value] of ['200', '180', '300', '120'].entries()) await extraTms.locator('input[type="number"]').nth(index).fill(value);
   await extraTms.getByRole('button', { name: /Save/ }).click();
   await extraPage.getByText('Block 1 TMs confirmed').waitFor();
-  await extraPage.getByRole('button', { name: 'Today' }).click();
+  await extraPage.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Today' }).click();
   await extraPage.getByRole('button', { name: 'Start workout' }).click();
   await extraPage.getByText('Workout in progress').waitFor();
   await extraPage.getByRole('button', { name: 'Add exercise' }).click();

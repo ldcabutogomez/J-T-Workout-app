@@ -49,9 +49,8 @@ export function calendarDotClass(item: AgendaItem): string {
 }
 
 /**
- * A month at a glance, in the style of a training log: one dot per workout, coloured by lift. A filled dot is
- * finished, a ring is planned, a faded fill is partial and a red ring is missed. Tapping a day shows its week in the
- * schedule list below, where workouts are moved.
+ * A month at a glance: lift-coloured filled balls are completed, faded balls are partial and rings are planned.
+ * Missed and skipped workouts stay out of the visual layer but remain in the day's accessible label and detail card.
  */
 export function MonthCalendar({ schedule, profile, history, today, month, selectedDate, onMonthChange, onSelectDate }: MonthCalendarProps) {
   const rows = useMemo(() => monthGrid(month), [month]);
