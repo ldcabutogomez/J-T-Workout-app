@@ -288,6 +288,8 @@ try {
   const ownRow = pp.getByRole('row').filter({ hasText: 'Lauren' });
   await ownRow.waitFor();
   assert.match(await ownRow.innerText(), /\b[1-9]\d?%/, 'the partial workout counts toward weekly compliance on the leaderboard immediately');
+  assert.match(await ownRow.innerText(), /\d{1,3},\d{3}/, 'lbs lifted is still on the leaderboard');
+  assert.equal(/n\/a/.test(await ownRow.innerText()), false, 'no n/a cells in the table');
   await pp.getByText('How the score is built').waitFor();
   await pp.getByText('1 session (1 partial)').waitFor();
   assert.equal(await pp.getByRole('row').filter({ hasText: 'Luis' }).count(), 0, 'the other local profile never appears on Lauren\'s phone');
@@ -332,21 +334,31 @@ try {
   await calContext.clock.setFixedTime(new Date(2024, 4, 15, 12));
   await cal.reload({ waitUntil: 'networkidle' });
   await cal.getByRole('button', { name: 'Program' }).click();
-  await cal.getByRole('heading', { name: 'Schedule' }).waitFor();
-  await assertNoHorizontalClipping(cal, 'Program calendar');
-  // Month view: every workout is one dot on its day, and tapping a day shows that week in the list below.
   await cal.getByRole('heading', { name: 'May 2024' }).waitFor();
+  await assertNoHorizontalClipping(cal, 'Program calendar');
+  // Garmin-style month view: planned workouts are outlined lift-coloured dots, missed/skipped workouts stay quiet,
+  // and tapping a day updates the compact detail card. The full week editor is closed until requested.
   assert.equal(await cal.locator('[data-day="2024-05-13"]').getAttribute('aria-label'), 'Mon May 13: Day 1 Back Squat, missed');
+  assert.equal(await cal.locator('[data-day="2024-05-13"] [data-workout-dot]').count(), 0, 'missed workouts do not add visual noise');
   assert.match(await cal.locator('[data-day="2024-05-16"]').getAttribute('aria-label') ?? '', /Thu May 16: Day 3 Back Squat, planned/);
+  assert.equal(await cal.locator('[data-day="2024-05-16"] [data-workout-dot]').getAttribute('data-family'), 'squat');
+  assert.equal(await cal.locator('[data-day="2024-05-16"] [data-workout-dot]').getAttribute('data-state'), 'planned');
   assert.equal(await cal.locator('[data-day="2024-05-15"]').getAttribute('aria-current'), 'date');
   assert.equal(await cal.locator('[data-day="2024-05-15"]').getAttribute('aria-label'), 'Wed May 15, rest day');
+  await cal.getByRole('heading', { name: 'Wednesday, May 15, 2024' }).waitFor();
+  await cal.getByText('Recovery day').waitFor();
+  assert.equal(await cal.getByRole('heading', { name: 'Schedule' }).count(), 0, 'the dense week editor starts collapsed');
   await cal.getByRole('button', { name: 'Next month' }).click();
   await cal.getByRole('heading', { name: 'June 2024' }).waitFor();
   assert.match(await cal.locator('[data-day="2024-06-03"]').getAttribute('aria-label') ?? '', /Day 1 Back Squat, planned/);
   await cal.locator('[data-day="2024-06-03"]').click();
+  await cal.getByRole('heading', { name: 'Monday, June 3, 2024' }).waitFor();
+  await cal.getByText('Day 1 · Back Squat').waitFor();
+  await cal.getByRole('button', { name: 'Edit week schedule' }).click();
+  await cal.getByRole('heading', { name: 'Schedule' }).waitFor();
   await cal.locator('li[data-date="2024-06-03"]').waitFor();
   assert.deepEqual(await dayOnRow('2024-06-03'), ['W4D1'], 'tapping a day in June shows that week below');
-  await cal.getByRole('button', { name: 'Current month' }).click();
+  await cal.locator('section[aria-labelledby="month-heading"]').getByRole('button', { name: 'Today' }).click();
   await cal.getByRole('heading', { name: 'May 2024' }).waitFor();
   await cal.locator('li[data-date="2024-05-13"]').waitFor();
   await assertNoHorizontalClipping(cal, 'Month calendar');
@@ -364,6 +376,7 @@ try {
   assert.deepEqual(await dayOnRow('2024-05-16'), []);
   await cal.reload({ waitUntil: 'networkidle' });
   await cal.getByRole('button', { name: 'Program' }).click();
+  await cal.getByRole('button', { name: 'Edit week schedule' }).click();
   assert.deepEqual(await dayOnRow('2024-05-18'), ['W1D3'], 'the move survives a reload');
 
   // Dropping on an occupied day swaps the two workouts.
@@ -391,7 +404,7 @@ try {
   await cal.getByRole('dialog', { name: 'Move workout' }).waitFor({ state: 'detached' });
 
   // Today shows the scheduled workout and offers to move it.
-  await cal.getByRole('button', { name: 'Today' }).click();
+  await cal.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Today' }).click();
   await cal.getByText('Day 1 — Back Squat').first().waitFor();
   await cal.getByRole('button', { name: /Move this workout/ }).waitFor();
   await cal.getByRole('button', { name: "This week's schedule. Open the calendar." }).waitFor();
@@ -404,6 +417,7 @@ try {
   await cal.getByRole('button', { name: 'Move plan to this week' }).click();
   await cal.getByText('Plan moved to this week.').waitFor();
   await cal.getByText(/weeks? behind/).waitFor({ state: 'detached' });
+  await cal.getByRole('button', { name: 'Edit week schedule' }).click();
   assert.deepEqual(await dayOnRow('2024-05-29'), ['W1D1'], 'Day 1 lands today, not in the past');
   assert.equal(await cal.locator('[data-slot]').filter({ hasText: 'Missed' }).count(), 0, 'nothing is missed after catching up');
   await calContext.close();
@@ -420,7 +434,9 @@ try {
   for (const [index, value] of ['200', '180', '300', '120'].entries()) await oooBlock1.locator('input[type="number"]').nth(index).fill(value);
   await oooBlock1.getByRole('button', { name: /Save/ }).click();
   await ooo.getByText('Block 1 TMs confirmed').waitFor();
-  await ooo.getByRole('button', { name: 'Move Week 1 Day 3' }).click();
+  await ooo.locator('[data-day="2024-05-16"]').click();
+  await ooo.getByRole('heading', { name: 'Thursday, May 16, 2024' }).waitFor();
+  await ooo.getByRole('button', { name: 'Manage' }).click();
   await ooo.getByRole('dialog', { name: 'Move workout' }).getByRole('button', { name: 'Start now' }).click();
   await ooo.getByText('Workout in progress').waitFor();
   await ooo.getByRole('heading', { name: 'Week 1 · Day 3' }).waitFor();
@@ -440,9 +456,13 @@ try {
   await ooo.getByRole('button', { name: 'Settings' }).click();
   await ooo.getByText(/Week 1 · Day 1 · lb/).waitFor(); // the saved position is still the first workout not done
   await ooo.getByRole('button', { name: 'Program' }).click();
-  assert.match(await ooo.locator('[data-slot="W1D3"]').innerText(), /Done/, 'Day 3 shows as done');
-  assert.equal(await ooo.getByRole('button', { name: 'Move Week 1 Day 3' }).count(), 0, 'finished workouts cannot be moved');
-  assert.equal(await ooo.locator('[data-slot="W1D1"]').count(), 1, 'Day 1 is still planned');
+  assert.equal(await ooo.locator('[data-day="2024-05-13"] [data-workout-dot][data-state="done"]').count(), 1, 'Day 3 shows as a filled dot on the day it was actually completed');
+  await ooo.locator('[data-day="2024-05-13"]').click();
+  const selectedDay = ooo.locator('section[aria-labelledby="selected-day-heading"]');
+  const finishedDay3 = selectedDay.locator('article').filter({ hasText: 'Day 3' });
+  await finishedDay3.getByText('Done').waitFor();
+  assert.equal(await finishedDay3.getByRole('button', { name: 'Manage' }).count(), 0, 'finished workouts cannot be moved');
+  assert.equal(await ooo.locator('[data-day="2024-05-13"] [data-workout-dot]').getAttribute('data-state'), 'planned', 'Day 1 is still planned');
   await oooContext.close();
 
   // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).

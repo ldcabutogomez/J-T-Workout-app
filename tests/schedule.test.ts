@@ -6,6 +6,7 @@ import {
   weekAgenda, weeksBehind, withTrainingDays, rangeAgenda, monthGrid, addMonths,
 } from '../src/engine/schedule';
 import { isVerifiedCycleComplete } from '../src/engine/encouragement';
+import { calendarDotClass, liftFamily } from '../src/components/MonthCalendar';
 import type { WorkoutSession } from '../src/types';
 import { completeSession, profile } from './helpers';
 
@@ -38,6 +39,19 @@ test('date helpers are local, stable across daylight-saving changes, and find Mo
   assert.deepEqual(parseSlotKey('W3D2'), { week: 3, day: 2 });
   assert.equal(parseSlotKey('W13D1'), null);
   assert.equal(ALL_SLOTS.length, 48);
+});
+
+test('calendar balls use primary-lift colors and fill style for completion', () => {
+  assert.equal(liftFamily('Back Squat'), 'squat');
+  assert.equal(liftFamily('Paused Bench Press'), 'bench');
+  assert.equal(liftFamily('2" Deficit Deadlift'), 'deadlift');
+  assert.equal(liftFamily('Military Press'), 'press');
+  assert.equal(liftFamily('Lat Pulldown'), 'other');
+
+  const item = { week: 1, day: 1, key: 'W1D1', lift: 'Back Squat', group: 'legs', date: TODAY } as const;
+  assert.match(calendarDotClass({ ...item, status: 'completed' }), /bg-accent/);
+  assert.match(calendarDotClass({ ...item, status: 'partial' }), /bg-accent\/40/);
+  assert.match(calendarDotClass({ ...item, status: 'upcoming' }), /bg-transparent/);
 });
 
 test('dates follow the anchor and the Mon/Tue/Thu/Fri pattern', () => {

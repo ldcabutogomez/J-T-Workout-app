@@ -14,6 +14,8 @@ interface WeekCalendarProps {
   onMove: (slot: Slot, date: DateKey) => void;
   onOpenMove: (slot: Slot) => void;
   onCatchUp: () => void;
+  /** The composed month calendar shows this warning above the collapsed editor. */
+  showCatchUpAlert?: boolean;
   /** When set, the parent (the month calendar) owns which week is shown. */
   monday?: DateKey;
   onMondayChange?: (monday: DateKey) => void;
@@ -38,7 +40,7 @@ const statusClass = (item: AgendaItem) =>
         : 'text-muted';
 
 /** One calendar week, Monday to Sunday. Unfinished workouts drag between days; the Move button does the same without dragging. */
-export function WeekCalendar({ schedule, profile, history, today, onMove, onOpenMove, onCatchUp, monday: controlledMonday, onMondayChange }: WeekCalendarProps) {
+export function WeekCalendar({ schedule, profile, history, today, onMove, onOpenMove, onCatchUp, showCatchUpAlert = true, monday: controlledMonday, onMondayChange }: WeekCalendarProps) {
   const [ownMonday, setOwnMonday] = useState<DateKey>(() => mondayOf(today));
   const monday = controlledMonday ?? ownMonday;
   const setMonday = (next: DateKey) => { setOwnMonday(next); onMondayChange?.(next); };
@@ -79,7 +81,7 @@ export function WeekCalendar({ schedule, profile, history, today, onMove, onOpen
         </div>
       </div>
 
-      {behind > 0 && (
+      {showCatchUpAlert && behind > 0 && (
         <div className="alert-warn mt-3 text-sm">
           <p><strong>You're {behind === 1 ? 'a week' : `${behind} weeks`} behind.</strong> Your unfinished workouts are dated in the past.</p>
           <button type="button" onClick={onCatchUp} className="mt-2 min-h-11 rounded-xl bg-accent px-3 text-xs font-black text-on-accent">Move plan to this week</button>

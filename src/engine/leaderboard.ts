@@ -16,13 +16,13 @@ export type LeaderboardCategory = 'compliance' | 'streak' | 'volume' | 'prs';
 
 /**
  * The ranking is one weighted score. Every part is measured against the lifter's own recent baseline (hitting the
- * weekly goal, momentum, change in volume, PRs per session, change in estimated strength), never raw pounds, so a
+ * weekly goal, momentum, change in volume, PRs per session, change in estimated strength),  with raw pounds lifted worth only a share of it, so a
  * lighter lifter who trains consistently and improves ranks alongside a heavier one.
  */
-export type ScoreKey = 'compliance' | 'consistency' | 'volume' | 'prs' | 'strength';
-export const SCORE_WEIGHTS: Record<ScoreKey, number> = { compliance: 35, consistency: 20, volume: 15, prs: 15, strength: 15 };
+export type ScoreKey = 'compliance' | 'consistency' | 'lifted' | 'volume' | 'prs' | 'strength';
+export const SCORE_WEIGHTS: Record<ScoreKey, number> = { compliance: 30, consistency: 20, lifted: 15, volume: 10, prs: 15, strength: 10 };
 export const SCORE_LABELS: Record<ScoreKey, string> = {
-  compliance: 'Weekly compliance', consistency: 'Consistency', volume: 'Volume trend', prs: 'PR rate', strength: 'Strength trend',
+  compliance: 'Weekly compliance', consistency: 'Consistency', lifted: 'Lbs lifted', volume: 'Volume trend', prs: 'PR rate', strength: 'Strength trend',
 };
 /** Streak length that earns full consistency credit. */
 export const STREAK_FULL_CREDIT_WEEKS = 8;
@@ -489,6 +489,8 @@ export function statsFromSnapshot(snapshot: PartnerSnapshot, now: number): Partn
   const { score, scoreParts } = scoreFrom([
     { key: 'compliance', value: weeklyCompliancePct },
     { key: 'consistency', value: clamp((streak.streakWeeks / STREAK_FULL_CREDIT_WEEKS) * 100, 0, 100) },
+    // Lbs lifted is scored against the rest of the board in rankStats, so it is filled in there.
+    { key: 'lifted', value: null },
     { key: 'volume', value: volumeTrendPct === null ? null : clamp(50 + volumeTrendPct, 0, 100) },
     { key: 'prs', value: prPerSession === null ? null : clamp((prPerSession / PR_RATE_FULL_CREDIT) * 100, 0, 100) },
     { key: 'strength', value: strengthTrendPct === null ? null : clamp(50 + strengthTrendPct * 5, 0, 100) },
@@ -536,7 +538,17 @@ function leaders(stats: PartnerStats[], value: (s: PartnerStats) => number): str
   return max > 0 ? stats.filter((s) => value(s) === max).map((s) => s.profileId) : [];
 }
 
-export function rankStats(stats: PartnerStats[]): Leaderboard {
+/** Raw lbs lifted is a real part of the score (15%), measured as a share of the biggest total on the board. */
+function withLiftedScore(stats: PartnerStats[]): PartnerStats[] {
+  const top = Math.max(0, ...stats.map((s) => s.volumeLb));
+  return stats.map((s) => {
+    const parts = s.scoreParts.map((part) => ({ key: part.key, value: part.key === 'lifted' ? (top > 0 ? (s.volumeLb / top) * 100 : null) : part.value }));
+    return { ...s, ...scoreFrom(parts) };
+  });
+}
+
+export function rankStats(input: PartnerStats[]): Leaderboard {
+  const stats = withLiftedScore(input);
   const ranked = [...stats].sort((a, b) =>
     b.score - a.score
     || b.weeklyCompliancePct - a.weeklyCompliancePct
@@ -544,12 +556,11 @@ export function rankStats(stats: PartnerStats[]): Leaderboard {
     || b.sessionsCompleted - a.sessionsCompleted);
   return {
     ranked,
-    // Category trophies use the same relative measures, so none of them rewards raw pounds.
     winners: {
       compliance: leaders(stats, (s) => s.weeklyCompliancePct),
       streak: leaders(stats, (s) => s.streakWeeks),
-      volume: leaders(stats, (s) => s.volumeTrendPct ?? 0),
-      prs: leaders(stats, (s) => s.prPerSession ?? 0),
+      volume: leaders(stats, (s) => s.volumeLb),
+      prs: leaders(stats, (s) => s.prCount),
     },
   };
 }

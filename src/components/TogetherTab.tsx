@@ -195,8 +195,8 @@ function PartnerLive({ stats }: { stats: PartnerStats }) {
 const CATEGORIES: { key: LeaderboardCategory; label: string; value: (s: PartnerStats) => string }[] = [
   { key: 'compliance', label: 'Weekly compliance', value: (s) => `${s.weeklyCompliancePct}%` },
   { key: 'streak', label: 'Week streak', value: (s) => `${s.streakWeeks}` },
-  { key: 'volume', label: 'Volume trend', value: (s) => (s.volumeTrendPct === null ? 'n/a' : `${s.volumeTrendPct > 0 ? '+' : ''}${s.volumeTrendPct}%`) },
-  { key: 'prs', label: 'PRs / session', value: (s) => (s.prPerSession === null ? 'n/a' : s.prPerSession.toFixed(2)) },
+  { key: 'volume', label: 'Volume (lb)', value: (s) => s.volumeLb.toLocaleString() },
+  { key: 'prs', label: 'All-time PRs', value: (s) => `${s.prCount}` },
 ];
 
 function lastTrained(s: PartnerStats): { text: string; warn: boolean } {
@@ -290,13 +290,13 @@ export function TogetherTab({ board, youId, pairing, profiles, youLevel = 1, onT
               <li key={s.profileId} className="text-xs">
                 <p className={`font-bold ${s.profileId === youId ? 'text-accent-ink' : 'text-ink'}`}>{s.name}: {s.score}</p>
                 <p className="text-muted">
-                  {s.scoreParts.map((part) => `${part.label} ${part.value === null ? 'n/a' : part.value} (${part.weightPct}%)`).join(' · ')}
+                  {s.scoreParts.map((part) => `${part.label} ${part.value === null ? 'building' : part.value} (${part.weightPct}%)`).join(' · ')}
                 </p>
               </li>
             ))}
           </ul>
         </details>
-        <p className="text-xs text-muted mt-3">Ranked by a weighted score of weekly compliance (35%), consistency (20%), volume trend (15%), PRs per session (15%) and strength trend (15%). Each part compares a lifter with their own recent past, never raw pounds lifted, so a lighter lifter who trains consistently and improves ranks alongside a heavier one. A part with no baseline yet (new lifter, or a partner on an older build) is left out and its weight is shared by the rest. Weekly compliance is this Mon–Sun week against each lifter's weekly goal. Partner stats sync between your phones; set-level logs never leave this device.</p>
+        <p className="text-xs text-muted mt-3">Ranked by a weighted score of weekly compliance (30%), consistency (20%), lbs lifted (15%), PRs per session (15%), volume trend (10%) and strength trend (10%). Lbs lifted counts, but only for 15%; the other parts compare a lifter with their own recent past, so a lighter lifter who trains consistently and improves can still rank first. A part still building a baseline (a new lifter, or a partner on an older build) is left out and its weight is shared by the rest. Weekly compliance is this Mon–Sun week against each lifter's weekly goal. Partner stats sync between your phones; set-level logs never leave this device.</p>
       </section>
     </div>
   );

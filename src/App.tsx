@@ -44,8 +44,7 @@ import { TogetherTab, type SyncStatus } from './components/TogetherTab';
 import { composeBoard, snapshotFromHistory, weekKey, type PartnerSnapshot } from './engine/leaderboard';
 import { fmtCount, meetsGoal, sessionCredit, validCompleted, weekStart } from './engine/sessionValidity';
 import { catchUp, defaultSchedule, doneSlots, missedCount, mondayOf, moveWorkout, nextWorkout, positionAfter, slotDate, todayKey, weekAgenda, weeksBehind, withTrainingDays, type NextWorkout, type Slot } from './engine/schedule';
-import { WeekCalendar } from './components/WeekCalendar';
-import { MonthCalendar } from './components/MonthCalendar';
+import { TrainingCalendar } from './components/TrainingCalendar';
 import { WeekStrip } from './components/WeekStrip';
 import { MoveSheet } from './components/MoveSheet';
 import { clearPairing, describeKey, generatePairCode, getDeviceId, loadPairing, normalizePairCode, pullSnapshots, pushSnapshot, readCloudConfig, savePairing, saveSyncProfile, testConnection } from './sync/cloud';
@@ -100,7 +99,6 @@ export default function App() {
   const [coachTick, setCoachTick] = useState(0);
   const [today, setToday] = useState(() => todayKey());
   const [moveSlot, setMoveSlot] = useState<Slot | null>(null);
-  const [calendarMonday, setCalendarMonday] = useState<string | null>(null);
   const [historyReady, setHistoryReady] = useState(false);
   const [connection, setConnection] = useState<{ state: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ state: 'idle' });
   const [partnerHistory, setPartnerHistory] = useState<Record<string, WorkoutSession[]> | null>(null);
@@ -967,8 +965,7 @@ export default function App() {
         {tab === 'today' && <TodayTab extras={{ onAdd: handleAddExtra, onAddSet: handleAddExtraSet, onRemoveSet: handleRemoveExtraSet, onRemove: handleRemoveExtra }} onExerciseNote={handleExerciseNote} onSessionNote={handleSessionNote} onStartNewCycle={() => setNewCycleOpen(true)} profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onSetVariationTm={handleSetVariationTm} onClearLoads={handleClearLoads} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && (
           <div className="space-y-4">
-            {schedule && <MonthCalendar schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} selectedMonday={calendarMonday ?? mondayOf(today)} onSelectDate={(date) => setCalendarMonday(mondayOf(date))} />}
-            {schedule && <WeekCalendar schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} monday={calendarMonday ?? mondayOf(today)} onMondayChange={setCalendarMonday} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
+            {schedule && <TrainingCalendar schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
             <ProgramTab profile={profile} onUpdateProfile={updateProfile} />
           </div>
         )}

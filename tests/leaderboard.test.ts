@@ -124,17 +124,29 @@ test('a lighter lifter who trains consistently outranks a much heavier one who b
 
 test('the score reweights over the parts a lifter has a baseline for', () => {
   assert.equal(Object.values(SCORE_WEIGHTS).reduce((a, b) => a + b, 0), 100);
-  const full = scoreFrom([
-    { key: 'compliance', value: 100 }, { key: 'consistency', value: 100 }, { key: 'volume', value: 100 }, { key: 'prs', value: 100 }, { key: 'strength', value: 100 },
-  ]);
+  const all = (v: number) => (['compliance', 'consistency', 'lifted', 'volume', 'prs', 'strength'] as const).map((key) => ({ key, value: v }));
+  const full = scoreFrom(all(100));
   assert.equal(full.score, 100);
-  assert.deepEqual(full.scoreParts.map((part) => part.weightPct), [35, 20, 15, 15, 15]);
+  assert.deepEqual(full.scoreParts.map((part) => part.weightPct), [30, 20, 15, 10, 15, 10]);
   const partial = scoreFrom([
-    { key: 'compliance', value: 100 }, { key: 'consistency', value: 0 }, { key: 'volume', value: null }, { key: 'prs', value: null }, { key: 'strength', value: null },
+    { key: 'compliance', value: 100 }, { key: 'consistency', value: 0 }, { key: 'lifted', value: null }, { key: 'volume', value: null }, { key: 'prs', value: null }, { key: 'strength', value: null },
   ]);
-  assert.equal(partial.score, Math.round((100 * 35) / 55), 'compliance 35 of the 55 present');
-  assert.deepEqual(partial.scoreParts.map((part) => part.weightPct), [64, 36, 0, 0, 0]);
+  assert.equal(partial.score, 60, 'compliance 30 of the 50 present');
+  assert.deepEqual(partial.scoreParts.map((part) => part.weightPct), [60, 40, 0, 0, 0, 0]);
   assert.equal(scoreFrom([{ key: 'compliance', value: null }]).score, 0);
+});
+
+test('raw lbs lifted still counts, as a share of the biggest total on the board', () => {
+  const base = completeSession();
+  const p = (id: string) => profile({ id, name: id, weeklyGoalSessions: 3 });
+  const board = buildLeaderboard([p('a'), p('b')], {
+    a: [at(heavier(base, 2), 'a1', 'a', NOW - 1000)],
+    b: [at(base, 'b1', 'b', NOW - 2000)],
+  }, NOW);
+  const lifted = (id: string) => board.ranked.find((s) => s.profileId === id)!.scoreParts.find((part) => part.key === 'lifted')!;
+  assert.equal(lifted('a').value, 100);
+  assert.ok(lifted('b').value! > 0 && lifted('b').value! < 100);
+  assert.deepEqual(board.winners.volume, ['a'], 'the volume trophy is raw lbs again');
 });
 
 test('volume, PR and strength trends are measured against the lifter\'s own earlier weeks', () => {

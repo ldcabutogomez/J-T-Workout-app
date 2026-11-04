@@ -1,15 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ProfileSchedule, UserProfile, WorkoutSession } from '../types';
-import { addMonths, fromDateKey, mondayOf, monthGrid, monthStartOf, rangeAgenda, WEEKDAY_LABELS, type AgendaItem, type DateKey } from '../engine/schedule';
+import { addMonths, fromDateKey, monthGrid, monthStartOf, rangeAgenda, WEEKDAY_LABELS, type AgendaItem, type DateKey } from '../engine/schedule';
 
 interface MonthCalendarProps {
   schedule: ProfileSchedule;
   profile?: UserProfile;
   history: WorkoutSession[];
   today: DateKey;
-  /** The Monday of the week shown in the list below the month. */
-  selectedMonday: DateKey;
+  month: DateKey;
+  selectedDate: DateKey;
+  onMonthChange: (month: DateKey) => void;
   onSelectDate: (date: DateKey) => void;
 }
 
@@ -18,7 +19,7 @@ const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 
 /** One colour per main lift, so a glance at the month shows the training split. Full class names so Tailwind keeps them. */
 interface LiftStyle { label: string; fill: string; ring: string; half: string }
-const LIFT_STYLES: Record<string, LiftStyle> = {
+export const LIFT_STYLES: Record<string, LiftStyle> = {
   squat: { label: 'Squat', fill: 'bg-accent border-accent', ring: 'border-accent bg-transparent', half: 'border-accent bg-accent/40' },
   bench: { label: 'Bench', fill: 'bg-cobalt border-cobalt', ring: 'border-cobalt bg-transparent', half: 'border-cobalt bg-cobalt/40' },
   deadlift: { label: 'Deadlift', fill: 'bg-teal border-teal', ring: 'border-teal bg-transparent', half: 'border-teal bg-teal/40' },
@@ -40,12 +41,10 @@ const STATUS_WORD: Record<AgendaItem['status'], string> = {
   completed: 'done', partial: 'partial', skipped: 'skipped', missed: 'missed', today: 'planned', upcoming: 'planned',
 };
 
-function dotClass(item: AgendaItem): string {
+export function calendarDotClass(item: AgendaItem): string {
   const style = LIFT_STYLES[liftFamily(item.lift)];
   if (item.status === 'completed') return style.fill;
   if (item.status === 'partial') return style.half;
-  if (item.status === 'skipped') return 'border-muted bg-sunk';
-  if (item.status === 'missed') return 'border-bad bg-bad/20';
   return style.ring;
 }
 
@@ -54,14 +53,18 @@ function dotClass(item: AgendaItem): string {
  * finished, a ring is planned, a faded fill is partial and a red ring is missed. Tapping a day shows its week in the
  * schedule list below, where workouts are moved.
  */
-export function MonthCalendar({ schedule, profile, history, today, selectedMonday, onSelectDate }: MonthCalendarProps) {
-  const [month, setMonth] = useState<DateKey>(() => monthStartOf(selectedMonday));
+export function MonthCalendar({ schedule, profile, history, today, month, selectedDate, onMonthChange, onSelectDate }: MonthCalendarProps) {
   const rows = useMemo(() => monthGrid(month), [month]);
   const first = rows[0][0].date;
   const days = useMemo(() => rangeAgenda(schedule, history, first, rows.length * 7, today, profile), [schedule, history, first, rows.length, today, profile]);
   const byDate = useMemo(() => new Map(days.map((day) => [day.date, day])), [days]);
   const title = `${MONTH_NAMES[fromDateKey(month).getMonth()]} ${fromDateKey(month).getFullYear()}`;
   const thisMonth = monthStartOf(today);
+
+  const changeMonth = (next: DateKey) => {
+    onMonthChange(next);
+    onSelectDate(next);
+  };
 
   const label = (date: DateKey, items: AgendaItem[]) => {
     const d = fromDateKey(date);
@@ -71,13 +74,13 @@ export function MonthCalendar({ schedule, profile, history, today, selectedMonda
 
   return (
     <section className="card p-4" aria-labelledby="month-heading">
-      <div className="flex items-center justify-between gap-2">
-        <h2 id="month-heading" className="text-lg font-black">{title}</h2>
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setMonth(addMonths(month, -1))} aria-label="Previous month" className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-sunk text-ink"><ChevronLeft className="h-5 w-5" /></button>
-          <button type="button" onClick={() => { setMonth(thisMonth); onSelectDate(today); }} disabled={month === thisMonth} className="min-h-11 rounded-xl bg-sunk px-3 text-xs font-bold text-ink disabled:opacity-50">Current month</button>
-          <button type="button" onClick={() => setMonth(addMonths(month, 1))} aria-label="Next month" className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-sunk text-ink"><ChevronRight className="h-5 w-5" /></button>
+      <div className="grid grid-cols-[2.75rem_1fr_2.75rem] items-center gap-2">
+        <button type="button" onClick={() => changeMonth(addMonths(month, -1))} aria-label="Previous month" className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-sunk text-ink"><ChevronLeft className="h-5 w-5" /></button>
+        <div className="text-center">
+          <h2 id="month-heading" className="text-xl font-black">{title}</h2>
+          <button type="button" onClick={() => { onMonthChange(thisMonth); onSelectDate(today); }} disabled={month === thisMonth && selectedDate === today} className="mt-0.5 text-xs font-bold text-accent-ink disabled:text-muted">Today</button>
         </div>
+        <button type="button" onClick={() => changeMonth(addMonths(month, 1))} aria-label="Next month" className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-sunk text-ink"><ChevronRight className="h-5 w-5" /></button>
       </div>
 
       <div className="mt-3 grid grid-cols-7 gap-1 text-center text-xs font-semibold uppercase text-muted" aria-hidden>
@@ -87,9 +90,13 @@ export function MonthCalendar({ schedule, profile, history, today, selectedMonda
         {rows.map((row) => (
           <div key={row[0].date} role="row" className="grid grid-cols-7 gap-1">
             {row.map((cell) => {
+              if (!cell.inMonth) return <span key={cell.date} role="gridcell" aria-hidden className="min-h-14" />;
               const day = byDate.get(cell.date);
               const items = day?.items ?? [];
-              const inSelectedWeek = mondayOf(cell.date) === selectedMonday;
+              const visibleItems = items.filter((item) => item.status === 'completed' || item.status === 'partial' || item.status === 'today' || item.status === 'upcoming');
+              const shownItems = visibleItems.slice(0, 3);
+              const overflow = visibleItems.length - shownItems.length;
+              const isSelected = cell.date === selectedDate;
               const isToday = cell.date === today;
               return (
                 <button
@@ -99,13 +106,14 @@ export function MonthCalendar({ schedule, profile, history, today, selectedMonda
                   data-day={cell.date}
                   aria-label={label(cell.date, items)}
                   aria-current={isToday ? 'date' : undefined}
-                  aria-selected={inSelectedWeek}
+                  aria-selected={isSelected}
                   onClick={() => onSelectDate(cell.date)}
-                  className={`flex min-h-12 flex-col items-center justify-start gap-1 rounded-xl border pb-1 pt-1.5 transition-colors ${isToday ? 'border-accent' : 'border-transparent'} ${inSelectedWeek ? 'bg-sunk' : 'bg-transparent'} ${cell.inMonth ? '' : 'opacity-40'}`}
+                  className={`flex min-h-14 flex-col items-center justify-start gap-1 rounded-xl border pb-1 pt-1.5 transition-colors ${isSelected ? 'border-line bg-sunk' : 'border-transparent bg-transparent'}`}
                 >
-                  <span className={`text-sm leading-none ${isToday ? 'font-black text-accent-ink' : 'font-semibold text-ink'}`}>{fromDateKey(cell.date).getDate()}</span>
-                  <span className="flex min-h-2.5 items-center justify-center gap-0.5" aria-hidden>
-                    {items.map((item) => <span key={item.key} className={`h-2.5 w-2.5 rounded-full border-2 ${dotClass(item)}`} />)}
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none ${isToday ? 'border-2 border-accent font-black text-accent-ink' : 'font-semibold text-ink'}`}>{fromDateKey(cell.date).getDate()}</span>
+                  <span className="flex min-h-3 items-center justify-center gap-0.5" aria-hidden>
+                    {shownItems.map((item) => <span key={item.key} data-workout-dot data-family={liftFamily(item.lift)} data-state={item.status === 'completed' ? 'done' : item.status === 'partial' ? 'partial' : 'planned'} className={`h-3 w-3 rounded-full border-2 ${calendarDotClass(item)}`} />)}
+                    {overflow > 0 && <span className="text-[9px] font-black leading-none text-muted">+{overflow}</span>}
                   </span>
                 </button>
               );
@@ -116,11 +124,10 @@ export function MonthCalendar({ schedule, profile, history, today, selectedMonda
 
       <ul className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted" aria-label="Calendar key">
         {(['squat', 'bench', 'deadlift', 'press'] as const).map((family) => (
-          <li key={family} className="flex items-center gap-1"><span className={`h-2.5 w-2.5 rounded-full border-2 ${LIFT_STYLES[family].fill}`} aria-hidden />{LIFT_STYLES[family].label}</li>
+          <li key={family} className="flex items-center gap-1"><span className={`h-3 w-3 rounded-full border-2 ${LIFT_STYLES[family].fill}`} aria-hidden />{LIFT_STYLES[family].label}</li>
         ))}
-        <li className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full border-2 border-ink-2 bg-transparent" aria-hidden />Planned</li>
-        <li className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full border-2 border-ink-2 bg-ink-2" aria-hidden />Done</li>
-        <li className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full border-2 border-bad bg-bad/20" aria-hidden />Missed</li>
+        <li className="flex items-center gap-1"><span className="h-3 w-3 rounded-full border-2 border-ink-2 bg-transparent" aria-hidden />Planned</li>
+        <li className="flex items-center gap-1"><span className="h-3 w-3 rounded-full border-2 border-ink-2 bg-ink-2" aria-hidden />Done</li>
       </ul>
     </section>
   );
