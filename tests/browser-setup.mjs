@@ -50,6 +50,8 @@ try {
   await legacyPage.goto(origin, { waitUntil: 'networkidle' });
   const genderDialog = legacyPage.getByRole('dialog', { name: 'Choose your gender' });
   await genderDialog.getByRole('radio', { name: 'Female' }).click();
+  // The dialog closes only after the profile is saved, so wait for that before reloading.
+  await genderDialog.waitFor({ state: 'hidden' });
   await legacyPage.getByText('Next scheduled session').waitFor();
   await legacyPage.reload({ waitUntil: 'networkidle' });
   assert.equal(await legacyPage.getByRole('dialog', { name: 'Choose your gender' }).count(), 0, 'the legacy gender choice is saved');
