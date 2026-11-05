@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseAuthHash, sessionFromTokens } from '../src/sync/auth';
-import { parseActivitySummary, runActivity } from '../src/engine/activity';
-import { fetchFeed, setLike } from '../src/sync/community';
+import { buildRunWrapUp, buildWorkoutWrapUp, clampWrap, parseActivitySummary, runActivity, WRAP_MAX } from '../src/engine/activity';
+import { addComment, deleteComment, fetchComments, fetchFeed, publishActivities, setLike } from '../src/sync/community';
 
 const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const jwt = (claims: object) => `${b64({ alg: 'HS256' })}.${b64(claims)}.sig`;
@@ -60,4 +60,63 @@ test('liking inserts and unliking deletes only the caller\'s row', async () => {
   assert.equal(calls[0].method, 'POST');
   assert.equal(calls[1].method, 'DELETE');
   assert.match(calls[1].url, /user_id=eq\.u1/);
+});
+
+test('wrap-ups are short, factual and capped', () => {
+  const text = buildWorkoutWrapUp({ kind: 'workout', title: 'Back Squat', week: 1, day: 3, sets: 18, volumeLb: 12400, minutes: 62, prs: ['Back Squat'], partial: false });
+  assert.match(text, /Finished Back Squat: 18 sets, 12,400 lb in 62 min\./);
+  assert.match(text, /New PR: Back Squat\./);
+  assert.match(buildWorkoutWrapUp({ kind: 'workout', title: 'Bench', week: 1, day: 1, sets: 1, volumeLb: 100, minutes: null, prs: [], partial: true }, 3), /Partial Bench: 1 set, 100 lb\. 3 weeks in a row/);
+  assert.equal(clampWrap('x'.repeat(500)).length, WRAP_MAX);
+  assert.equal(clampWrap('  a \n\n b  '), 'a b');
+  assert.match(buildRunWrapUp({ distance: '5 km', duration: '30:00', pace: '6:00 /km', longestRecent: true }), /Longest run in a while/);
+});
+
+test('an edited run wrap-up is used, and a blank one is omitted', () => {
+  const run = { runId: 'r2', profileId: 'p', startTime: 5, durationSeconds: 600, distanceMeters: 2000, distanceUnit: 'km' as const, runType: 'easy' as const, source: 'manual' as const, createdTime: 0, updatedTime: 0 };
+  assert.equal(runActivity(run, [], 'Felt great').summary.wrap, 'Felt great');
+  assert.equal(runActivity(run, [], '   ').summary.wrap, undefined);
+});
+
+test('summaries parse with and without a wrap-up', () => {
+  const base = { kind: 'run', title: 'Run', distance: '5 km', duration: '30:00', pace: '6:00 /km' };
+  assert.equal(parseActivitySummary(base)?.wrap, undefined);
+  assert.equal(parseActivitySummary({ ...base, wrap: 'Solid.' })?.wrap, 'Solid.');
+  assert.equal(parseActivitySummary({ ...base, wrap: 'y'.repeat(900) })?.wrap?.length, WRAP_MAX);
+});
+
+test('comments are mapped, malformed rows dropped, and writes are scoped to the caller', async () => {
+  const rows = [
+    { id: 'c1', user_id: 'u2', display_name: 'Sam', body: 'Nice', created_at: '2026-01-01T00:00:00Z' },
+    { id: 'c2', user_id: 'u3', body: 5, created_at: 'x' },
+  ];
+  const list = await fetchComments(config, session, 'a1', (async () => new Response(JSON.stringify(rows))) as typeof fetch);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].name, 'Sam');
+
+  const calls: Array<{ url: string; method?: string; body?: string }> = [];
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    calls.push({ url, method: init.method, body: init.body as string });
+    return new Response(init.method === 'POST' ? JSON.stringify([{ id: 'new', created_at: '2026-01-01T00:00:00Z' }]) : '');
+  }) as unknown as typeof fetch;
+  const saved = await addComment(config, session, 'a1', '  hello  ', fetchImpl);
+  assert.equal(saved.body, 'hello');
+  assert.equal(JSON.parse(calls[0].body ?? '{}').user_id, 'u1');
+  await assert.rejects(() => addComment(config, session, 'a1', '   ', fetchImpl));
+  await deleteComment(config, session, 'new', fetchImpl);
+  assert.match(calls[1].url, /id=eq\.new&user_id=eq\.u1/);
+});
+
+test('history share posts original times, never the future, and skips an empty list', async () => {
+  const bodies: Array<Array<{ created_at?: string }>> = [];
+  const fetchImpl = (async (_u: string, init: RequestInit) => { bodies.push(JSON.parse(init.body as string)); return new Response(''); }) as unknown as typeof fetch;
+  await publishActivities(config, session, [], fetchImpl);
+  assert.equal(bodies.length, 0);
+  const summary = { kind: 'run' as const, title: 'Run', distance: '1 km', duration: '5:00', pace: '5:00 /km' };
+  await publishActivities(config, session, [
+    { kind: 'run', sourceId: 'r:a', summary, createdAt: Date.UTC(2020, 0, 1) },
+    { kind: 'run', sourceId: 'r:b', summary, createdAt: Date.now() + 86_400_000 },
+  ], fetchImpl);
+  assert.equal(bodies[0][0].created_at, '2020-01-01T00:00:00.000Z');
+  assert.ok(Date.parse(bodies[0][1].created_at ?? '') <= Date.now() + 1000);
 });

@@ -4,12 +4,14 @@ import { snapshotFromHistory, type PartnerSnapshot } from '../engine/leaderboard
 import type { ActivitySummary } from '../engine/activity';
 import type { CloudConfig } from './cloud';
 import { consumeAuthRedirect, freshSession, loadSession, saveSession, sendMagicLink, type AuthSession } from './auth';
-import { fetchFeed, publishActivity, pullMembers, removeActivity, setLike, upsertMember, type FeedItem } from './community';
+import { addComment, deleteComment, fetchComments, fetchFeed, publishActivities, publishActivity, pullMembers, removeActivity, removeActivityById, setLike, upsertMember, type CommentItem, type FeedItem, type PublishItem } from './community';
 
 export interface CommunityState {
   configured: boolean;
   signedIn: boolean;
   email?: string;
+  userId?: string;
+  /** Your display name as shown on posts and comments. */
   members: PartnerSnapshot[];
   feed: FeedItem[];
   busy: boolean;
@@ -22,6 +24,14 @@ export interface CommunityState {
   toggleLike: (id: string) => void;
   publish: (kind: 'workout' | 'run', sourceId: string, summary: ActivitySummary) => void;
   unpublish: (sourceId: string) => void;
+  /** Deletes one of your own posts from the feed. */
+  deletePost: (activityId: string) => void;
+  /** Posts many past activities at once. Resolves with how many were sent. */
+  shareHistory: (items: PublishItem[]) => Promise<number>;
+  comments: Record<string, CommentItem[]>;
+  loadComments: (activityId: string) => void;
+  comment: (activityId: string, body: string) => void;
+  removeComment: (activityId: string, commentId: string) => void;
 }
 
 /** Accounts, the global leaderboard and the activity feed. Inert without a backend or a signed-in person. */
@@ -32,6 +42,7 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(() => consumeAuthRedirectOnce());
   const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
+  const [comments, setComments] = useState<Record<string, CommentItem[]>>({});
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const running = useRef(false);
@@ -86,6 +97,7 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
     configured: Boolean(config),
     signedIn: Boolean(session),
     email: session?.email,
+    userId: session?.userId,
     members, feed, busy, error, linkSentTo,
     signIn: async (email) => {
       if (!config) return;
@@ -117,6 +129,60 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
           const active = await usable();
           if (active) { await publishActivity(config, active, kind, sourceId, summary); void syncRef.current(); }
         } catch (e) { setError((e as Error).message); }
+      })();
+    },
+    shareHistory: async (items) => {
+      if (!config) return 0;
+      try {
+        const active = await usable();
+        if (!active) return 0;
+        await publishActivities(config, active, items);
+        await syncRef.current();
+        return items.length;
+      } catch (e) { setError((e as Error).message); return 0; }
+    },
+    comments,
+    loadComments: (activityId) => {
+      if (!config) return;
+      void (async () => {
+        try {
+          const active = await usable();
+          if (active) { const list = await fetchComments(config, active, activityId); setComments((all) => ({ ...all, [activityId]: list })); }
+        } catch (e) { setError((e as Error).message); }
+      })();
+    },
+    comment: (activityId, body) => {
+      if (!config || !body.trim()) return;
+      const me = profile?.name || 'You';
+      void (async () => {
+        try {
+          const active = await usable();
+          if (!active) return;
+          const saved = await addComment(config, active, activityId, body);
+          setComments((all) => ({ ...all, [activityId]: [...(all[activityId] ?? []), { ...saved, name: me }] }));
+          setFeed((items) => items.map((entry) => (entry.id === activityId ? { ...entry, commentCount: entry.commentCount + 1 } : entry)));
+        } catch (e) { setError((e as Error).message); }
+      })();
+    },
+    removeComment: (activityId, commentId) => {
+      if (!config) return;
+      setComments((all) => ({ ...all, [activityId]: (all[activityId] ?? []).filter((item) => item.id !== commentId) }));
+      setFeed((items) => items.map((entry) => (entry.id === activityId ? { ...entry, commentCount: Math.max(0, entry.commentCount - 1) } : entry)));
+      void (async () => {
+        try {
+          const active = await usable();
+          if (active) await deleteComment(config, active, commentId);
+        } catch (e) { setError((e as Error).message); void syncRef.current(); }
+      })();
+    },
+    deletePost: (activityId) => {
+      if (!config) return;
+      setFeed((items) => items.filter((entry) => entry.id !== activityId));
+      void (async () => {
+        try {
+          const active = await usable();
+          if (active) await removeActivityById(config, active, activityId);
+        } catch (e) { setError((e as Error).message); void syncRef.current(); }
       })();
     },
     unpublish: (sourceId) => {

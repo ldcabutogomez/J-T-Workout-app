@@ -1,7 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Footprints, Gauge, Timer, X } from 'lucide-react';
-import type { RunDistanceUnit, RunType } from '../types';
-import { distanceToMeters, formatRunPace, RUN_TYPE_LABELS } from '../engine/runs';
+import type { RunDistanceUnit, RunSession, RunType } from '../types';
+import { distanceToMeters, formatRunDistance, formatRunDuration, formatRunPace, RUN_TYPE_LABELS } from '../engine/runs';
+import { buildRunWrapUp, clampWrap, WRAP_MAX } from '../engine/activity';
 import { toDateKey } from '../engine/schedule';
 import { useDialog } from '../lib/useDialog';
 
@@ -17,13 +18,16 @@ export interface ManualRunInput {
 
 interface RunLogSheetProps {
   defaultUnit: RunDistanceUnit;
-  onSave: (run: ManualRunInput) => Promise<void>;
+  onSave: (run: ManualRunInput, post?: { share: boolean; wrap: string }) => Promise<void>;
+  /** Signed in to Activity: show the post controls. */
+  canPost?: boolean;
+  recentRuns?: RunSession[];
   onClose: () => void;
 }
 
 const timeValue = (date: Date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
-export function RunLogSheet({ defaultUnit, onSave, onClose }: RunLogSheetProps) {
+export function RunLogSheet({ defaultUnit, onSave, onClose, canPost = false, recentRuns = [] }: RunLogSheetProps) {
   const now = useMemo(() => new Date(), []);
   const [date, setDate] = useState(() => toDateKey(now));
   const [time, setTime] = useState(() => timeValue(now));
@@ -34,6 +38,8 @@ export function RunLogSheet({ defaultUnit, onSave, onClose }: RunLogSheetProps) 
   const [runType, setRunType] = useState<RunType>('easy');
   const [effort, setEffort] = useState('');
   const [notes, setNotes] = useState('');
+  const [share, setShare] = useState(true);
+  const [wrapEdit, setWrapEdit] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useDialog<HTMLFormElement>({ onClose });
@@ -42,6 +48,16 @@ export function RunLogSheet({ defaultUnit, onSave, onClose }: RunLogSheetProps) 
   const durationSeconds = Number(minutes || 0) * 60 + Number(seconds || 0);
   const distanceMeters = distanceToMeters(distanceNumber, unit);
   const pace = distanceNumber > 0 && durationSeconds > 0 ? formatRunPace(durationSeconds, distanceMeters, unit) : 'Enter distance and time';
+
+  // The wrap-up follows what is typed until the person edits it themselves.
+  const readyToWrap = distanceNumber > 0 && durationSeconds > 0;
+  const autoWrap = readyToWrap
+    ? buildRunWrapUp({
+        distance: formatRunDistance(distanceMeters, unit), duration: formatRunDuration(durationSeconds), pace, runType: RUN_TYPE_LABELS[runType],
+        longestRecent: recentRuns.length >= 2 && [...recentRuns].sort((x, y) => y.startTime - x.startTime).slice(0, 10).every((item) => item.distanceMeters < distanceMeters),
+      })
+    : '';
+  const wrap = wrapEdit ?? autoWrap;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -65,7 +81,7 @@ export function RunLogSheet({ defaultUnit, onSave, onClose }: RunLogSheetProps) 
         runType,
         ...(effort ? { effort: Number(effort) } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
-      });
+      }, canPost ? { share, wrap: clampWrap(wrap) } : undefined);
       onClose();
     } catch (reason) {
       setError((reason as Error).message || 'The run could not be saved.');
@@ -113,6 +129,14 @@ export function RunLogSheet({ defaultUnit, onSave, onClose }: RunLogSheetProps) 
         </div>
 
         <label className="mt-3 block text-xs font-bold uppercase text-muted">Notes, optional<textarea value={notes} maxLength={500} rows={2} onChange={(event) => setNotes(event.target.value)} placeholder="Route, weather, how it felt…" className="field mt-1 min-h-16 py-2 normal-case" /></label>
+        {canPost && (
+          <div className="mt-3 rounded-2xl border border-line p-3">
+            <label className="flex items-center gap-2 text-sm font-black"><input type="checkbox" checked={share} onChange={(event) => setShare(event.target.checked)} />Post to Activity</label>
+            {share && (
+              <label className="mt-2 block text-xs font-bold uppercase text-muted">Wrap-up<textarea value={wrap} maxLength={WRAP_MAX} rows={2} onChange={(event) => setWrapEdit(event.target.value)} placeholder="Fill in distance and time to get a recap" className="field mt-1 min-h-16 py-2 normal-case" /></label>
+            )}
+          </div>
+        )}
         {error && <p role="alert" className="mt-3 text-sm font-bold text-bad">{error}</p>}
         <div className="mt-5 grid grid-cols-2 gap-2">
           <button type="button" disabled={busy} onClick={onClose} className="btn-secondary">Cancel</button>

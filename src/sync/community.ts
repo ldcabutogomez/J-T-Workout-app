@@ -11,7 +11,18 @@ export interface FeedItem {
   createdAt: number;
   likes: number;
   likedByMe: boolean;
+  commentCount: number;
 }
+
+export interface CommentItem {
+  id: string;
+  userId: string;
+  name: string;
+  body: string;
+  createdAt: number;
+}
+
+export const COMMENT_MAX = 280;
 
 async function call(config: CloudConfig, session: AuthSession, path: string, init: RequestInit, fetchImpl: typeof fetch): Promise<unknown> {
   const response = await fetchImpl(`${config.url}/rest/v1/${path}`, {
@@ -71,7 +82,7 @@ export async function fetchFeed(config: CloudConfig, session: AuthSession, fetch
     items.push({
       id: row.id, userId: row.user_id, summary, createdAt: created,
       name: typeof row.display_name === 'string' ? row.display_name : 'Lifter',
-      likes: Number(row.like_count) || 0, likedByMe: row.liked_by_me === true,
+      likes: Number(row.like_count) || 0, likedByMe: row.liked_by_me === true, commentCount: Number(row.comment_count) || 0,
     });
   }
   return items;
@@ -86,4 +97,51 @@ export async function setLike(config: CloudConfig, session: AuthSession, activit
   } else {
     await call(config, session, `activity_likes?activity_id=eq.${encodeURIComponent(activityId)}&user_id=eq.${session.userId}`, { method: 'DELETE' }, fetchImpl);
   }
+}
+
+export interface PublishItem { kind: 'workout' | 'run'; sourceId: string; summary: ActivitySummary; createdAt?: number }
+
+/** Posts many activities at once with their original times. Anything already posted is left alone. */
+export async function publishActivities(config: CloudConfig, session: AuthSession, items: PublishItem[], fetchImpl: typeof fetch = fetch): Promise<void> {
+  if (!items.length) return;
+  const now = Date.now();
+  await call(config, session, 'activities?on_conflict=user_id,source_id', {
+    method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    body: JSON.stringify(items.map((item) => ({
+      user_id: session.userId, kind: item.kind, source_id: item.sourceId, summary: item.summary,
+      ...(item.createdAt ? { created_at: new Date(Math.min(item.createdAt, now)).toISOString() } : {}),
+    }))),
+  }, fetchImpl);
+}
+
+export async function fetchComments(config: CloudConfig, session: AuthSession, activityId: string, fetchImpl: typeof fetch = fetch): Promise<CommentItem[]> {
+  const rows = await call(config, session, 'rpc/activity_comment_list', { method: 'POST', body: JSON.stringify({ p_activity: activityId }) }, fetchImpl);
+  if (!Array.isArray(rows)) return [];
+  const out: CommentItem[] = [];
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const created = typeof row.created_at === 'string' ? Date.parse(row.created_at) : NaN;
+    if (typeof row.id !== 'string' || typeof row.user_id !== 'string' || typeof row.body !== 'string' || !Number.isFinite(created)) continue;
+    out.push({ id: row.id, userId: row.user_id, name: typeof row.display_name === 'string' ? row.display_name : 'Lifter', body: row.body.slice(0, COMMENT_MAX), createdAt: created });
+  }
+  return out;
+}
+
+export async function addComment(config: CloudConfig, session: AuthSession, activityId: string, body: string, fetchImpl: typeof fetch = fetch): Promise<CommentItem> {
+  const text = body.trim().slice(0, COMMENT_MAX);
+  if (!text) throw new Error('Write a comment first.');
+  const rows = await call(config, session, 'activity_comments', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ activity_id: activityId, user_id: session.userId, body: text }),
+  }, fetchImpl);
+  const row = (Array.isArray(rows) ? rows[0] : null) as { id?: unknown; created_at?: unknown } | null;
+  if (!row || typeof row.id !== 'string') throw new Error('The comment was not saved.');
+  return { id: row.id, userId: session.userId, name: '', body: text, createdAt: typeof row.created_at === 'string' ? Date.parse(row.created_at) || Date.now() : Date.now() };
+}
+
+export async function deleteComment(config: CloudConfig, session: AuthSession, commentId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  await call(config, session, `activity_comments?id=eq.${encodeURIComponent(commentId)}&user_id=eq.${session.userId}`, { method: 'DELETE' }, fetchImpl);
+}
+
+export async function removeActivityById(config: CloudConfig, session: AuthSession, activityId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  await call(config, session, `activities?id=eq.${encodeURIComponent(activityId)}&user_id=eq.${session.userId}`, { method: 'DELETE' }, fetchImpl);
 }

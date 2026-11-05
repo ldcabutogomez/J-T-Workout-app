@@ -138,7 +138,7 @@ drop policy if exists activities_read on public.activities;
 drop policy if exists activities_write on public.activities;
 drop policy if exists activities_delete on public.activities;
 create policy activities_read on public.activities for select to authenticated using (true);
-create policy activities_write on public.activities for insert to authenticated with check (user_id = auth.uid());
+create policy activities_write on public.activities for insert to authenticated with check (user_id = auth.uid() and created_at <= now() + interval '5 minutes');
 create policy activities_delete on public.activities for delete to authenticated using (user_id = auth.uid());
 
 drop policy if exists likes_read on public.activity_likes;
@@ -150,8 +150,35 @@ create policy likes_delete on public.activity_likes for delete to authenticated 
 
 grant select, insert, update, delete on public.community_members, public.activities, public.activity_likes to authenticated;
 
-create or replace function public.community_feed(p_limit int default 50)
-returns table (id uuid, user_id uuid, display_name text, kind text, summary jsonb, created_at timestamptz, like_count bigint, liked_by_me boolean)
+-- ---------------------------------------------------------------------------------------------
+-- Activity comments, and the feed function with comment counts. Run this block after the Community
+-- block above. Re-runnable. (It drops and recreates community_feed because its result changed.)
+-- ---------------------------------------------------------------------------------------------
+create table if not exists public.activity_comments (
+  id          uuid primary key default gen_random_uuid(),
+  activity_id uuid not null references public.activities on delete cascade,
+  user_id     uuid not null references auth.users on delete cascade default auth.uid(),
+  body        text not null check (length(body) between 1 and 280),
+  created_at  timestamptz not null default now()
+);
+create index if not exists activity_comments_activity_idx on public.activity_comments (activity_id, created_at);
+alter table public.activity_comments enable row level security;
+revoke all on public.activity_comments from anon;
+drop policy if exists comments_read on public.activity_comments;
+drop policy if exists comments_write on public.activity_comments;
+drop policy if exists comments_delete on public.activity_comments;
+create policy comments_read on public.activity_comments for select to authenticated using (true);
+create policy comments_write on public.activity_comments for insert to authenticated with check (user_id = auth.uid());
+create policy comments_delete on public.activity_comments for delete to authenticated using (user_id = auth.uid());
+grant select, insert, delete on public.activity_comments to authenticated;
+
+-- Past workouts can be shared with their original time, but never dated in the future.
+drop policy if exists activities_write on public.activities;
+create policy activities_write on public.activities for insert to authenticated with check (user_id = auth.uid() and created_at <= now() + interval '5 minutes');
+
+drop function if exists public.community_feed(int);
+create function public.community_feed(p_limit int default 50)
+returns table (id uuid, user_id uuid, display_name text, kind text, summary jsonb, created_at timestamptz, like_count bigint, liked_by_me boolean, comment_count bigint)
 language sql
 stable
 security invoker
@@ -159,10 +186,28 @@ set search_path = public
 as $$
   select a.id, a.user_id, m.display_name, a.kind, a.summary, a.created_at,
          (select count(*) from activity_likes l where l.activity_id = a.id),
-         exists (select 1 from activity_likes l where l.activity_id = a.id and l.user_id = auth.uid())
+         exists (select 1 from activity_likes l where l.activity_id = a.id and l.user_id = auth.uid()),
+         (select count(*) from activity_comments c where c.activity_id = a.id)
   from activities a join community_members m on m.user_id = a.user_id
   order by a.created_at desc
   limit least(greatest(p_limit, 1), 100)
 $$;
 revoke all on function public.community_feed(int) from public, anon;
 grant execute on function public.community_feed(int) to authenticated;
+
+-- Comments with their authors' names, for one activity.
+create or replace function public.activity_comment_list(p_activity uuid)
+returns table (id uuid, user_id uuid, display_name text, body text, created_at timestamptz)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select c.id, c.user_id, coalesce(m.display_name, 'Lifter'), c.body, c.created_at
+  from activity_comments c left join community_members m on m.user_id = c.user_id
+  where c.activity_id = p_activity
+  order by c.created_at
+  limit 200
+$$;
+revoke all on function public.activity_comment_list(uuid) from public, anon;
+grant execute on function public.activity_comment_list(uuid) to authenticated;

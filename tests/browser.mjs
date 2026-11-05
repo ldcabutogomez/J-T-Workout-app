@@ -105,6 +105,11 @@ try {
   await page.getByText('completed', { exact: true }).waitFor();
   await assertNoHorizontalClipping(page, 'Progress screen');
 
+  // Activity tab: with no backend configured it says so instead of showing a sign-in form.
+  await page.getByRole('button', { name: 'Activity', exact: true }).click();
+  await page.getByText('Activity is not set up').waitFor();
+  await assertNoHorizontalClipping(page, 'Activity screen');
+
   // Together tab: your own row shows (the other local profile is hidden by the lock), and with no backend configured the pairing panel says so.
   await page.getByRole('button', { name: 'Together' }).click();
   await page.getByRole('heading', { name: 'Leaderboard' }).waitFor();

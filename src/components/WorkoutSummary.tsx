@@ -11,8 +11,13 @@ import { Confetti } from './Confetti';
 import { ProgressRing } from './ProgressRing';
 import { fmtCount } from '../engine/sessionValidity';
 import type { LevelInfo } from '../engine/xp';
+import { clampWrap, WRAP_MAX, workoutActivity } from '../engine/activity';
+
+type ActivityPost = NonNullable<ReturnType<typeof workoutActivity>>;
 
 export interface WorkoutSummaryData {
+  /** Set when signed in to Activity: the post this workout would make, with its auto-written wrap-up. */
+  post?: ActivityPost;
   title: string;
   message: string;
   highlights: SessionHighlights;
@@ -105,9 +110,16 @@ function resultCard(result: SessionResult) {
   );
 }
 
-export function WorkoutSummary({ data, onDone }: { data: WorkoutSummaryData; onDone: () => void }) {
+export function WorkoutSummary({ data, onDone }: { data: WorkoutSummaryData; onDone: (post?: ActivityPost) => void }) {
   const { highlights, streak, newBadges, unit, tone, celebrate, celebration } = data;
-  const dialogRef = useDialog({ onClose: onDone });
+  const [share, setShare] = useState(true);
+  const [wrap, setWrap] = useState(data.post?.summary.wrap ?? '');
+  const finish = () => {
+    if (!data.post || !share) return onDone();
+    const text = clampWrap(wrap);
+    onDone({ ...data.post, summary: { ...data.post.summary, wrap: text || undefined } });
+  };
+  const dialogRef = useDialog({ onClose: finish });
   const volume = useCountUp(highlights.totalVolume);
   const sets = useCountUp(highlights.setsCompleted, 600);
   // Partial workouts still count toward PRs and volume, so their results are shown (just not celebrated).
@@ -218,7 +230,21 @@ export function WorkoutSummary({ data, onDone }: { data: WorkoutSummaryData; onD
 
         {data.nextTitle && <p className="text-center text-xs text-muted">Up next: <span className="text-ink-2">{data.nextTitle}</span></p>}
 
-        <button onClick={onDone} className="mt-auto min-h-14 w-full rounded-2xl bg-accent font-black uppercase tracking-wider text-on-accent transition active:scale-[0.98]">Done</button>
+        {data.post && (
+          <section className="card p-4 mb-3 text-left">
+            <label className="flex items-center gap-2 text-sm font-black text-ink">
+              <input type="checkbox" checked={share} onChange={(e) => setShare(e.target.checked)} />
+              Post to Activity
+            </label>
+            {share && (
+              <label className="block mt-2 text-xs text-muted">
+                Wrap-up (edit if you like)
+                <textarea value={wrap} maxLength={WRAP_MAX} rows={3} onChange={(e) => setWrap(e.target.value)} className="field mt-1 min-h-16 py-2 text-ink" />
+              </label>
+            )}
+          </section>
+        )}
+        <button onClick={finish} className="mt-auto min-h-14 w-full rounded-2xl bg-accent font-black uppercase tracking-wider text-on-accent transition active:scale-[0.98]">Done</button>
       </div>
     </div>
   );

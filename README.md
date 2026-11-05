@@ -96,7 +96,9 @@ Setup, once, after the partner-sync steps above:
 2. In Supabase, Authentication > URL Configuration: set Site URL to the deployed app URL and add it (and `http://localhost:3000`) to Redirect URLs.
 3. Share the app link. A new person opens it, creates a profile, then on the Together tab enters their email and taps the link. Their next workout or run posts to the feed.
 
-Activity from before someone signed in is not backfilled.
+The feed lives on its own **Activity** tab (separate from Together). Each card shows the stats, a short auto-written wrap-up you can edit before posting, a like button and a comment thread (280 characters per comment). Wrap-ups and comments are text anyone signed in can read. Past activity is not posted automatically: use **Share my history** on the Activity tab to post your last 20 workouts and 20 runs with their original dates (re-running it never duplicates).
+
+For comments, also run the second SQL block ("Activity comments") at the end of `supabase/schema.sql`. It drops and recreates `community_feed`, so Supabase will show its "destructive operations" warning; it only replaces that function and re-creates policies.
 
 ## Install and run
 

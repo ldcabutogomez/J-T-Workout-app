@@ -41,8 +41,9 @@ import { haptic, installTapHaptics, setFeedbackPrefs } from './lib/feedback';
 import { feedback } from './lib/feedback';
 import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, prRewardKey } from './lib/rewards';
 import { TogetherTab, type SyncStatus } from './components/TogetherTab';
-import { CommunityFeed } from './components/CommunityFeed';
+import { ActivityTab } from './components/ActivityTab';
 import { useCommunity } from './sync/useCommunity';
+import type { PublishItem } from './sync/community';
 import { runActivity, workoutActivity } from './engine/activity';
 import { composeBoard, snapshotFromHistory, weekKey, type PartnerSnapshot } from './engine/leaderboard';
 import { fmtCount, meetsGoal, sessionCredit, validCompleted, weekStart } from './engine/sessionValidity';
@@ -70,12 +71,12 @@ import { nudgeMessage, postWorkoutMessage, todayCandidates, type NudgeKind } fro
 import { loadSeen, markSeen } from './lib/coachSeen';
 import { applyTheme, defaultThemeForId, themeForProfile } from './lib/theme';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp, Users } from 'lucide-react';
+import { Activity as ActivityIcon, CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp, Users } from 'lucide-react';
 
 /** Coach messages are remembered per cycle, so a phase milestone can be celebrated again in the next run. */
 const coachKey = (profile: UserProfile) => (profileCycleId(profile) === 'c1' ? profile.id : `${profile.id}:${profileCycleId(profile)}`);
 
-type Tab = 'today' | 'program' | 'progress' | 'together' | 'settings' | 'verify';
+type Tab = 'today' | 'program' | 'progress' | 'activity' | 'together' | 'settings' | 'verify';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('today');
@@ -747,10 +748,6 @@ export default function App() {
       setActiveSession(null);
       const updatedHistory = await dbService.getSessionHistory(profile.id, true);
       setHistory(updatedHistory);
-      if (!wasEditing) {
-        const posted = workoutActivity(completed, history);
-        if (posted) community.publish('workout', posted.sourceId, posted.summary);
-      }
 
       if (!wasEditing && completed.status !== 'skipped') {
         const goal = savedProfile.weeklyGoalSessions ?? 4;
@@ -775,7 +772,9 @@ export default function App() {
         const streak = computeStreak(updatedHistory, goal);
         const levelBefore = levelFor(history, profile);
         const levelAfter = levelFor(updatedHistory, savedProfile);
+        const posted = community.signedIn ? workoutActivity(completed, history, streak.streakWeeks) : null;
         setSummary({
+          post: posted ?? undefined,
           title: `Week ${completed.week} · Day ${completed.day}`,
           message: completed.encouragementMessage ?? '',
           highlights,
@@ -881,7 +880,7 @@ export default function App() {
     showToast('Plan moved to this week.');
   };
 
-  const handleSaveRun = async (input: ManualRunInput) => {
+  const handleSaveRun = async (input: ManualRunInput, post?: { share: boolean; wrap: string }) => {
     if (!profile) throw new Error('Choose a profile before logging a run.');
     const now = Date.now();
     const run: RunSession = {
@@ -893,11 +892,37 @@ export default function App() {
       updatedTime: now,
     };
     await dbService.saveRun(run);
-    const posted = runActivity(run);
-    community.publish('run', posted.sourceId, posted.summary);
+    if (post?.share) {
+      const posted = runActivity(run, runs, post.wrap);
+      community.publish('run', posted.sourceId, posted.summary);
+    }
     setRuns(await dbService.getRunHistory(profile.id));
     haptic('finish');
     showToast('Run saved.', 'badge');
+  };
+
+  /** Posts the last 20 finished workouts and 20 runs, each with its original time. Already-posted ones are skipped by the server. */
+  const shareHistory = async (): Promise<number> => {
+    if (!profile) return 0;
+    const [sessions, allRuns] = await Promise.all([dbService.getSessionHistory(profile.id, false), dbService.getRunHistory(profile.id)]);
+    const goal = profile.weeklyGoalSessions ?? 4;
+    const items: PublishItem[] = [];
+    const finished = sessions
+      .filter((item) => item.status !== 'skipped' && !item.isSkipped && !item.isDemo && (item.completedTime ?? 0) > 0)
+      .sort((a, b) => (b.completedTime ?? 0) - (a.completedTime ?? 0))
+      .slice(0, 20);
+    for (const session of finished) {
+      const upTo = sessions.filter((item) => (item.completedTime ?? 0) <= (session.completedTime ?? 0));
+      const posted = workoutActivity(session, upTo, computeStreak(upTo, goal, session.completedTime).streakWeeks);
+      if (posted) items.push({ kind: 'workout', sourceId: posted.sourceId, summary: posted.summary, createdAt: session.completedTime });
+    }
+    for (const run of [...allRuns].sort((a, b) => b.startTime - a.startTime).slice(0, 20)) {
+      const posted = runActivity(run, allRuns);
+      items.push({ kind: 'run', sourceId: posted.sourceId, summary: posted.summary, createdAt: run.startTime + run.durationSeconds * 1000 });
+    }
+    const sent = await community.shareHistory(items);
+    showToast(sent ? `Shared ${sent} activities.` : 'Nothing to share yet.');
+    return sent;
   };
 
   const handleDeleteRun = async (runId: string) => {
@@ -1041,7 +1066,8 @@ export default function App() {
             showBanner('Session deleted.');
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
-        {tab === 'together' && <div className="space-y-4"><CommunityFeed community={community} memberName={profile?.name ?? ''} /><TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} /></div>}
+        {tab === 'activity' && <ActivityTab community={community} memberName={profile?.name ?? ''} onShareHistory={shareHistory} />}
+        {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} />}
         {tab === 'settings' && <SettingsTab level={myLevel} extra={<>{profile && <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} />}<UpdateCard updateReady={appUpdate.updateReady} checking={appUpdate.checking} onCheck={appUpdate.check} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} /></>} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onAddProfile={() => setAddingProfile(true)} onStartNewCycle={activeSession ? undefined : () => setNewCycleOpen(true)} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
             const outcome = await exportTextFile(`jnt2-backup-${new Date().toISOString().slice(0, 10)}.json`, await dbService.exportBackup());
@@ -1065,8 +1091,8 @@ export default function App() {
 
       <RestTimer key={profile?.id ?? 'none'} profileId={profile?.id} restRequest={restRequest} setsLogged={activeSession ? activeSession.exercises.reduce((sum, item) => sum + item.sets.filter((set) => set.completed).length, 0) : 0} />
       <ToastStack toasts={toasts} />
-      {summary && <WorkoutSummary data={summary} onDone={() => { setSummary(null); setTab('today'); }} />}
-      {runLogOpen && profile && <RunLogSheet defaultUnit={preferredRunUnit(runs)} onSave={handleSaveRun} onClose={() => setRunLogOpen(false)} />}
+      {summary && <WorkoutSummary data={summary} onDone={(post) => { if (post) community.publish('workout', post.sourceId, post.summary); setSummary(null); setTab('today'); }} />}
+      {runLogOpen && profile && <RunLogSheet defaultUnit={preferredRunUnit(runs)} canPost={community.signedIn} recentRuns={runs} onSave={handleSaveRun} onClose={() => setRunLogOpen(false)} />}
       {moveSlot && sheetData && (
         <MoveSheet
           item={sheetData.item}
@@ -1079,10 +1105,11 @@ export default function App() {
           onClose={() => setMoveSlot(null)}
         />
       )}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-surface border-t border-line pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] px-3 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">
+      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-surface border-t border-line pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] px-1 flex justify-around max-w-xl mx-auto" aria-label="Primary navigation">
         <NavButton active={tab === 'today'} label="Today" icon={<Dumbbell className="w-5 h-5" />} onClick={() => setTab('today')} />
         <NavButton active={tab === 'program'} label="Program" icon={<CalendarDays className="w-5 h-5" />} onClick={() => setTab('program')} />
         <NavButton active={tab === 'progress'} label="Progress" icon={<TrendingUp className="w-5 h-5" />} onClick={() => setTab('progress')} />
+        <NavButton active={tab === 'activity'} label="Activity" icon={<ActivityIcon className="w-5 h-5" />} onClick={() => setTab('activity')} />
         <NavButton active={tab === 'together'} label="Together" icon={<Users className="w-5 h-5" />} onClick={() => setTab('together')} />
         <NavButton active={tab === 'settings'} label="Settings" icon={<Settings className="w-5 h-5" />} onClick={() => setTab('settings')} />
       </nav>
@@ -1091,5 +1118,5 @@ export default function App() {
 }
 
 function NavButton({ active, label, icon, onClick }: { active: boolean; label: string; icon: React.ReactNode; onClick: () => void }) {
-  return <button onClick={onClick} aria-current={active ? 'page' : undefined} className={`relative flex flex-col items-center justify-center min-w-16 min-h-14 text-xs ${active ? 'text-accent-ink font-bold' : 'text-muted'}`}>{active && <span aria-hidden className="absolute top-0 h-[3px] w-9 rounded-full bg-accent" />}{icon}<span className="mt-1">{label}</span></button>;
+  return <button onClick={onClick} aria-current={active ? 'page' : undefined} className={`relative flex flex-col items-center justify-center min-w-12 flex-1 min-h-14 text-xs ${active ? 'text-accent-ink font-bold' : 'text-muted'}`}>{active && <span aria-hidden className="absolute top-0 h-[3px] w-9 rounded-full bg-accent" />}{icon}<span className="mt-1">{label}</span></button>;
 }
