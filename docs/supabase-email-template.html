@@ -1,0 +1,35 @@
+<!--
+Paste this into BOTH Supabase templates: Authentication > Emails > Templates > "Confirm signup" and "Magic Link".
+Subject for both: Your J&T 2.0 sign-in code
+Needs custom SMTP turned on first. {{ .Token }} is filled in by Supabase.
+Colours match the app's warm paper, ink and vermilion theme. Styles are inline because email apps ignore stylesheets.
+-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f0e8;padding:32px 16px;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;background:#fbf9f4;border:1px solid #d9d2c3;border-radius:20px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+        <tr>
+          <td style="background:#d63d16;height:6px;font-size:0;line-height:0;">&nbsp;</td>
+        </tr>
+        <tr>
+          <td style="padding:28px 28px 8px;">
+            <div style="font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#d63d16;">J&amp;T 2.0</div>
+            <div style="font-size:24px;line-height:30px;font-weight:800;color:#1b1a17;margin-top:10px;">Your sign-in code</div>
+            <div style="font-size:15px;line-height:22px;color:#3a3832;margin-top:8px;">Open the app, go to the Activity tab and type this code in.</div>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:20px 28px;">
+            <div style="background:#ece6d9;border:1px solid #d9d2c3;border-radius:14px;padding:18px 12px;font-size:36px;line-height:40px;font-weight:800;letter-spacing:8px;color:#1b1a17;font-family:'SF Mono',Menlo,Consolas,monospace;">{{ .Token }}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 28px 28px;">
+            <div style="font-size:13px;line-height:20px;color:#6b665b;">The code works once and expires soon. Type it into the app. You don't need to tap anything in this email.</div>
+            <div style="border-top:1px solid #d9d2c3;margin-top:20px;padding-top:16px;font-size:12px;line-height:18px;color:#8a8478;">Didn't ask for this? You can ignore this email. Nobody can sign in without the code.</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>

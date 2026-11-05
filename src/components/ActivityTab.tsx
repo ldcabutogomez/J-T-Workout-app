@@ -133,7 +133,7 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
         </div>
         {community.linkSentTo ? (
           <div className="space-y-2">
-            <p className="text-xs text-ink">Check {community.linkSentTo} for an email from Supabase, our sign-in provider (also check spam). Enter the code from that email here to stay in this app. Tapping the link instead opens your browser, which is a separate copy of the app with none of your data.</p>
+            <p className="text-xs text-ink">We sent a sign-in code to {community.linkSentTo}. The email comes from J&amp;T 2.0 through Supabase, our sign-in provider, so check spam if it is not there. Type the code below. Do not tap any link in the email, because that opens your browser instead of this app.</p>
             <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) void community.verifyCode(code); }}>
               <input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code from email" className={`${input} flex-1 min-w-0`} aria-label="Sign-in code" />
               <button type="submit" className={`${button} bg-accent text-on-accent`}>Verify</button>
@@ -143,11 +143,11 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
         ) : (
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (email.includes('@')) void community.signIn(email); }}>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className={`${input} flex-1 min-w-0`} aria-label="Email" />
-            <button type="submit" className={`${button} bg-accent text-on-accent`}>Email me a link</button>
+            <button type="submit" className={`${button} bg-accent text-on-accent`}>Email me a code</button>
           </form>
         )}
         {!community.linkSentTo && (
-          <button type="button" onClick={() => { if (email.includes('@')) community.haveCode(email); }} disabled={!email.includes('@')} className="text-xs text-muted underline disabled:opacity-50">I already have a code from an email (enter your email above first)</button>
+          <button type="button" onClick={() => { if (email.includes('@')) community.haveCode(email); }} disabled={!email.includes('@')} className="text-xs text-muted underline disabled:opacity-50">I already have a code (enter your email above first)</button>
         )}
         {community.error && <p className="text-xs text-bad">{community.error}</p>}
       </section>
