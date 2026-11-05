@@ -36,7 +36,8 @@ export interface CommunityState {
 
 /** Accounts, the global leaderboard and the activity feed. Inert without a backend or a signed-in person. */
 export function useCommunity(config: CloudConfig | null, profile: UserProfile | null, history: WorkoutSession[], getHistory: () => Promise<WorkoutSession[]>, deviceId: string): CommunityState {
-  const [session, setSession] = useState<AuthSession | null>(() => loadSession());
+  // The magic-link redirect must be read before the stored session, or the first render after the link shows signed out.
+  const [session, setSession] = useState<AuthSession | null>(() => { consumeAuthRedirectOnce(); return loadSession(); });
   const [members, setMembers] = useState<PartnerSnapshot[]>([]);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [busy, setBusy] = useState(false);
