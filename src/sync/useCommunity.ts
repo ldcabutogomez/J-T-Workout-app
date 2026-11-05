@@ -23,6 +23,8 @@ export interface CommunityState {
   verifyCode: (code: string) => Promise<void>;
   /** Goes back to the email form. */
   cancelSignIn: () => void;
+  /** Goes straight to the code box for an email that was already sent a code. */
+  haveCode: (email: string) => void;
   signOut: () => void;
   refresh: () => void;
   toggleLike: (id: string) => void;
@@ -120,6 +122,7 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
         saveSession(next); sessionRef.current = next; setSession(next); setLinkSentTo(null);
       } catch (e) { setError((e as Error).message); }
     },
+    haveCode: (email) => { setError(null); setLinkSentTo(email.trim()); },
     cancelSignIn: () => { setLinkSentTo(null); setError(null); },
     signOut: () => { saveSession(null); setSession(null); setMembers([]); setFeed([]); setLinkSentTo(null); },
     refresh: () => void sync(),

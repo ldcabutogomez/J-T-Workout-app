@@ -146,6 +146,9 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
             <button type="submit" className={`${button} bg-accent text-on-accent`}>Email me a link</button>
           </form>
         )}
+        {!community.linkSentTo && (
+          <button type="button" onClick={() => { if (email.includes('@')) community.haveCode(email); }} disabled={!email.includes('@')} className="text-xs text-muted underline disabled:opacity-50">I already have a code from an email (enter your email above first)</button>
+        )}
         {community.error && <p className="text-xs text-bad">{community.error}</p>}
       </section>
     );
