@@ -88,6 +88,16 @@ With two phones, each phone pushes a **snapshot** (sessions per week, streak inp
 Anyone holding the code can read the two snapshots, so treat it like a password and Unlink to stop sharing. Only a pairing code is needed, so there are no accounts.
 
 
+### Community: accounts, one leaderboard, activity feed with likes (optional)
+Signed-in people share one global leaderboard and an activity feed of finished workouts and runs, and can like each other's activity. Sign-in is an emailed magic link (Supabase Auth), so there are no passwords, and the app still works fully offline and signed out. Only stats are shared (sessions, volume, PRs, run distance and pace). Set logs and notes never leave the phone. Runs appear in the feed only: they do not touch lifting stats, PRs or the leaderboard score.
+
+Setup, once, after the partner-sync steps above:
+1. Run the **Community** block at the end of `supabase/schema.sql`.
+2. In Supabase, Authentication > URL Configuration: set Site URL to the deployed app URL and add it (and `http://localhost:3000`) to Redirect URLs.
+3. Share the app link. A new person opens it, creates a profile, then on the Together tab enters their email and taps the link. Their next workout or run posts to the feed.
+
+Activity from before someone signed in is not backfilled.
+
 ## Install and run
 
 Prerequisites: Node.js `^20.19.0` or `>=22.12.0` and npm.

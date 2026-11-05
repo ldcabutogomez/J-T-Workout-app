@@ -89,3 +89,80 @@ create table if not exists public.push_subscriptions (
 
 alter table public.push_subscriptions enable row level security;
 revoke all on public.push_subscriptions from anon, authenticated;
+
+-- ---------------------------------------------------------------------------------------------
+-- Community: accounts (Supabase Auth, email magic link), one global leaderboard and an activity feed
+-- with likes. Run this block after the sections above. In Authentication > URL Configuration, set the
+-- Site URL to the deployed app and add it (and http://localhost:3000) to Redirect URLs.
+-- Everything here is stats only: no set logs, no notes. Signed-in users can read everyone's rows and
+-- write only their own.
+-- ---------------------------------------------------------------------------------------------
+create table if not exists public.community_members (
+  user_id      uuid primary key references auth.users on delete cascade,
+  display_name text not null check (length(display_name) between 1 and 40),
+  snapshot     jsonb check (snapshot is null or pg_column_size(snapshot) <= 8192),
+  updated_at   timestamptz not null default now()
+);
+create table if not exists public.activities (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users on delete cascade default auth.uid(),
+  kind       text not null check (kind in ('workout', 'run')),
+  source_id  text not null check (length(source_id) <= 80),
+  summary    jsonb not null check (pg_column_size(summary) <= 2048),
+  created_at timestamptz not null default now(),
+  unique (user_id, source_id)
+);
+create index if not exists activities_created_idx on public.activities (created_at desc);
+create table if not exists public.activity_likes (
+  activity_id uuid not null references public.activities on delete cascade,
+  user_id     uuid not null references auth.users on delete cascade default auth.uid(),
+  created_at  timestamptz not null default now(),
+  primary key (activity_id, user_id)
+);
+
+alter table public.community_members enable row level security;
+alter table public.activities enable row level security;
+alter table public.activity_likes enable row level security;
+revoke all on public.community_members, public.activities, public.activity_likes from anon;
+
+drop policy if exists members_read on public.community_members;
+drop policy if exists members_write on public.community_members;
+drop policy if exists members_update on public.community_members;
+drop policy if exists members_delete on public.community_members;
+create policy members_read on public.community_members for select to authenticated using (true);
+create policy members_write on public.community_members for insert to authenticated with check (user_id = auth.uid());
+create policy members_update on public.community_members for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy members_delete on public.community_members for delete to authenticated using (user_id = auth.uid());
+
+drop policy if exists activities_read on public.activities;
+drop policy if exists activities_write on public.activities;
+drop policy if exists activities_delete on public.activities;
+create policy activities_read on public.activities for select to authenticated using (true);
+create policy activities_write on public.activities for insert to authenticated with check (user_id = auth.uid());
+create policy activities_delete on public.activities for delete to authenticated using (user_id = auth.uid());
+
+drop policy if exists likes_read on public.activity_likes;
+drop policy if exists likes_write on public.activity_likes;
+drop policy if exists likes_delete on public.activity_likes;
+create policy likes_read on public.activity_likes for select to authenticated using (true);
+create policy likes_write on public.activity_likes for insert to authenticated with check (user_id = auth.uid());
+create policy likes_delete on public.activity_likes for delete to authenticated using (user_id = auth.uid());
+
+grant select, insert, update, delete on public.community_members, public.activities, public.activity_likes to authenticated;
+
+create or replace function public.community_feed(p_limit int default 50)
+returns table (id uuid, user_id uuid, display_name text, kind text, summary jsonb, created_at timestamptz, like_count bigint, liked_by_me boolean)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select a.id, a.user_id, m.display_name, a.kind, a.summary, a.created_at,
+         (select count(*) from activity_likes l where l.activity_id = a.id),
+         exists (select 1 from activity_likes l where l.activity_id = a.id and l.user_id = auth.uid())
+  from activities a join community_members m on m.user_id = a.user_id
+  order by a.created_at desc
+  limit least(greatest(p_limit, 1), 100)
+$$;
+revoke all on function public.community_feed(int) from public, anon;
+grant execute on function public.community_feed(int) to authenticated;

@@ -41,6 +41,9 @@ import { haptic, installTapHaptics, setFeedbackPrefs } from './lib/feedback';
 import { feedback } from './lib/feedback';
 import { exerciseDoneKey, hasDelivered, markDelivered, pickPrimaryCelebration, prRewardKey } from './lib/rewards';
 import { TogetherTab, type SyncStatus } from './components/TogetherTab';
+import { CommunityFeed } from './components/CommunityFeed';
+import { useCommunity } from './sync/useCommunity';
+import { runActivity, workoutActivity } from './engine/activity';
 import { composeBoard, snapshotFromHistory, weekKey, type PartnerSnapshot } from './engine/leaderboard';
 import { fmtCount, meetsGoal, sessionCredit, validCompleted, weekStart } from './engine/sessionValidity';
 import { catchUp, defaultSchedule, doneSlots, missedCount, mondayOf, moveWorkout, nextWorkout, positionAfter, slotDate, todayKey, weekAgenda, weeksBehind, withTrainingDays, type NextWorkout, type Slot } from './engine/schedule';
@@ -314,12 +317,19 @@ export default function App() {
     };
   }, [paired, tab]);
 
+  const community = useCommunity(cloudConfig, profile ?? null, history, async () => (profile ? dbService.getSessionHistory(profile.id, false) : []), deviceId);
+  // Partner and community snapshots feed one board; a person in both appears once.
+  const boardRemote = useMemo(() => {
+    const seen = new Set(remote.map((item) => item.profileId));
+    return [...remote, ...community.members.filter((item) => !seen.has(item.profileId))];
+  }, [remote, community.members]);
+
   const leaderboard = useMemo(() => {
     if (!partnerHistory) return null;
     // Your own row always comes from local history, so it shows right after a workout, paired or not.
-    return composeBoard({ profiles, historyByProfile: partnerHistory, pairedProfileId: meId, remote, now: Date.now() });
+    return composeBoard({ profiles, historyByProfile: partnerHistory, pairedProfileId: meId, remote: boardRemote, now: Date.now() });
     // `today` ticks at midnight and on resume, so "Trained today" rolls over to "yesterday" on its own.
-  }, [profiles, partnerHistory, meId, remote, today]);
+  }, [profiles, partnerHistory, meId, boardRemote, today]);
 
   const appUpdate = useAppUpdate();
   useWakeLock(Boolean(activeSession) && profile?.keepScreenOn !== false);
@@ -737,6 +747,10 @@ export default function App() {
       setActiveSession(null);
       const updatedHistory = await dbService.getSessionHistory(profile.id, true);
       setHistory(updatedHistory);
+      if (!wasEditing) {
+        const posted = workoutActivity(completed, history);
+        if (posted) community.publish('workout', posted.sourceId, posted.summary);
+      }
 
       if (!wasEditing && completed.status !== 'skipped') {
         const goal = savedProfile.weeklyGoalSessions ?? 4;
@@ -879,6 +893,8 @@ export default function App() {
       updatedTime: now,
     };
     await dbService.saveRun(run);
+    const posted = runActivity(run);
+    community.publish('run', posted.sourceId, posted.summary);
     setRuns(await dbService.getRunHistory(profile.id));
     haptic('finish');
     showToast('Run saved.', 'badge');
@@ -888,6 +904,7 @@ export default function App() {
     if (!profile || !window.confirm('Delete this run? This cannot be undone.')) return;
     try {
       await dbService.deleteRun(runId);
+      community.unpublish(`r:${runId}`);
       setRuns(await dbService.getRunHistory(profile.id));
       showBanner('Run deleted.');
     } catch (error) {
@@ -1019,11 +1036,12 @@ export default function App() {
           if (!profile || !window.confirm('Delete this session record? This cannot be undone.')) return;
           try {
             await dbService.deleteSession(id, demo);
+            community.unpublish(`w:${id}`);
             setHistory(await dbService.getSessionHistory(profile.id, true));
             showBanner('Session deleted.');
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
-        {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} />}
+        {tab === 'together' && <div className="space-y-4"><CommunityFeed community={community} memberName={profile?.name ?? ''} /><TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} /></div>}
         {tab === 'settings' && <SettingsTab level={myLevel} extra={<>{profile && <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} />}<UpdateCard updateReady={appUpdate.updateReady} checking={appUpdate.checking} onCheck={appUpdate.check} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} /></>} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onAddProfile={() => setAddingProfile(true)} onStartNewCycle={activeSession ? undefined : () => setNewCycleOpen(true)} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
             const outcome = await exportTextFile(`jnt2-backup-${new Date().toISOString().slice(0, 10)}.json`, await dbService.exportBackup());
