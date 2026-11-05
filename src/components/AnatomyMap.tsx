@@ -43,8 +43,24 @@ function muscleShapes(group: MuscleGroup, view: View): ReactNode {
   }
 }
 
-/** 0.3 for a lightly worked muscle up to 1 for the hardest-worked one. */
-const heatOpacity = (intensity: number): number => 0.3 + 0.7 * Math.min(100, Math.max(1, intensity)) / 100;
+/** Light work reads yellow, moderate work orange, the hardest-worked muscle red. */
+const HEAT_STOPS: ReadonlyArray<readonly [number, readonly [number, number, number]]> = [
+  [1, [255, 225, 77]],
+  [50, [255, 154, 31]],
+  [100, [224, 48, 30]],
+];
+function heatRgb(intensity: number): [number, number, number] {
+  const value = Math.min(100, Math.max(1, intensity));
+  for (let i = 1; i < HEAT_STOPS.length; i++) {
+    const [endAt, end] = HEAT_STOPS[i];
+    const [startAt, start] = HEAT_STOPS[i - 1];
+    if (value <= endAt) {
+      const t = (value - startAt) / (endAt - startAt);
+      return [0, 1, 2].map((c) => Math.round(start[c] + (end[c] - start[c]) * t)) as [number, number, number];
+    }
+  }
+  return [...HEAT_STOPS[HEAT_STOPS.length - 1][1]] as [number, number, number];
+}
 
 function MuscleView({ gender, view, muscles, id }: { gender: Gender; view: View; muscles: MuscleIntensityMap; id: string }) {
   // Relative to the app's base, so it also works when the site is served from a subfolder such as GitHub Pages.
@@ -60,11 +76,20 @@ function MuscleView({ gender, view, muscles, id }: { gender: Gender; view: View;
           {worked.map((group) => (
             <clipPath id={`${id}-${view}-${group}`} key={group}>{muscleShapes(group, view)}</clipPath>
           ))}
+          {/* The figure is flat orange with dark outlines, so its red channel is "how much fill". Scaling it by a colour recolours the fill and keeps the outlines. */}
+          {worked.map((group) => {
+            const [r, g, b] = heatRgb(muscles[group] ?? 0);
+            return (
+              <filter id={`${id}-${view}-${group}-heat`} key={group} colorInterpolationFilters="sRGB">
+                <feColorMatrix type="matrix" values={`${r / 255} 0 0 0 0  ${g / 255} 0 0 0 0  ${b / 255} 0 0 0 0  0 0 0 1 0`} />
+              </filter>
+            );
+          })}
         </defs>
         <image href={source} width="1024" height="1536" preserveAspectRatio="xMidYMid meet" filter={`url(#${id}-${view}-neutral)`} opacity="0.34" />
-        {/* One layer per muscle: opacity follows its intensity, so the heat fades smoothly from secondary to primary. */}
+        {/* One layer per muscle, coloured by its intensity from yellow (light) through orange to red (hardest). */}
         {worked.map((group) => (
-          <image key={group} href={source} width="1024" height="1536" preserveAspectRatio="xMidYMid meet" clipPath={`url(#${id}-${view}-${group})`} opacity={heatOpacity(muscles[group] ?? 0)} />
+          <image key={group} href={source} width="1024" height="1536" preserveAspectRatio="xMidYMid meet" clipPath={`url(#${id}-${view}-${group})`} filter={`url(#${id}-${view}-${group}-heat)`} opacity="0.95" />
         ))}
       </svg>
       <span className="text-[10px] font-bold uppercase tracking-wider text-muted">{view}</span>
@@ -85,7 +110,7 @@ export function AnatomyMap({ gender, muscles }: { gender: Gender; muscles: Muscl
       <div className="flex items-center justify-between gap-3">
         <figcaption className="eyebrow">Muscles worked</figcaption>
         <div className="flex items-center gap-1 text-[10px] font-bold text-muted" aria-hidden="true">
-          <span>Low</span><span className="h-2 w-16 rounded-full bg-gradient-to-r from-[#ff6a00]/30 to-[#ff6a00]" /><span>High</span>
+          <span>Low</span><span className="h-2 w-16 rounded-full bg-gradient-to-r from-[#ffe14d] via-[#ff9a1f] to-[#e0301e]" /><span>High</span>
         </div>
       </div>
       <div className="mx-auto mt-1 flex max-w-[18rem] items-end justify-center gap-2">
