@@ -131,7 +131,7 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
           <p className="text-xs text-muted mt-1">Sign in with your email to see everyone's workouts and runs, like them and comment. You share stats, worked muscle groups, a short wrap-up and your comments, as {memberName || 'your profile name'}. Exercise lists, set-by-set logs and notes stay on this phone.</p>
         </div>
         {community.linkSentTo ? (
-          <p className="text-xs text-ink">Check {community.linkSentTo} for a sign-in link, then open it on this phone.</p>
+          <p className="text-xs text-ink">Check {community.linkSentTo} for a sign-in link. It comes from Supabase, our sign-in provider, so also check spam. Open it on this phone, in this same app.</p>
         ) : (
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (email.includes('@')) void community.signIn(email); }}>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className={`${input} flex-1 min-w-0`} aria-label="Email" />
