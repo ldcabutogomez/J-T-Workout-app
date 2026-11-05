@@ -136,14 +136,14 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
             <p className="text-xs text-ink">We sent a sign-in code to {community.linkSentTo}. The email comes from J&amp;T 2.0 through Supabase, our sign-in provider, so check spam if it is not there. Type the code below. Do not tap any link in the email, because that opens your browser instead of this app.</p>
             <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) void community.verifyCode(code); }}>
               <input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code from email" className={`${input} flex-1 min-w-0`} aria-label="Sign-in code" />
-              <button type="submit" className={`${button} bg-accent text-on-accent`}>Verify</button>
+              <button type="submit" disabled={community.authBusy} className={`${button} bg-accent text-on-accent disabled:opacity-60`}>{community.authBusy ? 'Checking…' : 'Verify'}</button>
             </form>
             <button type="button" onClick={() => { setCode(''); community.cancelSignIn(); }} className="text-xs text-muted underline">Use a different email</button>
           </div>
         ) : (
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (email.includes('@')) void community.signIn(email); }}>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className={`${input} flex-1 min-w-0`} aria-label="Email" />
-            <button type="submit" className={`${button} bg-accent text-on-accent`}>Email me a code</button>
+            <button type="submit" disabled={community.authBusy} className={`${button} bg-accent text-on-accent disabled:opacity-60`}>{community.authBusy ? 'Sending…' : 'Email me a code'}</button>
           </form>
         )}
         {!community.linkSentTo && (

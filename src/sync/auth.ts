@@ -71,9 +71,15 @@ function headers(config: CloudConfig, token?: string): Record<string, string> {
 
 /** Emails a sign-in link. Creates the account on first use. */
 export async function sendMagicLink(config: CloudConfig, email: string, redirectTo: string, fetchImpl: typeof fetch = fetch): Promise<void> {
-  const response = await fetchImpl(`${config.url}/auth/v1/otp?redirect_to=${encodeURIComponent(redirectTo)}`, {
-    method: 'POST', headers: headers(config), body: JSON.stringify({ email, create_user: true }),
-  });
+  let response: Response;
+  try {
+    response = await fetchImpl(`${config.url}/auth/v1/otp?redirect_to=${encodeURIComponent(redirectTo)}`, {
+      method: 'POST', headers: headers(config), body: JSON.stringify({ email, create_user: true }), signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e) {
+    if ((e as Error).name === 'TimeoutError' || (e as Error).name === 'AbortError') throw new Error('Sending took too long. The email service may be misconfigured. Check Supabase Authentication, SMTP settings and logs.');
+    throw e;
+  }
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     let message = '';

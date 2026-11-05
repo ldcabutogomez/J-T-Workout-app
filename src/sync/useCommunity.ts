@@ -18,6 +18,8 @@ export interface CommunityState {
   error: string | null;
   /** Set after a magic link was requested, until the person returns through it. */
   linkSentTo: string | null;
+  /** True while an email or code request is in flight. */
+  authBusy: boolean;
   signIn: (email: string) => Promise<void>;
   /** Finishes sign-in with the code from the email, inside this app. */
   verifyCode: (code: string) => Promise<void>;
@@ -49,6 +51,7 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(() => consumeAuthRedirectOnce());
   const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
   const [comments, setComments] = useState<Record<string, CommentItem[]>>({});
   const sessionRef = useRef(session);
   sessionRef.current = session;
@@ -105,22 +108,24 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
     signedIn: Boolean(session),
     email: session?.email,
     userId: session?.userId,
-    members, feed, busy, error, linkSentTo,
+    members, feed, busy, error, linkSentTo, authBusy,
     signIn: async (email) => {
       if (!config) return;
       setError(null);
+      setAuthBusy(true);
       try {
         await sendMagicLink(config, email.trim(), `${location.origin}${location.pathname}`);
         setLinkSentTo(email.trim());
-      } catch (e) { setError((e as Error).message); }
+      } catch (e) { setError((e as Error).message); } finally { setAuthBusy(false); }
     },
     verifyCode: async (code) => {
       if (!config || !linkSentTo) return;
       setError(null);
+      setAuthBusy(true);
       try {
         const next = await verifyEmailCode(config, linkSentTo, code);
         saveSession(next); sessionRef.current = next; setSession(next); setLinkSentTo(null);
-      } catch (e) { setError((e as Error).message); }
+      } catch (e) { setError((e as Error).message); } finally { setAuthBusy(false); }
     },
     haveCode: (email) => { setError(null); setLinkSentTo(email.trim()); },
     cancelSignIn: () => { setLinkSentTo(null); setError(null); },
