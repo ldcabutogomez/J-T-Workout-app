@@ -44,3 +44,28 @@ test('workout posts include only the aggregate map and the public parser drops b
   assert.deepEqual(parseMuscleIntensities({ chest: 3, lats: 1, made_up: 2, quads: 8 }), { chest: 3, lats: 1 });
   assert.equal(parseMuscleIntensities('bad'), undefined);
 });
+
+test('muscle mappings are anatomically sound', () => {
+  const m = EXERCISE_MUSCLES;
+  for (const [id, entry] of Object.entries(m)) {
+    assert.ok(entry.primary.length > 0, `${id} needs a primary muscle`);
+    assert.equal(new Set([...entry.primary, ...entry.secondary]).size, entry.primary.length + entry.secondary.length, `${id} lists a muscle twice`);
+  }
+  const hits = (id: string, group: string) => [...m[id].primary, ...m[id].secondary].includes(group as never);
+  // Prime movers for the main lifts.
+  for (const [id, groups] of Object.entries({
+    'back-squat': ['quads', 'glutes'], 'front-squat': ['quads'], 'deadlift': ['hamstrings', 'glutes', 'spinal_erectors'],
+    'romanian-deadlift': ['hamstrings', 'glutes'], 'bench-press': ['chest', 'triceps'], 'military-press': ['front_delts', 'triceps'],
+    'pull-ups': ['lats'], 'seated-cable-row': ['lats', 'upper_back'], 'hip-thrust': ['glutes'], 'leg-curl': ['hamstrings'],
+    'leg-extension': ['quads'], 'biceps-curl': ['biceps'], 'triceps-pushdown': ['triceps'], 'lateral-raise': ['side_delts'],
+    'rear-delt-fly': ['rear_delts'], 'standing-calf-raise': ['calves'], 'shrugs': ['traps'], 'cable-crunch': ['abs'],
+  })) for (const group of groups) assert.ok(m[id].primary.includes(group as never), `${id} should train ${group} as a primary muscle`);
+  // Things that must not be credited.
+  for (const [id, group] of [['bench-press', 'quads'], ['bench-press', 'hamstrings'], ['back-squat', 'biceps'], ['biceps-curl', 'triceps'],
+    ['leg-curl', 'quads'], ['leg-extension', 'hamstrings'], ['lat-pulldown', 'quads'], ['triceps-pushdown', 'biceps'], ['cable-crunch', 'chest']]) {
+    assert.ok(!hits(id, group), `${id} should not credit ${group}`);
+  }
+  // Pushes work the triceps, pulls the biceps, never the other way round.
+  for (const id of ['bench-press', 'incline-bench', 'military-press', 'dips']) assert.ok(hits(id, 'triceps') && !hits(id, 'biceps'), `${id} is a push`);
+  for (const id of ['lat-pulldown', 'pull-ups', 'seated-cable-row', 'one-arm-db-row']) assert.ok(hits(id, 'biceps') && !hits(id, 'triceps'), `${id} is a pull`);
+});

@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { Fragment, useId, type ReactNode } from 'react';
 import type { Gender } from '../types';
 import { MUSCLE_GROUPS, MUSCLE_LABELS, type MuscleGroup, type MuscleIntensity, type MuscleIntensityMap } from '../engine/muscles';
 
@@ -44,7 +44,8 @@ function muscleShapes(group: MuscleGroup, view: View): ReactNode {
 }
 
 function MuscleView({ gender, view, muscles, id }: { gender: Gender; view: View; muscles: MuscleIntensityMap; id: string }) {
-  const source = `/anatomy/${gender}-${view}.png`;
+  // Relative to the app's base, so it also works when the site is served from a subfolder such as GitHub Pages.
+  const source = `${import.meta.env.BASE_URL}anatomy/${gender}-${view}.png`;
   const levels: MuscleIntensity[] = [1, 2, 3];
   return (
     <div className="min-w-0 flex-1 text-center">
@@ -55,7 +56,8 @@ function MuscleView({ gender, view, muscles, id }: { gender: Gender; view: View;
           </filter>
           {levels.map((level) => (
             <clipPath id={`${id}-${view}-${level}`} key={level}>
-              {MUSCLE_GROUPS.filter((group) => muscles[group] === level).map((group) => <g key={group}>{muscleShapes(group, view)}</g>)}
+              {/* clipPath only accepts shapes, so no <g> wrapper here. */}
+              {MUSCLE_GROUPS.filter((group) => muscles[group] === level).map((group) => <Fragment key={group}>{muscleShapes(group, view)}</Fragment>)}
             </clipPath>
           ))}
         </defs>
@@ -81,7 +83,7 @@ export function AnatomyMap({ gender, muscles }: { gender: Gender; muscles: Muscl
       <div className="flex items-center justify-between gap-3">
         <figcaption className="eyebrow">Muscles worked</figcaption>
         <div className="flex items-center gap-1 text-[10px] font-bold text-muted" aria-hidden="true">
-          <span>Low</span><span className="h-2 w-2 rounded-full bg-accent opacity-40" /><span className="h-2 w-2 rounded-full bg-accent opacity-70" /><span className="h-2 w-2 rounded-full bg-accent" /><span>High</span>
+          <span>Low</span><span className="h-2 w-2 rounded-full bg-[#ff6a00] opacity-40" /><span className="h-2 w-2 rounded-full bg-[#ff6a00] opacity-70" /><span className="h-2 w-2 rounded-full bg-[#ff6a00]" /><span>High</span>
         </div>
       </div>
       <div className="mx-auto mt-1 flex max-w-[18rem] items-end justify-center gap-2">

@@ -34,6 +34,7 @@ import { exportTextFile } from './lib/exportFile';
 import { backupDue, clearImportSnapshot, lastBackupAt, loadImportSnapshot, recordBackup, saveImportSnapshot, snoozeBackupNudge } from './lib/backupStatus';
 import { UpdateCard } from './components/UpdateCard';
 import { useAppUpdate } from './lib/appUpdate';
+import { ACTIVITY_PREVIEW, useMockCommunity } from './dev/mockCommunity';
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { notifyPartner } from './sync/push';
 import { TAUNT_COOLDOWN_MS, TAUNT_FRESH_MS, TAUNT_LEVEL, perksBetween, tauntText, tauntUnlocked, BATTERY_FLAIR } from './lib/perks';
@@ -319,7 +320,9 @@ export default function App() {
     };
   }, [paired, tab]);
 
-  const community = useCommunity(cloudConfig, profile ?? null, history, async () => (profile ? dbService.getSessionHistory(profile.id, false) : []), deviceId);
+  const realCommunity = useCommunity(cloudConfig, profile ?? null, history, async () => (profile ? dbService.getSessionHistory(profile.id, false) : []), deviceId);
+  const mockCommunity = useMockCommunity();
+  const community = ACTIVITY_PREVIEW ? mockCommunity : realCommunity;
   // Partner and community snapshots feed one board; a person in both appears once.
   const boardRemote = useMemo(() => {
     const seen = new Set(remote.map((item) => item.profileId));
