@@ -1,6 +1,6 @@
 import { Fragment, useId, type ReactNode } from 'react';
 import type { Gender } from '../types';
-import { MUSCLE_GROUPS, MUSCLE_LABELS, type MuscleGroup, type MuscleIntensity, type MuscleIntensityMap } from '../engine/muscles';
+import { MUSCLE_GROUPS, MUSCLE_LABELS, type MuscleGroup, type MuscleIntensityMap } from '../engine/muscles';
 
 type View = 'front' | 'back';
 
@@ -43,10 +43,13 @@ function muscleShapes(group: MuscleGroup, view: View): ReactNode {
   }
 }
 
+/** 0.3 for a lightly worked muscle up to 1 for the hardest-worked one. */
+const heatOpacity = (intensity: number): number => 0.3 + 0.7 * Math.min(100, Math.max(1, intensity)) / 100;
+
 function MuscleView({ gender, view, muscles, id }: { gender: Gender; view: View; muscles: MuscleIntensityMap; id: string }) {
   // Relative to the app's base, so it also works when the site is served from a subfolder such as GitHub Pages.
   const source = `${import.meta.env.BASE_URL}anatomy/${gender}-${view}.png`;
-  const levels: MuscleIntensity[] = [1, 2, 3];
+  const worked = MUSCLE_GROUPS.filter((group) => muscles[group]);
   return (
     <div className="min-w-0 flex-1 text-center">
       <svg viewBox="0 0 1024 1536" className="mx-auto h-48 max-h-[42vw] w-auto max-w-full" aria-hidden="true">
@@ -54,16 +57,14 @@ function MuscleView({ gender, view, muscles, id }: { gender: Gender; view: View;
           <filter id={`${id}-${view}-neutral`} colorInterpolationFilters="sRGB">
             <feColorMatrix type="saturate" values="0" />
           </filter>
-          {levels.map((level) => (
-            <clipPath id={`${id}-${view}-${level}`} key={level}>
-              {/* clipPath only accepts shapes, so no <g> wrapper here. */}
-              {MUSCLE_GROUPS.filter((group) => muscles[group] === level).map((group) => <Fragment key={group}>{muscleShapes(group, view)}</Fragment>)}
-            </clipPath>
+          {worked.map((group) => (
+            <clipPath id={`${id}-${view}-${group}`} key={group}>{muscleShapes(group, view)}</clipPath>
           ))}
         </defs>
         <image href={source} width="1024" height="1536" preserveAspectRatio="xMidYMid meet" filter={`url(#${id}-${view}-neutral)`} opacity="0.34" />
-        {levels.map((level) => (
-          <image key={level} href={source} width="1024" height="1536" preserveAspectRatio="xMidYMid meet" clipPath={`url(#${id}-${view}-${level})`} opacity={level === 1 ? 0.42 : level === 2 ? 0.72 : 1} />
+        {/* One layer per muscle: opacity follows its intensity, so the heat fades smoothly from secondary to primary. */}
+        {worked.map((group) => (
+          <image key={group} href={source} width="1024" height="1536" preserveAspectRatio="xMidYMid meet" clipPath={`url(#${id}-${view}-${group})`} opacity={heatOpacity(muscles[group] ?? 0)} />
         ))}
       </svg>
       <span className="text-[10px] font-bold uppercase tracking-wider text-muted">{view}</span>
@@ -76,14 +77,15 @@ export function AnatomyMap({ gender, muscles }: { gender: Gender; muscles: Muscl
   const worked = MUSCLE_GROUPS
     .filter((group) => muscles[group])
     .sort((a, b) => Number(muscles[b]) - Number(muscles[a]));
+  const band = (value: number) => (value >= 67 ? 'high' : value >= 34 ? 'medium' : 'low');
   if (!worked.length) return null;
-  const description = worked.map((group) => `${MUSCLE_LABELS[group]} ${muscles[group] === 3 ? 'high' : muscles[group] === 2 ? 'medium' : 'low'}`).join(', ');
+  const description = worked.map((group) => `${MUSCLE_LABELS[group]} ${band(muscles[group] ?? 0)}`).join(', ');
   return (
     <figure className="mt-3 rounded-2xl border border-line bg-sunk/60 px-3 py-2" role="img" aria-label={`Muscles worked: ${description}`}>
       <div className="flex items-center justify-between gap-3">
         <figcaption className="eyebrow">Muscles worked</figcaption>
         <div className="flex items-center gap-1 text-[10px] font-bold text-muted" aria-hidden="true">
-          <span>Low</span><span className="h-2 w-2 rounded-full bg-[#ff6a00] opacity-40" /><span className="h-2 w-2 rounded-full bg-[#ff6a00] opacity-70" /><span className="h-2 w-2 rounded-full bg-[#ff6a00]" /><span>High</span>
+          <span>Low</span><span className="h-2 w-16 rounded-full bg-gradient-to-r from-[#ff6a00]/30 to-[#ff6a00]" /><span>High</span>
         </div>
       </div>
       <div className="mx-auto mt-1 flex max-w-[18rem] items-end justify-center gap-2">

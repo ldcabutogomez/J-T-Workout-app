@@ -83,8 +83,15 @@ export async function sendMagicLink(config: CloudConfig, email: string, redirect
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     let message = '';
-    try { message = String((JSON.parse(detail) as { msg?: string; message?: string }).msg ?? (JSON.parse(detail) as { message?: string }).message ?? ''); } catch { /* raw */ }
-    throw new Error(response.status === 429 ? 'Too many emails requested. Wait a minute and try again.' : `Could not send the link (${response.status})${message ? `: ${message}` : ''}`);
+    let code = '';
+    try {
+      const body = JSON.parse(detail) as { msg?: string; message?: string; error_code?: string };
+      message = String(body.msg ?? body.message ?? '');
+      code = String(body.error_code ?? '');
+    } catch { /* raw */ }
+    // Supabase uses 429 for several different limits (hourly email cap, per-address cooldown, per-IP). Say which one it was.
+    if (response.status === 429) throw new Error(`Too many requests${code ? ` (${code})` : ''}${message ? `: ${message}` : '. Wait a minute and try again.'}`);
+    throw new Error(`Could not send the link (${response.status})${message ? `: ${message}` : ''}`);
   }
 }
 

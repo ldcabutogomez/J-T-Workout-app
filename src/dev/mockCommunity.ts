@@ -13,8 +13,8 @@ const now = Date.now();
 const MIN = 60_000;
 const ME = 'preview-me';
 
-/** Every muscle at once, one level per band, so shape alignment can be checked by eye. */
-const ALL_MUSCLES: MuscleIntensityMap = Object.fromEntries(MUSCLE_GROUPS.map((group, i) => [group, ((i % 3) + 1) as 1 | 2 | 3]));
+/** Every muscle at once, spread from faint to strong, so shape alignment can be checked by eye. */
+const ALL_MUSCLES: MuscleIntensityMap = Object.fromEntries(MUSCLE_GROUPS.map((group, i) => [group, Math.round(8 + (i * 92) / (MUSCLE_GROUPS.length - 1))]));
 const qa = (id: string, gender: 'male' | 'female'): FeedItem => ({
   id, userId: 'preview-qa', name: `QA ${gender}`, gender, createdAt: now - 48 * 60 * MIN, likes: 0, likedByMe: false, commentCount: 0,
   summary: { kind: 'workout', title: 'Every muscle', week: 1, day: 1, sets: 1, volumeLb: 1, minutes: null, prs: [], partial: false, muscles: ALL_MUSCLES },
@@ -24,7 +24,7 @@ const SAMPLE_FEED: FeedItem[] = [
   {
     id: 'a1', userId: ME, name: 'Luis', gender: 'male', createdAt: now - 25 * MIN, likes: 3, likedByMe: true, commentCount: 2,
     summary: { kind: 'workout', title: 'Back Squat', week: 3, day: 1, sets: 24, volumeLb: 18450, minutes: 68, prs: ['Back Squat', 'Leg Press'], partial: false,
-      muscles: { quads: 3, glutes: 3, hamstrings: 2, spinal_erectors: 2, abs: 1, calves: 1 },
+      muscles: { quads: 100, glutes: 96, hamstrings: 58, spinal_erectors: 52, hip_adductors: 30, abs: 28, calves: 12 },
       wrap: 'Finished Back Squat: 24 sets, 18,450 lb in 68 min. New PRs: Back Squat, Leg Press.' },
   },
   {
@@ -34,7 +34,7 @@ const SAMPLE_FEED: FeedItem[] = [
   {
     id: 'a3', userId: 'preview-lauren', name: 'Lauren', gender: 'female', createdAt: now - 26 * 60 * MIN, likes: 0, likedByMe: false, commentCount: 1,
     summary: { kind: 'workout', title: 'Bench Press', week: 3, day: 2, sets: 18, volumeLb: 9200, minutes: 52, prs: [], partial: true,
-      muscles: { chest: 3, front_delts: 2, triceps: 2, lats: 1, biceps: 1 },
+      muscles: { chest: 100, triceps: 72, front_delts: 55, biceps: 20, lats: 14 },
       wrap: 'Partial Bench Press: 18 sets, 9,200 lb in 52 min.' },
   },
   qa('qa-male', 'male'),

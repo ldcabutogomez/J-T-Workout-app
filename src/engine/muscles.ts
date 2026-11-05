@@ -7,7 +7,8 @@ export const MUSCLE_GROUPS = [
 ] as const;
 
 export type MuscleGroup = (typeof MUSCLE_GROUPS)[number];
-export type MuscleIntensity = 1 | 2 | 3;
+/** How hard a muscle was worked relative to the hardest-worked muscle in that workout: a whole number from 1 to 100. */
+export type MuscleIntensity = number;
 export type MuscleIntensityMap = Partial<Record<MuscleGroup, MuscleIntensity>>;
 
 export const MUSCLE_LABELS: Record<MuscleGroup, string> = {
@@ -98,14 +99,14 @@ export function parseMuscleIntensities(raw: unknown): MuscleIntensityMap | undef
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const parsed: MuscleIntensityMap = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (!knownMuscles.has(key) || (value !== 1 && value !== 2 && value !== 3)) continue;
+    if (!knownMuscles.has(key) || typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 100) continue;
     parsed[key as MuscleGroup] = value;
   }
   return Object.keys(parsed).length ? parsed : undefined;
 }
 
 /**
- * Aggregates completed work into a privacy-safe three-level muscle map. Exercise ids and set logs never leave
+ * Aggregates completed work into a privacy-safe muscle map of relative intensities (1 to 100). Exercise ids and set logs never leave
  * the device. Primary muscles receive one point per set; secondary muscles receive half a point.
  */
 export function musclesForWorkout(session: WorkoutSession): MuscleIntensityMap | undefined {
@@ -123,8 +124,7 @@ export function musclesForWorkout(session: WorkoutSession): MuscleIntensityMap |
   if (!max) return undefined;
   const result: MuscleIntensityMap = {};
   for (const [group, score] of scores) {
-    const relative = score / max;
-    result[group] = relative <= 1 / 3 ? 1 : relative <= 2 / 3 ? 2 : 3;
+    result[group] = Math.max(1, Math.round((score / max) * 100));
   }
   return result;
 }
