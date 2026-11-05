@@ -127,3 +127,17 @@ test('history share posts original times, never the future, and skips an empty l
   assert.ok(Date.parse(bodies[0][1].created_at ?? '') <= Date.now() + 1000);
   assert.match(preferences[0], /merge-duplicates/, 'history refresh updates an existing activity row instead of replacing it');
 });
+
+test('notification rows are validated, ordered newest first and counted against the last-seen time', async () => {
+  const { parseNotifications, countUnread } = await import('../src/sync/community');
+  const items = parseNotifications([
+    { kind: 'like', activity_id: 'a1', actor_id: 'u1', actor_name: 'Lauren', body: null, created_at: '2026-01-01T10:00:00Z', title: 'Back Squat' },
+    { kind: 'comment', activity_id: 'a1', actor_id: 'u2', actor_name: '', body: 'Nice lift', created_at: '2026-01-01T11:00:00Z', title: null },
+    { kind: 'share', activity_id: 'a1', actor_id: 'u2', created_at: '2026-01-01T12:00:00Z' },
+    { kind: 'like', activity_id: 'a1', actor_id: 'u3', created_at: 'not a date' },
+  ]);
+  assert.deepEqual(items.map((item) => [item.kind, item.actorName, item.body, item.title]), [['comment', 'Someone', 'Nice lift', ''], ['like', 'Lauren', undefined, 'Back Squat']]);
+  assert.equal(countUnread(items, Date.parse('2026-01-01T10:30:00Z')), 1);
+  assert.equal(countUnread(items, 0), 2);
+  assert.deepEqual(parseNotifications('nope'), []);
+});

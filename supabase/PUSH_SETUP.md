@@ -55,3 +55,31 @@ Call the scheduler by hand (it prints how many phones it checked and notified):
 ```sh
 curl -X POST https://YOUR-PROJECT.supabase.co/functions/v1/send-reminders -H "x-cron-secret: THE-CRON-SECRET"
 ```
+
+## Likes and comments notifications (community accounts)
+These tell a person when someone likes or comments on their Activity post. They need steps 2 to 4 above (VAPID keys, secrets,
+and the app build variable), plus the following.
+
+1. Run the "Likes and comments notifications" block at the bottom of `supabase/schema.sql`. It adds the in-app list and the
+   `community_push` table.
+2. Add one more secret, any long random string, then deploy the function:
+   ```sh
+   supabase secrets set WEBHOOK_SECRET=<another long random string>
+   supabase functions deploy notify-activity --no-verify-jwt
+   ```
+3. In the SQL editor, create the two triggers (replace `YOUR-PROJECT` and the secret with the value from step 2):
+   ```sql
+   create or replace trigger notify_activity_like after insert on public.activity_likes
+     for each row execute function supabase_functions.http_request(
+       'https://YOUR-PROJECT.supabase.co/functions/v1/notify-activity', 'POST',
+       '{"Content-Type":"application/json","x-webhook-secret":"THE-WEBHOOK-SECRET"}', '{}', '5000');
+   create or replace trigger notify_activity_comment after insert on public.activity_comments
+     for each row execute function supabase_functions.http_request(
+       'https://YOUR-PROJECT.supabase.co/functions/v1/notify-activity', 'POST',
+       '{"Content-Type":"application/json","x-webhook-secret":"THE-WEBHOOK-SECRET"}', '{}', '5000');
+   ```
+   (This is what Database > Webhooks creates in the dashboard. Use whichever you prefer.)
+4. Each person turns it on in the app: Activity tab, "Notify me about likes and comments". On iPhone this only works from the
+   Home Screen app.
+
+The in-app list and the badge on the Activity tab work without any of this; only the phone push needs it.

@@ -216,3 +216,60 @@ as $$
 $$;
 revoke all on function public.activity_comment_list(uuid) from public, anon;
 grant execute on function public.activity_comment_list(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------------------------
+-- Likes and comments notifications. Run this block after the Community and comments blocks above.
+-- It adds (1) the in-app list of likes and comments on your own posts and (2) a table for phone push
+-- subscriptions tied to the signed-in account. Real push also needs the notify-activity Edge Function and
+-- two triggers: see "Likes and comments notifications" in supabase/PUSH_SETUP.md. Re-runnable.
+-- ---------------------------------------------------------------------------------------------
+create or replace function public.my_activity_notifications(p_limit int default 40)
+returns table (kind text, activity_id uuid, actor_id uuid, actor_name text, body text, created_at timestamptz, title text)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select * from (
+    select 'like'::text as kind, l.activity_id, l.user_id as actor_id, coalesce(m.display_name, 'Someone') as actor_name,
+           null::text as body, l.created_at, a.summary ->> 'title' as title
+    from activity_likes l
+    join activities a on a.id = l.activity_id
+    left join community_members m on m.user_id = l.user_id
+    where a.user_id = auth.uid() and l.user_id <> auth.uid()
+    union all
+    select 'comment'::text, c.activity_id, c.user_id, coalesce(m.display_name, 'Someone'), c.body, c.created_at, a.summary ->> 'title'
+    from activity_comments c
+    join activities a on a.id = c.activity_id
+    left join community_members m on m.user_id = c.user_id
+    where a.user_id = auth.uid() and c.user_id <> auth.uid()
+  ) n
+  order by n.created_at desc
+  limit least(greatest(p_limit, 1), 100)
+$$;
+revoke all on function public.my_activity_notifications(int) from public, anon;
+grant execute on function public.my_activity_notifications(int) to authenticated;
+
+-- One row per phone per account. The Edge Function (service role) re-checks every endpoint before sending.
+create table if not exists public.community_push (
+  user_id    uuid not null references auth.users on delete cascade default auth.uid(),
+  device_id  text not null check (length(device_id) between 8 and 64),
+  endpoint   text not null check (length(endpoint) <= 600),
+  p256dh     text not null check (length(p256dh) <= 200),
+  auth       text not null check (length(auth) <= 100),
+  prefs      jsonb not null default '{"likes": true, "comments": true}'::jsonb,
+  last_sent  jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, device_id)
+);
+alter table public.community_push enable row level security;
+revoke all on public.community_push from anon;
+drop policy if exists cpush_read on public.community_push;
+drop policy if exists cpush_write on public.community_push;
+drop policy if exists cpush_update on public.community_push;
+drop policy if exists cpush_delete on public.community_push;
+create policy cpush_read on public.community_push for select to authenticated using (user_id = auth.uid());
+create policy cpush_write on public.community_push for insert to authenticated with check (user_id = auth.uid());
+create policy cpush_update on public.community_push for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy cpush_delete on public.community_push for delete to authenticated using (user_id = auth.uid());
+grant select, insert, update, delete on public.community_push to authenticated;

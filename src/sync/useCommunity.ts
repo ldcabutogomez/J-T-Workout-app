@@ -3,8 +3,9 @@ import type { UserProfile, WorkoutSession } from '../types';
 import { snapshotFromHistory, type PartnerSnapshot } from '../engine/leaderboard';
 import type { ActivitySummary } from '../engine/activity';
 import type { CloudConfig } from './cloud';
+import { pushSupport, readVapidKey, urlBase64ToUint8Array, type PushSupport } from './push';
 import { consumeAuthRedirect, freshSession, loadSession, saveSession, sendMagicLink, verifyEmailCode, type AuthSession } from './auth';
-import { addComment, deleteComment, fetchComments, fetchFeed, publishActivities, publishActivity, pullMembers, removeActivity, removeActivityById, setLike, upsertMember, type CommentItem, type FeedItem, type PublishItem } from './community';
+import { addComment, countUnread, deleteComment, deleteCommunityPush, fetchComments, fetchFeed, fetchNotifications, saveCommunityPush, type NotificationItem, publishActivities, publishActivity, pullMembers, removeActivity, removeActivityById, setLike, upsertMember, type CommentItem, type FeedItem, type PublishItem } from './community';
 
 export interface CommunityState {
   configured: boolean;
@@ -18,6 +19,16 @@ export interface CommunityState {
   error: string | null;
   /** Set after a magic link was requested, until the person returns through it. */
   linkSentTo: string | null;
+  /** Likes and comments on your posts, newest first. */
+  notifications: NotificationItem[];
+  /** How many arrived since you last opened the list. */
+  unread: number;
+  /** Marks everything as seen. */
+  markNotificationsSeen: () => void;
+  /** Phone push for likes and comments: whether this build and phone can do it, and whether it is on. */
+  push: { support: PushSupport | 'not-configured'; enabled: boolean; busy: boolean };
+  enablePush: () => Promise<string | null>;
+  disablePush: () => Promise<void>;
   /** True while an email or code request is in flight. */
   authBusy: boolean;
   signIn: (email: string) => Promise<void>;
@@ -38,7 +49,8 @@ export interface CommunityState {
   shareHistory: (items: PublishItem[]) => Promise<number>;
   comments: Record<string, CommentItem[]>;
   loadComments: (activityId: string) => void;
-  comment: (activityId: string, body: string) => void;
+  /** Posts a comment. Resolves with an error message, or null when it was saved. */
+  comment: (activityId: string, body: string) => Promise<string | null>;
   removeComment: (activityId: string, commentId: string) => void;
 }
 
@@ -52,6 +64,11 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
   const [error, setError] = useState<string | null>(() => consumeAuthRedirectOnce());
   const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const seenKey = session ? `jnt2_notif_seen_${session.userId}` : null;
+  const [seenAt, setSeenAt] = useState(0);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   const [comments, setComments] = useState<Record<string, CommentItem[]>>({});
   const sessionRef = useRef(session);
   sessionRef.current = session;
@@ -76,9 +93,11 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
       if (!active) return;
       const mine = await getHistory();
       await upsertMember(config, active, profile.name, profile.gender, snapshotFromHistory(profile, mine, Date.now(), deviceId));
-      const [others, items] = await Promise.all([pullMembers(config, active), fetchFeed(config, active)]);
+      const [others, items, alerts] = await Promise.all([pullMembers(config, active), fetchFeed(config, active), fetchNotifications(config, active).catch(() => null)]);
       setMembers(others);
       setFeed(items);
+      // The notification list needs the newest SQL block; without it the rest of Activity still works.
+      if (alerts) setNotifications(alerts);
       setError(null);
     } catch (e) {
       setError(navigator.onLine === false ? 'Offline. Community will update when you are back online.' : (e as Error).message);
@@ -87,6 +106,18 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
       setBusy(false);
     }
   }, [config, profile, usable, getHistory, deviceId]);
+
+  useEffect(() => {
+    if (!seenKey) { setSeenAt(0); setNotifications([]); return; }
+    try { setSeenAt(Number(localStorage.getItem(seenKey)) || 0); } catch { setSeenAt(0); }
+  }, [seenKey]);
+
+  useEffect(() => {
+    if (!session || !('serviceWorker' in navigator) || !('PushManager' in window)) { setPushEnabled(false); return; }
+    let live = true;
+    void navigator.serviceWorker.ready.then((registration) => registration.pushManager.getSubscription()).then((subscription) => { if (live) setPushEnabled(Boolean(subscription) && Notification.permission === 'granted'); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [session?.userId]);
 
   const syncRef = useRef(sync);
   syncRef.current = sync;
@@ -109,6 +140,40 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
     email: session?.email,
     userId: session?.userId,
     members, feed, busy, error, linkSentTo, authBusy,
+    notifications,
+    unread: countUnread(notifications, seenAt),
+    markNotificationsSeen: () => {
+      const latest = notifications[0]?.createdAt ?? Date.now();
+      setSeenAt(latest);
+      if (seenKey) { try { localStorage.setItem(seenKey, String(latest)); } catch { /* the badge simply returns next visit */ } }
+    },
+    push: { support: readVapidKey() ? pushSupport() : 'not-configured', enabled: pushEnabled, busy: pushBusy },
+    enablePush: async () => {
+      const key = readVapidKey();
+      if (!config || !key) return 'Push is not configured in this build.';
+      setPushBusy(true);
+      try {
+        const active = await usable();
+        if (!active) return 'You are signed out.';
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return 'Notifications were not allowed. You can allow them in your phone settings.';
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = (await registration.pushManager.getSubscription())
+          ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) as BufferSource });
+        await saveCommunityPush(config, active, deviceId, subscription.toJSON());
+        setPushEnabled(true);
+        return null;
+      } catch (e) { return (e as Error).message; } finally { setPushBusy(false); }
+    },
+    disablePush: async () => {
+      if (!config) return;
+      setPushBusy(true);
+      try {
+        const active = await usable();
+        if (active) await deleteCommunityPush(config, active, deviceId);
+        setPushEnabled(false);
+      } catch (e) { setError((e as Error).message); } finally { setPushBusy(false); }
+    },
     signIn: async (email) => {
       if (!config) return;
       setError(null);
@@ -173,18 +238,19 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
         } catch (e) { setError((e as Error).message); }
       })();
     },
-    comment: (activityId, body) => {
-      if (!config || !body.trim()) return;
-      const me = profile?.name || 'You';
-      void (async () => {
-        try {
-          const active = await usable();
-          if (!active) return;
-          const saved = await addComment(config, active, activityId, body);
-          setComments((all) => ({ ...all, [activityId]: [...(all[activityId] ?? []), { ...saved, name: me }] }));
-          setFeed((items) => items.map((entry) => (entry.id === activityId ? { ...entry, commentCount: entry.commentCount + 1 } : entry)));
-        } catch (e) { setError((e as Error).message); }
-      })();
+    comment: async (activityId, body) => {
+      if (!config) return 'Not connected.';
+      if (!body.trim()) return 'Write a comment first.';
+      try {
+        const active = await usable();
+        if (!active) return 'You are signed out. Sign in again to comment.';
+        await addComment(config, active, activityId, body);
+        // Show what the server actually holds, so a comment that did not stick cannot look posted.
+        const list = await fetchComments(config, active, activityId);
+        setComments((all) => ({ ...all, [activityId]: list }));
+        setFeed((items) => items.map((entry) => (entry.id === activityId ? { ...entry, commentCount: list.length } : entry)));
+        return null;
+      } catch (e) { return (e as Error).message; }
     },
     removeComment: (activityId, commentId) => {
       if (!config) return;

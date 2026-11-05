@@ -49,7 +49,7 @@ export async function upsertMember(config: CloudConfig, session: AuthSession, na
   }, fetchImpl);
 }
 
-/** Everyone else's snapshots. The server id replaces the device id so each member is one stable row. */
+/** Everyone else's snapshots. The server id replaces the device id so each member is one stable row. The snapshot keeps the profile id it was made with, so the same person is recognised across phones and accounts. */
 export async function pullMembers(config: CloudConfig, session: AuthSession, fetchImpl: typeof fetch = fetch): Promise<PartnerSnapshot[]> {
   const rows = await call(config, session, 'community_members?select=user_id,display_name,snapshot', { method: 'GET' }, fetchImpl);
   if (!Array.isArray(rows)) return [];
@@ -57,7 +57,7 @@ export async function pullMembers(config: CloudConfig, session: AuthSession, fet
   for (const row of rows as Array<{ user_id?: unknown; display_name?: unknown; snapshot?: unknown }>) {
     if (typeof row.user_id !== 'string' || row.user_id === session.userId) continue;
     const parsed = parseSnapshot(row.snapshot);
-    if (parsed) out.push({ ...parsed, deviceId: `u:${row.user_id}`, profileId: `u:${row.user_id}`, name: typeof row.display_name === 'string' ? row.display_name : parsed.name });
+    if (parsed) out.push({ ...parsed, deviceId: `u:${row.user_id}`, name: typeof row.display_name === 'string' ? row.display_name : parsed.name });
   }
   return out;
 }
@@ -147,4 +147,59 @@ export async function deleteComment(config: CloudConfig, session: AuthSession, c
 
 export async function removeActivityById(config: CloudConfig, session: AuthSession, activityId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
   await call(config, session, `activities?id=eq.${encodeURIComponent(activityId)}&user_id=eq.${session.userId}`, { method: 'DELETE' }, fetchImpl);
+}
+
+/** A like or comment someone left on one of your posts. */
+export interface NotificationItem {
+  id: string;
+  kind: 'like' | 'comment';
+  activityId: string;
+  actorId: string;
+  actorName: string;
+  /** The comment text, for comments. */
+  body?: string;
+  /** What the post was called, for example the first lift. */
+  title: string;
+  createdAt: number;
+}
+
+export async function fetchNotifications(config: CloudConfig, session: AuthSession, fetchImpl: typeof fetch = fetch): Promise<NotificationItem[]> {
+  const rows = await call(config, session, 'rpc/my_activity_notifications', { method: 'POST', body: JSON.stringify({ p_limit: 40 }) }, fetchImpl);
+  return parseNotifications(rows);
+}
+
+/** Validates the server's rows; anything malformed is dropped. */
+export function parseNotifications(rows: unknown): NotificationItem[] {
+  if (!Array.isArray(rows)) return [];
+  const out: NotificationItem[] = [];
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const created = typeof row.created_at === 'string' ? Date.parse(row.created_at) : NaN;
+    if ((row.kind !== 'like' && row.kind !== 'comment') || typeof row.activity_id !== 'string' || typeof row.actor_id !== 'string' || !Number.isFinite(created)) continue;
+    out.push({
+      id: `${row.kind}:${row.activity_id}:${row.actor_id}:${created}`,
+      kind: row.kind, activityId: row.activity_id, actorId: row.actor_id,
+      actorName: typeof row.actor_name === 'string' && row.actor_name ? row.actor_name.slice(0, 40) : 'Someone',
+      ...(typeof row.body === 'string' ? { body: row.body.slice(0, COMMENT_MAX) } : {}),
+      title: typeof row.title === 'string' ? row.title.slice(0, 60) : '',
+      createdAt: created,
+    });
+  }
+  return out.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** How many notifications arrived after the last time the list was opened. */
+export const countUnread = (items: NotificationItem[], seenAt: number): number => items.filter((item) => item.createdAt > seenAt).length;
+
+/** Stores this phone's push subscription against the signed-in account. */
+export async function saveCommunityPush(config: CloudConfig, session: AuthSession, deviceId: string, subscription: PushSubscriptionJSON, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const keys = subscription.keys;
+  if (!subscription.endpoint || !keys?.p256dh || !keys.auth) throw new Error('This phone did not return a usable push subscription.');
+  await call(config, session, 'community_push?on_conflict=user_id,device_id', {
+    method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ user_id: session.userId, device_id: deviceId, endpoint: subscription.endpoint, p256dh: keys.p256dh, auth: keys.auth, updated_at: new Date().toISOString() }),
+  }, fetchImpl);
+}
+
+export async function deleteCommunityPush(config: CloudConfig, session: AuthSession, deviceId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  await call(config, session, `community_push?user_id=eq.${session.userId}&device_id=eq.${encodeURIComponent(deviceId)}`, { method: 'DELETE' }, fetchImpl);
 }

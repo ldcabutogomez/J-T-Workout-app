@@ -4,7 +4,18 @@ import { MUSCLE_GROUPS, MUSCLE_LABELS, type MuscleGroup, type MuscleIntensityMap
 
 type View = 'front' | 'back';
 
-function muscleShapes(group: MuscleGroup, view: View): ReactNode {
+/** Forearm outlines per figure, from the elbow down to the wrist. They stop at the wrist so the hand is never highlighted. */
+const FOREARM_LEFT: Record<Gender, string> = {
+  male: '283 510, 335 525, 305 600, 268 685, 222 685, 250 600',
+  female: '338 520, 384 535, 350 605, 300 692, 256 692, 293 610',
+};
+function forearms(gender: Gender): ReactNode {
+  const left = FOREARM_LEFT[gender];
+  const right = left.split(', ').map((pair) => { const [x, y] = pair.split(' ').map(Number); return `${1024 - x} ${y}`; }).join(', ');
+  return <><polygon points={left} /><polygon points={right} /></>;
+}
+
+function muscleShapes(group: MuscleGroup, view: View, gender: Gender): ReactNode {
   if (view === 'front') {
     switch (group) {
       case 'chest': return <><ellipse cx="420" cy="370" rx="105" ry="78" /><ellipse cx="604" cy="370" rx="105" ry="78" /></>;
@@ -14,7 +25,7 @@ function muscleShapes(group: MuscleGroup, view: View): ReactNode {
       case 'lats': return <><path d="M340 420 L425 445 L420 650 L335 705 L305 540 Z" /><path d="M684 420 L599 445 L604 650 L689 705 L719 540 Z" /></>;
       case 'biceps': return <><ellipse cx="270" cy="510" rx="48" ry="105" /><ellipse cx="754" cy="510" rx="48" ry="105" /></>;
       case 'triceps': return <><ellipse cx="225" cy="510" rx="35" ry="105" /><ellipse cx="799" cy="510" rx="35" ry="105" /></>;
-      case 'forearms': return <><path d="M205 585 L285 600 L235 795 L145 755 Z" /><path d="M819 585 L739 600 L789 795 L879 755 Z" /></>;
+      case 'forearms': return forearms(gender);
       case 'abs': return <path d="M415 420 Q512 390 609 420 L590 705 Q512 770 434 705 Z" />;
       case 'obliques': return <><path d="M340 445 L430 470 L425 700 L350 740 L310 585 Z" /><path d="M684 445 L594 470 L599 700 L674 740 L714 585 Z" /></>;
       case 'hip_abductors': return <><ellipse cx="374" cy="745" rx="68" ry="90" /><ellipse cx="650" cy="745" rx="68" ry="90" /></>;
@@ -31,7 +42,7 @@ function muscleShapes(group: MuscleGroup, view: View): ReactNode {
     case 'lats': return <><path d="M330 405 L465 440 L470 690 L355 650 L300 500 Z" /><path d="M694 405 L559 440 L554 690 L669 650 L724 500 Z" /></>;
     case 'upper_back': return <><ellipse cx="420" cy="420" rx="100" ry="105" /><ellipse cx="604" cy="420" rx="100" ry="105" /></>;
     case 'triceps': return <><ellipse cx="259" cy="500" rx="48" ry="112" /><ellipse cx="765" cy="500" rx="48" ry="112" /></>;
-    case 'forearms': return <><path d="M210 580 L282 600 L235 790 L150 750 Z" /><path d="M814 580 L742 600 L789 790 L874 750 Z" /></>;
+    case 'forearms': return forearms(gender);
     case 'obliques': return <><path d="M345 520 L420 540 L430 690 L350 720 L315 610 Z" /><path d="M679 520 L604 540 L594 690 L674 720 L709 610 Z" /></>;
     case 'spinal_erectors': return <><path d="M460 420 L505 405 L500 730 L455 705 Z" /><path d="M564 420 L519 405 L524 730 L569 705 Z" /></>;
     case 'glutes': return <><ellipse cx="423" cy="760" rx="105" ry="130" /><ellipse cx="601" cy="760" rx="105" ry="130" /></>;
@@ -74,7 +85,7 @@ function MuscleView({ gender, view, muscles, id }: { gender: Gender; view: View;
             <feColorMatrix type="saturate" values="0" />
           </filter>
           {worked.map((group) => (
-            <clipPath id={`${id}-${view}-${group}`} key={group}>{muscleShapes(group, view)}</clipPath>
+            <clipPath id={`${id}-${view}-${group}`} key={group}>{muscleShapes(group, view, gender)}</clipPath>
           ))}
           {/* The figure is flat orange with dark outlines, so its red channel is "how much fill". Scaling it by a colour recolours the fill and keeps the outlines. */}
           {worked.map((group) => {

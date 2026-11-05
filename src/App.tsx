@@ -82,6 +82,8 @@ type Tab = 'today' | 'program' | 'progress' | 'activity' | 'together' | 'setting
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('today');
+  // A post to scroll to and open in Activity. `n` changes on every request so the same post can be opened again.
+  const [activityFocus, setActivityFocus] = useState<{ id: string; n: number } | null>(null);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [lockedId, setLockedId] = useState<string | null>(() => readLock());
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
@@ -323,11 +325,38 @@ export default function App() {
   const realCommunity = useCommunity(cloudConfig, profile ?? null, history, async () => (profile ? dbService.getSessionHistory(profile.id, false) : []), deviceId);
   const mockCommunity = useMockCommunity();
   const community = ACTIVITY_PREVIEW ? mockCommunity : realCommunity;
+  useEffect(() => {
+    const open = (search: string) => {
+      const params = new URLSearchParams(search);
+      if (params.get('open') !== 'activity') return false;
+      setTab('activity');
+      const post = params.get('post');
+      if (post) setActivityFocus({ id: post, n: Date.now() });
+      return true;
+    };
+    // Opened from a notification while the app was closed.
+    if (open(location.search)) { try { window.history.replaceState(null, '', location.pathname); } catch { /* the query is harmless */ } }
+    // Tapped while the app was already open.
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; url?: unknown } | null;
+      if (data?.type !== 'open-url' || typeof data.url !== 'string') return;
+      try { open(new URL(data.url).search); } catch { /* ignore a malformed link */ }
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+  }, []);
   // Partner and community snapshots feed one board; a person in both appears once.
   const boardRemote = useMemo(() => {
-    const seen = new Set(remote.map((item) => item.profileId));
-    return [...remote, ...community.members.filter((item) => !seen.has(item.profileId))];
-  }, [remote, community.members]);
+    // One person, one row: skip community members that are you, or already arrive through partner sync, or appear twice
+    // (the same profile signed in under two emails). Newest snapshot wins.
+    const seen = new Set<string>([...remote.map((item) => item.profileId), ...(meId ? [meId] : [])]);
+    const members = [...community.members].sort((a, b) => b.updatedAt - a.updatedAt).filter((item) => {
+      if (seen.has(item.profileId)) return false;
+      seen.add(item.profileId);
+      return true;
+    });
+    return [...remote, ...members];
+  }, [remote, community.members, meId]);
 
   const leaderboard = useMemo(() => {
     if (!partnerHistory) return null;
@@ -1070,7 +1099,7 @@ export default function App() {
             showBanner('Session deleted.');
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
-        {tab === 'activity' && <ActivityTab community={community} memberName={profile?.name ?? ''} onShareHistory={shareHistory} />}
+        {tab === 'activity' && <ActivityTab community={community} memberName={profile?.name ?? ''} me={profile ?? undefined} focus={activityFocus} onShareHistory={shareHistory} />}
         {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} />}
         {tab === 'settings' && <SettingsTab level={myLevel} extra={<>{profile && <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} />}<UpdateCard updateReady={appUpdate.updateReady} checking={appUpdate.checking} onCheck={appUpdate.check} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} /></>} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onAddProfile={() => setAddingProfile(true)} onStartNewCycle={activeSession ? undefined : () => setNewCycleOpen(true)} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {
@@ -1114,7 +1143,7 @@ export default function App() {
         <NavButton active={tab === 'today'} label="Today" icon={<Dumbbell className="w-5 h-5" />} onClick={() => setTab('today')} />
         <NavButton active={tab === 'program'} label="Program" icon={<CalendarDays className="w-5 h-5" />} onClick={() => setTab('program')} />
         <NavButton active={tab === 'progress'} label="Progress" icon={<TrendingUp className="w-5 h-5" />} onClick={() => setTab('progress')} />
-        <NavButton active={tab === 'activity'} label="Activity" icon={<ActivityIcon className="w-5 h-5" />} onClick={() => setTab('activity')} />
+        <NavButton active={tab === 'activity'} label="Activity" icon={<ActivityIcon className="w-5 h-5" />} badge={community.unread} onClick={() => setTab('activity')} />
         <NavButton active={tab === 'together'} label="Together" icon={<Users className="w-5 h-5" />} onClick={() => setTab('together')} />
         <NavButton active={tab === 'settings'} label="Settings" icon={<Settings className="w-5 h-5" />} onClick={() => setTab('settings')} />
       </nav>
@@ -1122,6 +1151,6 @@ export default function App() {
   );
 }
 
-function NavButton({ active, label, icon, onClick }: { active: boolean; label: string; icon: React.ReactNode; onClick: () => void }) {
-  return <button onClick={onClick} aria-current={active ? 'page' : undefined} className={`relative flex flex-col items-center justify-center min-w-12 flex-1 min-h-14 text-xs ${active ? 'text-accent-ink font-bold' : 'text-muted'}`}>{active && <span aria-hidden className="absolute top-0 h-[3px] w-9 rounded-full bg-accent" />}{icon}<span className="mt-1">{label}</span></button>;
+function NavButton({ active, label, icon, onClick, badge = 0 }: { active: boolean; label: string; icon: React.ReactNode; onClick: () => void; badge?: number }) {
+  return <button onClick={onClick} aria-current={active ? 'page' : undefined} aria-label={badge > 0 ? `${label}, ${badge} new` : undefined} className={`relative flex flex-col items-center justify-center min-w-12 flex-1 min-h-14 text-xs ${active ? 'text-accent-ink font-bold' : 'text-muted'}`}>{active && <span aria-hidden className="absolute top-0 h-[3px] w-9 rounded-full bg-accent" />}<span className="relative">{icon}{badge > 0 && <span aria-hidden className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-accent text-on-accent text-[10px] font-black grid place-items-center">{badge > 9 ? '9+' : badge}</span>}</span><span className="mt-1">{label}</span></button>;
 }

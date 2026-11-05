@@ -51,13 +51,16 @@ self.addEventListener('push', event => {
     tag: typeof data.tag === 'string' ? data.tag : undefined,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
+    data: { url: typeof data.url === 'string' && data.url.startsWith('./') ? data.url : './' },
   }));
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-    for (const client of list) if ('focus' in client) return client.focus();
-    return self.clients.openWindow('./');
+    // An open app is told where to go; otherwise a new window opens straight there.
+    for (const client of list) if ('focus' in client) { client.postMessage({ type: 'open-url', url: target }); return client.focus(); }
+    return self.clients.openWindow(target);
   }));
 });
 self.addEventListener('fetch', event => {

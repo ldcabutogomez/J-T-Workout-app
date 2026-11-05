@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Heart, MessageCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Bell, BellOff, Heart, MessageCircle, RefreshCw, Send, Trash2 } from 'lucide-react';
+import type { UserProfile } from '../types';
 import type { CommunityState } from '../sync/useCommunity';
-import { COMMENT_MAX, type FeedItem } from '../sync/community';
+import { COMMENT_MAX, type FeedItem, type NotificationItem } from '../sync/community';
 import { Avatar } from './Avatar';
 import { AnatomyMap } from './AnatomyMap';
 
@@ -15,38 +16,76 @@ function ago(ms: number, now = Date.now()): string {
   return days < 30 ? `${days} d ago` : new Date(ms).toLocaleDateString();
 }
 
-function Thread({ community, item }: { community: CommunityState; item: FeedItem }) {
+function Thread({ community, item, me }: { community: CommunityState; item: FeedItem; me?: UserProfile }) {
   const [text, setText] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   const list = community.comments[item.id];
-  const submit = () => { if (text.trim()) { community.comment(item.id, text); setText(''); } };
+  const submit = async () => {
+    if (!text.trim() || posting) return;
+    setPosting(true);
+    setProblem(null);
+    const failure = await community.comment(item.id, text);
+    setPosting(false);
+    if (failure) setProblem(failure); else setText('');
+  };
   return (
-    <div className="mt-3 border-t border-line pt-3 space-y-2">
+    <div className="mt-3 border-t border-line pt-3 space-y-3">
       {list === undefined && <p className="text-xs text-muted">Loading comments…</p>}
-      {list?.length === 0 && <p className="text-xs text-muted">No comments yet.</p>}
-      {list?.map((c) => (
-        <div key={c.id} className="flex items-start justify-between gap-2">
-          <p className="text-xs text-ink min-w-0 break-words"><span className="font-black">{c.name}</span> {c.body} <span className="text-muted">{ago(c.createdAt)}</span></p>
-          {c.userId === community.userId && (
-            <button onClick={() => community.removeComment(item.id, c.id)} aria-label="Delete your comment" className="shrink-0 text-muted"><Trash2 className="w-3.5 h-3.5" /></button>
-          )}
-        </div>
-      ))}
-      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-        <input value={text} maxLength={COMMENT_MAX} onChange={(e) => setText(e.target.value)} placeholder="Add a comment" aria-label="Add a comment" className="bg-paper border border-line rounded-xl px-3 py-2 text-sm text-ink flex-1 min-w-0" />
-        <button type="submit" disabled={!text.trim()} className="px-3 py-2 rounded-xl text-xs font-black bg-accent text-on-accent disabled:opacity-50">Post</button>
+      {list?.length === 0 && (
+        <p className="rounded-2xl bg-sunk/60 px-3 py-3 text-center text-xs text-muted">No comments yet. Say something nice.</p>
+      )}
+      {list?.map((c) => {
+        const mineComment = c.userId === community.userId;
+        return (
+          <div key={c.id} className="flex items-start gap-2.5">
+            <Avatar profile={mineComment && me ? me : { id: c.userId, name: c.name }} size={28} decorative />
+            <div className="min-w-0 flex-1">
+              <div className={`rounded-2xl rounded-tl-md px-3 py-2 ${mineComment ? 'bg-accent/10' : 'bg-sunk'}`}>
+                <p className="flex items-baseline justify-between gap-2">
+                  <span className="text-xs font-black text-ink truncate">{c.name}</span>
+                  <span className="shrink-0 text-[10px] text-muted">{ago(c.createdAt)}</span>
+                </p>
+                <p className="mt-0.5 text-sm text-ink break-words whitespace-pre-wrap">{c.body}</p>
+              </div>
+              {mineComment && (
+                <button onClick={() => community.removeComment(item.id, c.id)} aria-label="Delete your comment" className="mt-1 ml-2 inline-flex items-center gap-1 text-[11px] text-muted"><Trash2 className="w-3 h-3" />Delete</button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+        <Avatar profile={me ?? { id: community.userId ?? 'me', name: 'You' }} size={28} decorative />
+        <input value={text} maxLength={COMMENT_MAX} onChange={(e) => setText(e.target.value)} placeholder="Add a comment" aria-label="Add a comment" className="bg-sunk/70 border border-line rounded-full px-4 py-2 text-sm text-ink flex-1 min-w-0" />
+        <button type="submit" disabled={!text.trim() || posting} aria-label={posting ? 'Posting comment' : 'Post comment'} className="shrink-0 h-9 w-9 rounded-full bg-accent text-on-accent grid place-items-center disabled:opacity-40"><Send className="w-4 h-4" /></button>
       </form>
+      {problem && <p role="alert" className="text-xs text-bad">Comment not saved: {problem}</p>}
     </div>
   );
 }
 
-function Card({ item, community }: { item: FeedItem; community: CommunityState }) {
+function Card({ item, community, me, focusSignal }: { item: FeedItem; community: CommunityState; me?: UserProfile; focusSignal?: number }) {
   const [open, setOpen] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const ref = useRef<HTMLElement>(null);
+  // Asked to show this post (a notification was tapped): open its comments, bring it into view and flash it briefly.
+  useEffect(() => {
+    if (!focusSignal) return;
+    setOpen(true);
+    community.loadComments(item.id);
+    setFlash(true);
+    const scroll = window.setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+    const stop = window.setTimeout(() => setFlash(false), 2200);
+    return () => { window.clearTimeout(scroll); window.clearTimeout(stop); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusSignal]);
   const s = item.summary;
   const mine = item.userId === community.userId;
   return (
-    <article className="card p-4">
+    <article ref={ref} id={`post-${item.id}`} className={`card p-4 transition-shadow duration-500 ${flash ? 'ring-2 ring-accent shadow-lg' : ''}`}>
       <div className="flex items-center gap-2.5">
-        <Avatar profile={{ id: item.userId, name: item.name }} size={36} decorative />
+        <Avatar profile={mine && me ? me : { id: item.userId, name: item.name }} size={36} decorative />
         <div className="min-w-0 flex-1">
           <p className="font-black text-ink text-sm truncate">{item.name}</p>
           <p className="text-xs text-muted">{ago(item.createdAt)}</p>
@@ -95,23 +134,93 @@ function Card({ item, community }: { item: FeedItem; community: CommunityState }
           {item.commentCount > 0 ? item.commentCount : 'Comment'}
         </button>
       </div>
-      {open && <Thread community={community} item={item} />}
+      {open && <Thread community={community} item={item} me={me} />}
     </article>
+  );
+}
+
+function Notifications({ community, onOpenPost }: { community: CommunityState; onOpenPost: (activityId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const items = community.notifications;
+  const push = community.push;
+  const toggle = async () => {
+    setNote(null);
+    if (push.enabled) { await community.disablePush(); return; }
+    setNote(await community.enablePush());
+  };
+  const pushHint = push.support === 'needs-install' ? 'Add the app to your Home Screen to get phone notifications.'
+    : push.support === 'denied' ? 'Notifications are blocked. Allow them in your phone settings.'
+    : push.support === 'unsupported' ? 'This phone cannot receive notifications here.' : null;
+  if (items.length === 0 && push.support === 'not-configured') return null;
+  return (
+    <div className="card p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => { const next = !open; setOpen(next); if (next) community.markNotificationsSeen(); }} aria-expanded={open} className="flex items-center gap-2 text-left min-w-0">
+          <span className="relative grid h-8 w-8 place-items-center rounded-full bg-sunk text-ink">
+            <Bell className="w-4 h-4" />
+            {community.unread > 0 && <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-accent text-on-accent text-[10px] font-black grid place-items-center">{community.unread}</span>}
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-black text-ink">{community.unread > 0 ? `${community.unread} new` : 'Notifications'}</span>
+            <span className="block text-xs text-muted">{items.length === 0 ? 'Likes and comments on your posts show up here.' : 'Likes and comments on your posts'}</span>
+          </span>
+        </button>
+        {push.support === 'ready' && (
+          <button onClick={() => void toggle()} disabled={push.busy} aria-pressed={push.enabled} className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black disabled:opacity-60 ${push.enabled ? 'bg-accent text-on-accent' : 'bg-sunk text-ink'}`}>
+            {push.enabled ? <Bell className="w-3.5 h-3.5" /> : <BellOff className="w-3.5 h-3.5" />}{push.busy ? 'Working…' : push.enabled ? 'Push on' : 'Push off'}
+          </button>
+        )}
+      </div>
+      {pushHint && <p className="text-xs text-muted">{pushHint}</p>}
+      {note && <p role="alert" className="text-xs text-bad">{note}</p>}
+      {open && items.length > 0 && (
+        <ul className="space-y-1.5 pt-1">
+          {items.slice(0, 8).map((item) => <NotificationRow key={item.id} item={item} onOpen={() => onOpenPost(item.activityId)} />)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function NotificationRow({ item, onOpen }: { item: NotificationItem; onOpen: () => void }) {
+  const what = item.title ? `your ${item.title} post` : 'your post';
+  return (
+    <li>
+      <button onClick={onOpen} className="flex w-full items-start gap-2.5 rounded-xl bg-sunk/60 px-3 py-2 text-left active:bg-sunk">
+        <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full ${item.kind === 'like' ? 'bg-accent text-on-accent' : 'bg-surface text-ink border border-line'}`}>
+          {item.kind === 'like' ? <Heart className="w-3 h-3" fill="currentColor" /> : <MessageCircle className="w-3 h-3" />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs text-ink break-words"><span className="font-black">{item.actorName}</span> {item.kind === 'like' ? 'liked' : 'commented on'} {what}</span>
+          {item.body && <span className="mt-0.5 block text-xs text-muted break-words">&ldquo;{item.body}&rdquo;</span>}
+        </span>
+        <span className="shrink-0 text-[10px] text-muted">{ago(item.createdAt)}</span>
+      </button>
+    </li>
   );
 }
 
 interface ActivityTabProps {
   community: CommunityState;
   memberName: string;
+  /** Your own profile, so your posts show your picture and colours. */
+  me?: UserProfile;
+  /** A post to scroll to and open, from a notification or a link. */
+  focus?: { id: string; n: number } | null;
   /** Posts this lifter's past finished workouts and runs. Resolves with how many were sent. */
   onShareHistory: () => Promise<number>;
 }
 
-export function ActivityTab({ community, memberName, onShareHistory }: ActivityTabProps) {
+export function ActivityTab({ community, memberName, me, focus, onShareHistory }: ActivityTabProps) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [filter, setFilter] = useState<'all' | 'mine'>('all');
   const [sharing, setSharing] = useState(false);
+  const [local, setLocal] = useState<{ id: string; n: number } | null>(null);
+  const target = local && (!focus || local.n >= focus.n) ? local : focus ?? null;
+  // Everyone's posts, so the one being opened is never filtered out.
+  useEffect(() => { if (target) setFilter('all'); }, [target?.n]);
   const input = 'bg-paper border border-line rounded-xl px-3 py-2 text-sm text-ink';
   const button = 'px-3 py-2 rounded-xl text-xs font-black';
 
@@ -179,14 +288,18 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
           </button>
         </div>
       </div>
+      <Notifications community={community} onOpenPost={(id) => setLocal({ id, n: Date.now() })} />
       {community.error && <p className="text-xs text-bad">{community.error}</p>}
+      {target && !community.busy && community.feed.length > 0 && !community.feed.some((entry) => entry.id === target.id) && (
+        <p className="text-xs text-muted">That post is not in the latest posts. Refresh, or it may have been deleted.</p>
+      )}
       {items.length === 0 && !community.busy && (
         <div className="card p-4 space-y-2">
           <p className="text-xs text-muted">{filter === 'mine' ? 'You have not posted yet.' : 'No activity yet.'} Finish a workout or log a run and it shows up here.</p>
           <button onClick={() => void share()} disabled={sharing} className={`${button} bg-accent text-on-accent`}>{sharing ? 'Refreshing…' : 'Share my history'}</button>
         </div>
       )}
-      {items.map((item) => <Card key={item.id} item={item} community={community} />)}
+      {items.map((item) => <Card key={item.id} item={item} community={community} me={me} focusSignal={target?.id === item.id ? target.n : undefined} />)}
       <div className="flex items-center justify-between pt-1">
         {items.length > 0 ? <button onClick={() => void share()} disabled={sharing} className="text-xs text-muted underline">{sharing ? 'Refreshing…' : 'Refresh shared history'}</button> : <span />}
         <button onClick={() => { if (window.confirm('Sign out of the community? Your data stays on this phone.')) community.signOut(); }} className="text-xs text-muted underline">Sign out{community.email ? ` (${community.email})` : ''}</button>

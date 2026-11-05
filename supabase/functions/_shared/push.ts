@@ -48,6 +48,8 @@ export interface PushPayload {
   body: string;
   /** Notifications with the same tag replace each other instead of piling up. */
   tag: string;
+  /** Where tapping the notification goes, relative to the app, for example ./?open=activity&post=<id>. */
+  url?: string;
 }
 
 export interface SubscriptionRow {
@@ -74,8 +76,10 @@ function configure() {
   configured = true;
 }
 
-/** Sends one push. A subscription the push service says is gone (404/410) is deleted. Returns true if delivered. */
-export async function sendPush(client: ReturnType<typeof db>, sub: SubscriptionRow, payload: PushPayload): Promise<boolean> {
+export interface RawSubscription { endpoint: string; p256dh: string; auth: string }
+
+/** Sends one push to any stored subscription. Returns whether it was delivered and whether the push service says it is gone (404/410). */
+export async function sendRaw(sub: RawSubscription, payload: PushPayload): Promise<{ ok: boolean; gone: boolean }> {
   configure();
   try {
     await webpush.sendNotification(
@@ -83,14 +87,17 @@ export async function sendPush(client: ReturnType<typeof db>, sub: SubscriptionR
       JSON.stringify(payload),
       { TTL: 3600, urgency: 'normal' },
     );
-    return true;
+    return { ok: true, gone: false };
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode;
-    if (status === 404 || status === 410) {
-      await client.from('push_subscriptions').delete().eq('code_hash', sub.code_hash).eq('device_id', sub.device_id);
-    } else {
-      console.error('push failed', status, (error as Error).message);
-    }
-    return false;
+    if (status !== 404 && status !== 410) console.error('push failed', status, (error as Error).message);
+    return { ok: false, gone: status === 404 || status === 410 };
   }
+}
+
+/** Sends one push. A subscription the push service says is gone (404/410) is deleted. Returns true if delivered. */
+export async function sendPush(client: ReturnType<typeof db>, sub: SubscriptionRow, payload: PushPayload): Promise<boolean> {
+  const result = await sendRaw(sub, payload);
+  if (result.gone) await client.from('push_subscriptions').delete().eq('code_hash', sub.code_hash).eq('device_id', sub.device_id);
+  return result.ok;
 }
