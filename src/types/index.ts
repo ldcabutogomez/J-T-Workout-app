@@ -8,6 +8,7 @@ export type SessionStatus = 'active' | 'partial' | 'completed' | 'skipped';
 export type RunDistanceUnit = 'mi' | 'km';
 export type RunType = 'easy' | 'tempo' | 'intervals' | 'long' | 'other';
 export type RunSource = 'manual' | 'strava';
+export type Gender = 'male' | 'female';
 
 export interface SourceReference {
   sheet: 'J&T2.0' | 'J&T2.0 KGS';
@@ -83,6 +84,8 @@ export interface DayPrescription {
 export interface UserProfile {
   id: string;
   name: string;
+  /** Required by onboarding; optional here only while a legacy profile waits for its one-time choice. */
+  gender?: Gender;
   unit: WeightUnit;
   equipmentIncrement: number;
   barbellWeight: number;

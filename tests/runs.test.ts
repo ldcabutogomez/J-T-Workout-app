@@ -62,7 +62,7 @@ test('run records save, sort, back up, restore, and delete independently of lift
   assert.equal((await source.getSessionHistory(p.id)).length, 0);
 
   const backup = JSON.parse(await source.exportBackup());
-  assert.equal(backup.version, 4);
+  assert.equal(backup.version, 5);
   assert.equal(backup.runs.length, 2);
 
   const target = new StorageService('runs-target', 'test_runs_target');

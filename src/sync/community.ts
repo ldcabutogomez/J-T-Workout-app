@@ -1,5 +1,6 @@
 import { parseSnapshot, type PartnerSnapshot } from '../engine/leaderboard';
 import { parseActivitySummary, type ActivitySummary } from '../engine/activity';
+import type { Gender } from '../types';
 import type { CloudConfig } from './cloud';
 import type { AuthSession } from './auth';
 
@@ -7,6 +8,7 @@ export interface FeedItem {
   id: string;
   userId: string;
   name: string;
+  gender?: Gender;
   summary: ActivitySummary;
   createdAt: number;
   likes: number;
@@ -40,10 +42,10 @@ async function call(config: CloudConfig, session: AuthSession, path: string, ini
 }
 
 /** Publishes this lifter's stats-only snapshot to the global leaderboard. */
-export async function upsertMember(config: CloudConfig, session: AuthSession, name: string, snapshot: PartnerSnapshot, fetchImpl: typeof fetch = fetch): Promise<void> {
+export async function upsertMember(config: CloudConfig, session: AuthSession, name: string, gender: Gender | undefined, snapshot: PartnerSnapshot, fetchImpl: typeof fetch = fetch): Promise<void> {
   await call(config, session, 'community_members?on_conflict=user_id', {
     method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ user_id: session.userId, display_name: name.trim().slice(0, 40) || 'Lifter', snapshot, updated_at: new Date().toISOString() }),
+    body: JSON.stringify({ user_id: session.userId, display_name: name.trim().slice(0, 40) || 'Lifter', gender: gender ?? null, snapshot, updated_at: new Date().toISOString() }),
   }, fetchImpl);
 }
 
@@ -82,6 +84,7 @@ export async function fetchFeed(config: CloudConfig, session: AuthSession, fetch
     items.push({
       id: row.id, userId: row.user_id, summary, createdAt: created,
       name: typeof row.display_name === 'string' ? row.display_name : 'Lifter',
+      ...(row.gender === 'male' || row.gender === 'female' ? { gender: row.gender } : {}),
       likes: Number(row.like_count) || 0, likedByMe: row.liked_by_me === true, commentCount: Number(row.comment_count) || 0,
     });
   }
@@ -101,12 +104,12 @@ export async function setLike(config: CloudConfig, session: AuthSession, activit
 
 export interface PublishItem { kind: 'workout' | 'run'; sourceId: string; summary: ActivitySummary; createdAt?: number }
 
-/** Posts many activities at once with their original times. Anything already posted is left alone. */
+/** Posts or refreshes many activities while preserving each existing row, its likes, and its comments. */
 export async function publishActivities(config: CloudConfig, session: AuthSession, items: PublishItem[], fetchImpl: typeof fetch = fetch): Promise<void> {
   if (!items.length) return;
   const now = Date.now();
   await call(config, session, 'activities?on_conflict=user_id,source_id', {
-    method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify(items.map((item) => ({
       user_id: session.userId, kind: item.kind, source_id: item.sourceId, summary: item.summary,
       ...(item.createdAt ? { created_at: new Date(Math.min(item.createdAt, now)).toISOString() } : {}),

@@ -167,6 +167,7 @@ function validateProfile(value: unknown): value is UserProfile {
   if (!isObject(value)) return false;
   return typeof value.id === 'string' && value.id.length > 0
     && typeof value.name === 'string' && value.name.trim().length > 0
+    && (value.gender === undefined || value.gender === 'male' || value.gender === 'female')
     && (value.unit === 'lb' || value.unit === 'kg')
     && finiteNonNegative(value.equipmentIncrement) && Number(value.equipmentIncrement) > 0
     && finiteNonNegative(value.barbellWeight)

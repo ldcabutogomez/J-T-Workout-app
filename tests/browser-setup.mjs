@@ -17,6 +17,8 @@ try {
   await assertNoHorizontalClipping(fresh, 'setup wizard');
   assert.equal(await fresh.getByRole('button', { name: 'Next' }).isDisabled(), true, 'a name is required first');
   await fresh.getByPlaceholder('Your name').fill('Sam');
+  assert.equal(await fresh.getByRole('button', { name: 'Next' }).isDisabled(), true, 'gender is required before setup can continue');
+  await fresh.getByRole('radio', { name: 'Female' }).click();
   await fresh.getByRole('radio', { name: /Kilograms/ }).click();
   await fresh.getByRole('button', { name: 'Next' }).click();
   await fresh.getByRole('heading', { name: 'Your equipment' }).waitFor();
@@ -41,6 +43,17 @@ try {
   await fresh.getByText('Next scheduled session').waitFor();
   assert.equal(await fresh.getByRole('heading', { name: 'Welcome' }).count(), 0, 'the wizard does not run again once a profile exists');
   await newContext.close();
+
+  // Profiles from an older app version make one explicit choice, then never see the migration gate again.
+  const legacyContext = await lockedContext(browser, 'partner-1', {}, false);
+  const legacyPage = await legacyContext.newPage();
+  await legacyPage.goto(origin, { waitUntil: 'networkidle' });
+  const genderDialog = legacyPage.getByRole('dialog', { name: 'Choose your gender' });
+  await genderDialog.getByRole('radio', { name: 'Female' }).click();
+  await legacyPage.getByText('Next scheduled session').waitFor();
+  await legacyPage.reload({ waitUntil: 'networkidle' });
+  assert.equal(await legacyPage.getByRole('dialog', { name: 'Choose your gender' }).count(), 0, 'the legacy gender choice is saved');
+  await legacyContext.close();
 
   // Runs are supplemental records: log one from Today, see its calendar ball, and keep it after reload.
   const runContext = await lockedContext(browser);

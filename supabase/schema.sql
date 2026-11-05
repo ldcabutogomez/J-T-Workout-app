@@ -103,6 +103,9 @@ create table if not exists public.community_members (
   snapshot     jsonb check (snapshot is null or pg_column_size(snapshot) <= 8192),
   updated_at   timestamptz not null default now()
 );
+alter table public.community_members add column if not exists gender text;
+alter table public.community_members drop constraint if exists community_members_gender_check;
+alter table public.community_members add constraint community_members_gender_check check (gender is null or gender in ('male', 'female'));
 create table if not exists public.activities (
   id         uuid primary key default gen_random_uuid(),
   user_id    uuid not null references auth.users on delete cascade default auth.uid(),
@@ -137,9 +140,11 @@ create policy members_delete on public.community_members for delete to authentic
 drop policy if exists activities_read on public.activities;
 drop policy if exists activities_write on public.activities;
 drop policy if exists activities_delete on public.activities;
+drop policy if exists activities_update on public.activities;
 create policy activities_read on public.activities for select to authenticated using (true);
 create policy activities_write on public.activities for insert to authenticated with check (user_id = auth.uid() and created_at <= now() + interval '5 minutes');
 create policy activities_delete on public.activities for delete to authenticated using (user_id = auth.uid());
+create policy activities_update on public.activities for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid() and created_at <= now() + interval '5 minutes');
 
 drop policy if exists likes_read on public.activity_likes;
 drop policy if exists likes_write on public.activity_likes;
@@ -178,13 +183,13 @@ create policy activities_write on public.activities for insert to authenticated 
 
 drop function if exists public.community_feed(int);
 create function public.community_feed(p_limit int default 50)
-returns table (id uuid, user_id uuid, display_name text, kind text, summary jsonb, created_at timestamptz, like_count bigint, liked_by_me boolean, comment_count bigint)
+returns table (id uuid, user_id uuid, display_name text, gender text, kind text, summary jsonb, created_at timestamptz, like_count bigint, liked_by_me boolean, comment_count bigint)
 language sql
 stable
 security invoker
 set search_path = public
 as $$
-  select a.id, a.user_id, m.display_name, a.kind, a.summary, a.created_at,
+  select a.id, a.user_id, m.display_name, m.gender, a.kind, a.summary, a.created_at,
          (select count(*) from activity_likes l where l.activity_id = a.id),
          exists (select 1 from activity_likes l where l.activity_id = a.id and l.user_id = auth.uid()),
          (select count(*) from activity_comments c where c.activity_id = a.id)

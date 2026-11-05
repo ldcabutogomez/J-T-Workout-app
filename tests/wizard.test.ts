@@ -20,7 +20,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: new MemoryStorage(), 
 
 const NOW = new Date(2024, 4, 15, 12).getTime(); // a Wednesday
 const input = (patch: Partial<WizardInput> = {}): WizardInput => ({
-  name: ' Sam ', unit: 'lb', ...defaultsForUnit('lb'),
+  name: ' Sam ', gender: 'female', unit: 'lb', ...defaultsForUnit('lb'),
   trainingMaxes: { squat: 200, bench: 150, deadlift: 250, ohp: 100, front_squat: 160 },
   trainingDays: DEFAULT_TRAINING_DAYS, weeklyGoalSessions: 4, tone: 'warm', ...patch,
 });
@@ -46,6 +46,7 @@ test('the wizard builds a profile that is valid, scheduled, and ready for the fi
   const p = buildProfileFromWizard(input(), NOW, 'profile-test');
   assert.equal(p.name, 'Sam', 'the name is trimmed');
   assert.equal(p.id, 'profile-test');
+  assert.equal(p.gender, 'female');
   assert.deepEqual(p.schedule?.days, DEFAULT_TRAINING_DAYS);
   assert.equal(p.currentWeek, 1);
   assert.equal(p.currentDay, 1);
@@ -66,6 +67,7 @@ test('skipped training maxes are left out, and the first workout then asks for t
 test('problems are reported in words before anything is built', () => {
   assert.deepEqual(wizardProblems(input()), []);
   assert.ok(wizardProblems(input({ name: '   ' })).includes('Enter a name.'));
+  assert.ok(wizardProblems(input({ gender: undefined })).includes('Choose a gender.'));
   assert.ok(wizardProblems(input({ equipmentIncrement: 0 })).some((p) => /plate jump/.test(p)));
   assert.ok(wizardProblems(input({ trainingMaxes: { squat: -3 } })).some((p) => /squat/.test(p)));
   assert.ok(wizardProblems(input({ trainingDays: [0, 0, 1, 2] })).some((p) => /four different/.test(p)));

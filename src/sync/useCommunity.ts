@@ -65,7 +65,7 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
       const active = await usable();
       if (!active) return;
       const mine = await getHistory();
-      await upsertMember(config, active, profile.name, snapshotFromHistory(profile, mine, Date.now(), deviceId));
+      await upsertMember(config, active, profile.name, profile.gender, snapshotFromHistory(profile, mine, Date.now(), deviceId));
       const [others, items] = await Promise.all([pullMembers(config, active), fetchFeed(config, active)]);
       setMembers(others);
       setFeed(items);

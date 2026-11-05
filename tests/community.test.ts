@@ -42,7 +42,7 @@ test('malformed summaries are dropped', () => {
 
 test('feed rows are validated and mapped', async () => {
   const rows = [
-    { id: 'a', user_id: 'u2', display_name: 'Sam', kind: 'run', summary: { kind: 'run', title: 'Run', distance: '5 km', duration: '30:00', pace: '6:00 /km' }, created_at: '2026-01-01T00:00:00Z', like_count: 2, liked_by_me: true },
+    { id: 'a', user_id: 'u2', display_name: 'Sam', gender: 'female', kind: 'run', summary: { kind: 'run', title: 'Run', distance: '5 km', duration: '30:00', pace: '6:00 /km' }, created_at: '2026-01-01T00:00:00Z', like_count: 2, liked_by_me: true },
     { id: 'b', user_id: 'u3', display_name: 'Bad', kind: 'run', summary: { nope: 1 }, created_at: '2026-01-01T00:00:00Z', like_count: 0, liked_by_me: false },
   ];
   const fetchImpl = (async () => new Response(JSON.stringify(rows))) as typeof fetch;
@@ -50,6 +50,7 @@ test('feed rows are validated and mapped', async () => {
   assert.equal(feed.length, 1);
   assert.equal(feed[0].likes, 2);
   assert.equal(feed[0].likedByMe, true);
+  assert.equal(feed[0].gender, 'female');
 });
 
 test('liking inserts and unliking deletes only the caller\'s row', async () => {
@@ -109,7 +110,12 @@ test('comments are mapped, malformed rows dropped, and writes are scoped to the 
 
 test('history share posts original times, never the future, and skips an empty list', async () => {
   const bodies: Array<Array<{ created_at?: string }>> = [];
-  const fetchImpl = (async (_u: string, init: RequestInit) => { bodies.push(JSON.parse(init.body as string)); return new Response(''); }) as unknown as typeof fetch;
+  const preferences: string[] = [];
+  const fetchImpl = (async (_u: string, init: RequestInit) => {
+    bodies.push(JSON.parse(init.body as string));
+    preferences.push(String((init.headers as Record<string, string>)?.Prefer));
+    return new Response('');
+  }) as unknown as typeof fetch;
   await publishActivities(config, session, [], fetchImpl);
   assert.equal(bodies.length, 0);
   const summary = { kind: 'run' as const, title: 'Run', distance: '1 km', duration: '5:00', pace: '5:00 /km' };
@@ -119,4 +125,5 @@ test('history share posts original times, never the future, and skips an empty l
   ], fetchImpl);
   assert.equal(bodies[0][0].created_at, '2020-01-01T00:00:00.000Z');
   assert.ok(Date.parse(bodies[0][1].created_at ?? '') <= Date.now() + 1000);
+  assert.match(preferences[0], /merge-duplicates/, 'history refresh updates an existing activity row instead of replacing it');
 });

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import type { EncouragementTone, UserProfile, WeightUnit, WorkoutSession } from '../types';
+import type { EncouragementTone, Gender, UserProfile, WeightUnit, WorkoutSession } from '../types';
 import { convertProfileUnit } from '../engine/jnt2Engine';
 import { Download, Upload, Users } from 'lucide-react';
 import { canVibrate, feedback, haptic } from '../lib/feedback';
@@ -106,6 +106,14 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitch
         <FlairPicker profile={profile} onUpdateProfile={onUpdateProfile} level={level} />
         <TrainingDays profile={profile} onUpdateProfile={onUpdateProfile} />
         <label className="block text-xs uppercase font-bold text-muted">Lifter name<input value={profile.name} onChange={(event) => onUpdateProfile({ ...profile, name: event.target.value })} className="block w-full mt-1 min-h-11 bg-paper border border-line rounded-xl px-3 text-sm normal-case text-ink" /></label>
+        <label className="block text-xs uppercase font-bold text-muted">Gender
+          <select value={profile.gender ?? ''} onChange={(event) => onUpdateProfile({ ...profile, gender: event.target.value as Gender })} className="block w-full mt-1 min-h-11 bg-paper border border-line rounded-xl px-3 text-sm normal-case text-ink">
+            <option value="" disabled>Choose gender</option>
+            <option value="female">Female</option>
+            <option value="male">Male</option>
+          </select>
+          <span className="mt-1 block text-xs normal-case font-normal text-muted">Chooses the anatomy figure shown with your shared workouts.</span>
+        </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="text-xs uppercase font-bold text-muted">Weight unit<select disabled={Boolean(activeSession)} value={profile.unit} onChange={(event) => setUnit(event.target.value as WeightUnit)} className="block w-full mt-1 min-h-11 bg-paper disabled:opacity-50 border border-line rounded-xl px-3 text-sm normal-case text-ink"><option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option></select></label>
           <label className="text-xs uppercase font-bold text-muted">Equipment increment<input type="number" min="0.1" step="0.5" value={profile.equipmentIncrement} onChange={(event) => onUpdateProfile({ ...profile, equipmentIncrement: Number(event.target.value) })} className="block w-full mt-1 min-h-11 bg-paper border border-line rounded-xl px-3 text-sm normal-case text-ink" /></label>

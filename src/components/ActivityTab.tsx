@@ -3,6 +3,7 @@ import { Heart, MessageCircle, RefreshCw, Trash2 } from 'lucide-react';
 import type { CommunityState } from '../sync/useCommunity';
 import { COMMENT_MAX, type FeedItem } from '../sync/community';
 import { Avatar } from './Avatar';
+import { AnatomyMap } from './AnatomyMap';
 
 function ago(ms: number, now = Date.now()): string {
   const mins = Math.max(0, Math.round((now - ms) / 60_000));
@@ -70,6 +71,7 @@ function Card({ item, community }: { item: FeedItem; community: CommunityState }
             {s.minutes !== null && <span><b className="text-ink">{s.minutes}</b> min</span>}
           </div>
           {s.prs.length > 0 && <p className="text-xs font-black text-accent-ink mt-1.5">PR: {s.prs.join(', ')}</p>}
+          {s.muscles && item.gender && <AnatomyMap gender={item.gender} muscles={s.muscles} />}
         </>
       )}
       {s.wrap && <p className="text-sm text-ink mt-3 break-words">{s.wrap}</p>}
@@ -126,7 +128,7 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
       <section className="card p-4 space-y-3">
         <div>
           <p className="font-black text-ink text-sm">Join the community</p>
-          <p className="text-xs text-muted mt-1">Sign in with your email to see everyone's workouts and runs, like them and comment. You share stats, a short wrap-up and your comments, as {memberName || 'your profile name'}. Set-by-set logs and notes stay on this phone.</p>
+          <p className="text-xs text-muted mt-1">Sign in with your email to see everyone's workouts and runs, like them and comment. You share stats, worked muscle groups, a short wrap-up and your comments, as {memberName || 'your profile name'}. Exercise lists, set-by-set logs and notes stay on this phone.</p>
         </div>
         {community.linkSentTo ? (
           <p className="text-xs text-ink">Check {community.linkSentTo} for a sign-in link, then open it on this phone.</p>
@@ -143,7 +145,7 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
 
   const items = filter === 'mine' ? community.feed.filter((item) => item.userId === community.userId) : community.feed;
   const share = async () => {
-    if (!window.confirm('Post your last 20 finished workouts and 20 runs to Activity? Everyone signed in will see the stats and a short recap for each. Notes and set logs are not shared. Anything already posted is skipped.')) return;
+    if (!window.confirm('Post or refresh your last 20 finished workouts and 20 runs in Activity? Existing posts keep their likes and comments while workout muscle maps are updated. Notes, exercise lists and set logs are not shared.')) return;
     setSharing(true);
     try { await onShareHistory(); } finally { setSharing(false); }
   };
@@ -167,12 +169,12 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
       {items.length === 0 && !community.busy && (
         <div className="card p-4 space-y-2">
           <p className="text-xs text-muted">{filter === 'mine' ? 'You have not posted yet.' : 'No activity yet.'} Finish a workout or log a run and it shows up here.</p>
-          <button onClick={() => void share()} disabled={sharing} className={`${button} bg-accent text-on-accent`}>{sharing ? 'Sharing…' : 'Share my history'}</button>
+          <button onClick={() => void share()} disabled={sharing} className={`${button} bg-accent text-on-accent`}>{sharing ? 'Refreshing…' : 'Share my history'}</button>
         </div>
       )}
       {items.map((item) => <Card key={item.id} item={item} community={community} />)}
       <div className="flex items-center justify-between pt-1">
-        {items.length > 0 ? <button onClick={() => void share()} disabled={sharing} className="text-xs text-muted underline">{sharing ? 'Sharing…' : 'Share my history'}</button> : <span />}
+        {items.length > 0 ? <button onClick={() => void share()} disabled={sharing} className="text-xs text-muted underline">{sharing ? 'Refreshing…' : 'Refresh shared history'}</button> : <span />}
         <button onClick={() => { if (window.confirm('Sign out of the community? Your data stays on this phone.')) community.signOut(); }} className="text-xs text-muted underline">Sign out{community.email ? ` (${community.email})` : ''}</button>
       </div>
     </section>

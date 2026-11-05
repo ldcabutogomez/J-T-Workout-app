@@ -1,10 +1,11 @@
-import type { EncouragementTone, TrainingMaxKey, UserProfile, WeightUnit } from '../types';
+import type { EncouragementTone, Gender, TrainingMaxKey, UserProfile, WeightUnit } from '../types';
 import { defaultSchedule, withTrainingDays } from '../engine/schedule';
 import { defaultThemeForId } from './theme';
 import { tmProblem } from './validateTm';
 
 export interface WizardInput {
   name: string;
+  gender?: Gender;
   unit: WeightUnit;
   barbellWeight: number;
   equipmentIncrement: number;
@@ -29,6 +30,7 @@ export function newProfileId(now: number = Date.now(), random: () => number = Ma
 export function wizardProblems(input: WizardInput): string[] {
   const problems: string[] = [];
   if (input.name.trim().length === 0) problems.push('Enter a name.');
+  if (input.gender !== 'male' && input.gender !== 'female') problems.push('Choose a gender.');
   if (!(input.barbellWeight >= 0) || !Number.isFinite(input.barbellWeight)) problems.push('Barbell weight must be zero or more.');
   if (!(input.equipmentIncrement > 0) || !Number.isFinite(input.equipmentIncrement)) problems.push('Smallest plate jump must be more than zero.');
   for (const [key, value] of Object.entries(input.trainingMaxes)) {
@@ -47,6 +49,7 @@ export function buildProfileFromWizard(input: WizardInput, now: number = Date.no
   const base: UserProfile = {
     id,
     name: input.name.trim().slice(0, 40),
+    gender: input.gender,
     unit: input.unit,
     equipmentIncrement: input.equipmentIncrement,
     barbellWeight: input.barbellWeight,

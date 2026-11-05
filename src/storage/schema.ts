@@ -5,9 +5,10 @@ import type { BackupExportData, UserProfile } from '../types';
  *   2: original format.
  *   3: every optional profile field is checked at runtime; records carry `schemaVersion`.
  *   4: supplemental run records are included in backups.
+ *   5: profiles can store the gender used by activity muscle maps.
  * Add a step to `migrateBackup` / `sanitizeProfile` whenever the shape changes, never edit an old one.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const BACKUP_APP = 'GZCL_Jacked_And_Tan_2_Partner_Engine';
 /** Oldest backup version this build can still read. */
 export const OLDEST_BACKUP_VERSION = 2;
@@ -29,6 +30,7 @@ const bool: Clean = (value) => (typeof value === 'boolean' ? value : undefined);
 
 /** Each optional profile field: returns the value if it is usable, or undefined to drop it. */
 const OPTIONAL_PROFILE_FIELDS: Record<string, Clean> = {
+  gender: (value) => (value === 'male' || value === 'female' ? value : undefined),
   cycleCompleted: bool,
   hapticsEnabled: bool,
   soundEnabled: bool,
@@ -113,6 +115,10 @@ export function migrateBackup(raw: unknown): BackupMigration {
   // 3 -> 4: runs are a separate collection. Old backups simply start with none.
   if (value.version === 3) {
     value = { ...value, version: 4, runs: [] };
+  }
+  // 4 -> 5: gender remains absent on legacy profiles until the one-time in-app choice is made.
+  if (value.version === 4) {
+    value = { ...value, version: 5 };
   }
   if (Array.isArray(value.profiles)) {
     value = { ...value, profiles: value.profiles.map((p) => sanitizeProfile(p)) };

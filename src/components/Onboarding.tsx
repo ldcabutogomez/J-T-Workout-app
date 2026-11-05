@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { EncouragementTone, TrainingMaxKey, UserProfile, WeightUnit } from '../types';
+import type { EncouragementTone, Gender, TrainingMaxKey, UserProfile, WeightUnit } from '../types';
 import { REQUIRED_TRAINING_MAXES, getDayPrescription } from '../engine/jnt2Engine';
 import { WEEKDAY_LABELS } from '../engine/schedule';
 import { tmProblem } from '../lib/validateTm';
@@ -24,6 +24,7 @@ export function Onboarding({ onDone, onCancel }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState<WizardInput>({
     name: '',
+    gender: undefined,
     unit: 'lb',
     ...defaultsForUnit('lb'),
     trainingMaxes: {},
@@ -47,7 +48,7 @@ export function Onboarding({ onDone, onCancel }: Props) {
   };
 
   const canAdvance = [
-    input.name.trim().length > 0,
+    input.name.trim().length > 0 && (input.gender === 'male' || input.gender === 'female'),
     input.barbellWeight >= 0 && input.equipmentIncrement > 0,
     REQUIRED_TRAINING_MAXES.every(({ key }) => tmProblem(input.trainingMaxes[key], input.unit)?.level !== 'error'),
     new Set(input.trainingDays).size === 4,
@@ -79,6 +80,15 @@ export function Onboarding({ onDone, onCancel }: Props) {
               <label className="block text-xs uppercase font-bold text-muted">What should we call you?
                 <input autoFocus value={input.name} maxLength={40} onChange={(e) => set({ name: e.target.value })} className="field mt-1 normal-case" placeholder="Your name" />
               </label>
+              <div>
+                <p className="eyebrow">Gender</p>
+                <p className="mt-1 text-xs text-muted">Used to choose the matching muscle-map figure on shared workouts.</p>
+                <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Gender">
+                  {([['female', 'Female'], ['male', 'Male']] as const).map(([value, label]) => (
+                    <button key={value} type="button" role="radio" aria-checked={input.gender === value} onClick={() => set({ gender: value as Gender })} className={`min-h-12 rounded-xl border font-bold ${input.gender === value ? 'border-accent bg-accent/10 text-accent-ink' : 'border-line bg-surface'}`}>{label}</button>
+                  ))}
+                </div>
+              </div>
               <div>
                 <p className="eyebrow">Weight unit</p>
                 <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Weight unit">

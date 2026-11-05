@@ -65,6 +65,7 @@ import { RunLogSheet, type ManualRunInput } from './components/RunLogSheet';
 import { newRunId, preferredRunUnit } from './engine/runs';
 import { Avatar } from './components/Avatar';
 import { WhoUsesPhone } from './components/WhoUsesPhone';
+import { GenderPrompt } from './components/GenderPrompt';
 import { makeAvatarThumb } from './lib/avatar';
 import { clearLock, readLock, resolveLock, writeLock } from './lib/lock';
 import { nudgeMessage, postWorkoutMessage, todayCandidates, type NudgeKind } from './engine/coach';
@@ -901,7 +902,7 @@ export default function App() {
     showToast('Run saved.', 'badge');
   };
 
-  /** Posts the last 20 finished workouts and 20 runs, each with its original time. Already-posted ones are skipped by the server. */
+  /** Posts or refreshes the last 20 finished workouts and 20 runs, each with its original time. */
   const shareHistory = async (): Promise<number> => {
     if (!profile) return 0;
     const [sessions, allRuns] = await Promise.all([dbService.getSessionHistory(profile.id, false), dbService.getRunHistory(profile.id)]);
@@ -921,7 +922,7 @@ export default function App() {
       items.push({ kind: 'run', sourceId: posted.sourceId, summary: posted.summary, createdAt: run.startTime + run.durationSeconds * 1000 });
     }
     const sent = await community.shareHistory(items);
-    showToast(sent ? `Shared ${sent} activities.` : 'Nothing to share yet.');
+    showToast(sent ? `Refreshed ${sent} activities.` : 'Nothing to share yet.');
     return sent;
   };
 
@@ -1091,6 +1092,7 @@ export default function App() {
 
       <RestTimer key={profile?.id ?? 'none'} profileId={profile?.id} restRequest={restRequest} setsLogged={activeSession ? activeSession.exercises.reduce((sum, item) => sum + item.sets.filter((set) => set.completed).length, 0) : 0} />
       <ToastStack toasts={toasts} />
+      {profile && !profile.gender && <GenderPrompt profile={profile} onChoose={(gender) => void updateProfile({ ...profile, gender })} />}
       {summary && <WorkoutSummary data={summary} onDone={(post) => { if (post) community.publish('workout', post.sourceId, post.summary); setSummary(null); setTab('today'); }} />}
       {runLogOpen && profile && <RunLogSheet defaultUnit={preferredRunUnit(runs)} canPost={community.signedIn} recentRuns={runs} onSave={handleSaveRun} onClose={() => setRunLogOpen(false)} />}
       {moveSlot && sheetData && (

@@ -30,22 +30,22 @@ export async function waitForPreview() {
  * A browser context that already belongs to one person, as after the one-time "Who uses this phone?" choice.
  * The seed runs once per storage, so tests can still clear the lock or switch users afterwards.
  */
-export async function lockedContext(browser, profileId = 'partner-1', options = {}) {
+export async function lockedContext(browser, profileId = 'partner-1', options = {}, includeGender = true) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
-  await seedPhone(context, profileId);
+  await seedPhone(context, profileId, includeGender);
   return context;
 }
 
 /** Gives a context a phone that was set up before: Lauren and Luis saved, and (when `lockId` is set) already claimed by one of them. */
-export async function seedPhone(context, lockId) {
-  await context.addInitScript((id) => {
+export async function seedPhone(context, lockId, includeGender = true) {
+  await context.addInitScript(({ id, genderReady }) => {
     try {
       if (!localStorage.getItem('jnt2_test_seed')) {
         localStorage.setItem('jnt2_test_seed', '1');
         if (id) localStorage.setItem('jnt2_locked_profile', id);
         // A phone that was set up before: two lifters already saved, so the first-run wizard does not appear.
         // This runs before the app's own code, and IndexedDB serves requests in order, so the app reads these.
-        const blank = (pid, name, colorTheme) => ({ id: pid, name, unit: 'lb', equipmentIncrement: 5, barbellWeight: 45, tone: 'warm', currentWeek: 1, currentDay: 1, trainingMaxes: {}, weeklyGoalSessions: 4, colorTheme });
+        const blank = (pid, name, colorTheme, gender) => ({ id: pid, name, ...(genderReady ? { gender } : {}), unit: 'lb', equipmentIncrement: 5, barbellWeight: 45, tone: 'warm', currentWeek: 1, currentDay: 1, trainingMaxes: {}, weeklyGoalSessions: 4, colorTheme });
         const request = indexedDB.open('JackedAndTan2_LocalDB', 2);
         request.onupgradeneeded = () => {
           for (const name of ['profiles', 'sessions', 'activeSessions', 'demoSessions']) {
@@ -54,13 +54,13 @@ export async function seedPhone(context, lockId) {
         };
         request.onsuccess = () => {
           const transaction = request.result.transaction('profiles', 'readwrite');
-          transaction.objectStore('profiles').put(blank('partner-1', 'Lauren', 'lavender'));
-          transaction.objectStore('profiles').put(blank('partner-2', 'Luis', 'blue'));
+          transaction.objectStore('profiles').put(blank('partner-1', 'Lauren', 'lavender', 'female'));
+          transaction.objectStore('profiles').put(blank('partner-2', 'Luis', 'blue', 'male'));
           transaction.oncomplete = () => request.result.close();
         };
       }
     } catch { /* storage unavailable */ }
-  }, lockId);
+  }, { id: lockId, genderReady: includeGender });
 }
 
 export async function assertNoHorizontalClipping(page, label) {

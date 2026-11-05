@@ -54,18 +54,18 @@ test('sanitizing twice changes nothing more (idempotent)', () => {
   assert.deepEqual(sanitizeProfile(once), once);
 });
 
-test('backups: version 2 migrates to 4 with an empty run collection; newer and foreign files are refused', () => {
+test('backups: version 2 migrates to 5 with an empty run collection; newer and foreign files are refused', () => {
   const v2 = { version: 2, app: BACKUP_APP, timestamp: 1, profiles: [{ ...profile(), flair: '' }], sessions: [], activeSessions: [] };
   const migrated = migrateBackup(v2);
   assert.equal(migrated.ok, true);
   if (migrated.ok) {
-    assert.equal(migrated.value.version, 4);
+    assert.equal(migrated.value.version, 5);
     assert.deepEqual(migrated.value.runs, []);
     const profiles = migrated.value.profiles as Array<Record<string, unknown>>;
     assert.equal('flair' in profiles[0], false);
     assert.equal(profiles[0].schemaVersion, SCHEMA_VERSION);
   }
-  const current = migrateBackup({ ...v2, version: 4, runs: [] });
+  const current = migrateBackup({ ...v2, version: 5, runs: [] });
   assert.equal(current.ok, true);
   const newer = migrateBackup({ ...v2, version: 99 });
   assert.equal(newer.ok, false);
@@ -98,7 +98,7 @@ test('export writes the current version and a v2 backup still imports, with bad 
   assert.match(tooNew.message, /newer version/);
 });
 
-test('a session still round-trips through a v4 backup', async () => {
+test('a session still round-trips through a v5 backup', async () => {
   const source = new StorageService('schema-sess', 'test_schema_sess');
   const p = profile();
   await source.saveProfile(p);
