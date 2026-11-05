@@ -109,6 +109,7 @@ interface ActivityTabProps {
 
 export function ActivityTab({ community, memberName, onShareHistory }: ActivityTabProps) {
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [filter, setFilter] = useState<'all' | 'mine'>('all');
   const [sharing, setSharing] = useState(false);
   const input = 'bg-paper border border-line rounded-xl px-3 py-2 text-sm text-ink';
@@ -131,7 +132,14 @@ export function ActivityTab({ community, memberName, onShareHistory }: ActivityT
           <p className="text-xs text-muted mt-1">Sign in with your email to see everyone's workouts and runs, like them and comment. You share stats, worked muscle groups, a short wrap-up and your comments, as {memberName || 'your profile name'}. Exercise lists, set-by-set logs and notes stay on this phone.</p>
         </div>
         {community.linkSentTo ? (
-          <p className="text-xs text-ink">Check {community.linkSentTo} for a sign-in link. It comes from Supabase, our sign-in provider, so also check spam. Open it on this phone, in this same app.</p>
+          <div className="space-y-2">
+            <p className="text-xs text-ink">Check {community.linkSentTo} for an email from Supabase, our sign-in provider (also check spam). Enter the code from that email here to stay in this app. Tapping the link instead opens your browser, which is a separate copy of the app with none of your data.</p>
+            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) void community.verifyCode(code); }}>
+              <input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code from email" className={`${input} flex-1 min-w-0`} aria-label="Sign-in code" />
+              <button type="submit" className={`${button} bg-accent text-on-accent`}>Verify</button>
+            </form>
+            <button type="button" onClick={() => { setCode(''); community.cancelSignIn(); }} className="text-xs text-muted underline">Use a different email</button>
+          </div>
         ) : (
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (email.includes('@')) void community.signIn(email); }}>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className={`${input} flex-1 min-w-0`} aria-label="Email" />

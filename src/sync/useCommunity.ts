@@ -3,7 +3,7 @@ import type { UserProfile, WorkoutSession } from '../types';
 import { snapshotFromHistory, type PartnerSnapshot } from '../engine/leaderboard';
 import type { ActivitySummary } from '../engine/activity';
 import type { CloudConfig } from './cloud';
-import { consumeAuthRedirect, freshSession, loadSession, saveSession, sendMagicLink, type AuthSession } from './auth';
+import { consumeAuthRedirect, freshSession, loadSession, saveSession, sendMagicLink, verifyEmailCode, type AuthSession } from './auth';
 import { addComment, deleteComment, fetchComments, fetchFeed, publishActivities, publishActivity, pullMembers, removeActivity, removeActivityById, setLike, upsertMember, type CommentItem, type FeedItem, type PublishItem } from './community';
 
 export interface CommunityState {
@@ -19,6 +19,10 @@ export interface CommunityState {
   /** Set after a magic link was requested, until the person returns through it. */
   linkSentTo: string | null;
   signIn: (email: string) => Promise<void>;
+  /** Finishes sign-in with the code from the email, inside this app. */
+  verifyCode: (code: string) => Promise<void>;
+  /** Goes back to the email form. */
+  cancelSignIn: () => void;
   signOut: () => void;
   refresh: () => void;
   toggleLike: (id: string) => void;
@@ -108,6 +112,15 @@ export function useCommunity(config: CloudConfig | null, profile: UserProfile | 
         setLinkSentTo(email.trim());
       } catch (e) { setError((e as Error).message); }
     },
+    verifyCode: async (code) => {
+      if (!config || !linkSentTo) return;
+      setError(null);
+      try {
+        const next = await verifyEmailCode(config, linkSentTo, code);
+        saveSession(next); sessionRef.current = next; setSession(next); setLinkSentTo(null);
+      } catch (e) { setError((e as Error).message); }
+    },
+    cancelSignIn: () => { setLinkSentTo(null); setError(null); },
     signOut: () => { saveSession(null); setSession(null); setMembers([]); setFeed([]); setLinkSentTo(null); },
     refresh: () => void sync(),
     toggleLike: (id) => {

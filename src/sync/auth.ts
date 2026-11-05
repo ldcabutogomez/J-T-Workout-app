@@ -82,6 +82,18 @@ export async function sendMagicLink(config: CloudConfig, email: string, redirect
   }
 }
 
+/** Signs in with the 6 to 8 digit code from the sign-in email, so the installed app never has to open a browser. */
+export async function verifyEmailCode(config: CloudConfig, email: string, code: string, now = Date.now(), fetchImpl: typeof fetch = fetch): Promise<AuthSession> {
+  const response = await fetchImpl(`${config.url}/auth/v1/verify`, {
+    method: 'POST', headers: headers(config), body: JSON.stringify({ type: 'email', email, token: code.replace(/\s+/g, '') }),
+  });
+  if (!response.ok) throw new Error(response.status === 400 || response.status === 401 || response.status === 403 ? 'That code is wrong or expired. Request a new one.' : `Could not verify the code (${response.status}).`);
+  const body = await response.json() as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown };
+  const session = sessionFromTokens(body.access_token, body.refresh_token, body.expires_in, now);
+  if (!session) throw new Error('Sign-in did not return a session.');
+  return session;
+}
+
 /** The session, refreshed when it is about to expire. Null when signed out or the refresh was refused. */
 export async function freshSession(config: CloudConfig, session: AuthSession, now = Date.now(), fetchImpl: typeof fetch = fetch): Promise<AuthSession | null> {
   if (session.expiresAt - now > REFRESH_MARGIN_MS) return session;
