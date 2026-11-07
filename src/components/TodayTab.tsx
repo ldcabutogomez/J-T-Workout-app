@@ -1,12 +1,12 @@
 import { AddExerciseSheet } from './AddExerciseSheet';
-import { programExercises } from '../engine/extras';
+import { programExercises, requiredExercises } from '../engine/extras';
 import { PlateCalculatorModal } from './PlateCalculatorModal';
 import { setInputProblem } from '../lib/setInput';
 import React, { useEffect, useRef, useState } from 'react';
 import type { LoggedExercise, LoggedSet, RunSession, SourceReference, UserProfile, WorkoutSession } from '../types';
 import { getDayPrescription } from '../engine/jnt2Engine';
 import { missingTrainingMaxes } from '../engine/sessionEngine';
-import { AlertTriangle, Check, ChevronDown, Footprints, Gauge, HelpCircle, Minus, Plus, RotateCcw } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, Footprints, Gauge, GripVertical, HelpCircle, Minus, Pause, Play, Plus, RotateCcw } from 'lucide-react';
 import { priorContext } from '../engine/encouragement';
 import { useDialog } from '../lib/useDialog';
 import { warmupSets } from '../engine/warmup';
@@ -24,6 +24,12 @@ import { CoachCard } from './CoachCard';
 import { fromDateKey, type NextWorkout } from '../engine/schedule';
 import type { CoachMessage } from '../engine/coach';
 import { currentWeekRunSummary, formatRunDistance } from '../engine/runs';
+import { computeTotalVolume } from '../engine/achievements';
+import { musclesForWorkout } from '../engine/muscles';
+import { AnatomyMap } from './AnatomyMap';
+import { formatWorkoutElapsed, workoutElapsedMs } from '../lib/workoutTimer';
+import { useDragMove } from '../lib/useDragMove';
+import { ExerciseHowTo } from './ExerciseHowTo';
 
 interface TodayTabProps {
   /** Exercises the lifter adds to the workout themselves. */
@@ -43,6 +49,8 @@ interface TodayTabProps {
   onBackoffDecision: (slotId: string, load: number) => void;
   onCompleteWorkout: () => void;
   onDiscardActiveWorkout: () => void;
+  onToggleTimer: () => void;
+  onReorderExercise: (slotId: string, targetSlotId: string) => void;
   onSkipSession: () => void;
   onSwapExercise: (slotId: string, originalExerciseId: string, alternativeId: string) => void;
   onToggleWarmup: (slotId: string, stepId: string) => void;
@@ -82,6 +90,8 @@ export function TodayTab({
   onBackoffDecision,
   onCompleteWorkout,
   onDiscardActiveWorkout,
+  onToggleTimer,
+  onReorderExercise,
   onSkipSession,
   onSwapExercise,
   onSetVariationTm,
@@ -108,6 +118,10 @@ export function TodayTab({
   const [reopened, setReopened] = useState<Record<string, boolean>>({});
   // The load currently typed into each T1 exercise's first (RM) set, so the warm-up ramp follows it.
   const [topDraft, setTopDraft] = useState<Record<string, number | ''>>({});
+  const { drag: exerciseDrag, bind: bindExerciseDrag } = useDragMove({
+    canDrop: (key, target) => key !== target && Boolean(activeSession?.exercises.some((exercise) => exercise.slotId === target)),
+    onDrop: onReorderExercise,
+  });
   if (!profile) return <div className="p-6 text-center text-muted">Loading local profiles…</div>;
 
   if (!activeSession) {
@@ -205,7 +219,7 @@ export function TodayTab({
     );
   }
 
-  const programCount = programExercises(activeSession).length;
+  const programCount = requiredExercises(activeSession).length;
   let currentSetId: string | undefined;
   for (const exercise of activeSession.exercises) {
     const next = exercise.sets.find((set) => !set.completed && !(exercise.manualLoadDecisionPending && set.type === 'backoff'));
@@ -214,11 +228,11 @@ export function TodayTab({
 
   return (
     <div className="space-y-6">
-      <section className="bg-surface border border-accent/40 rounded-3xl p-5">
+      <section className="bg-surface border border-accent/40 rounded-3xl p-4 shadow-lg">
         <div className="flex justify-between gap-3">
           <div>
             <span className="text-xs uppercase tracking-wider font-bold text-accent-ink">{activeSession.isEditingCompleted ? 'Editing completed history' : 'Workout in progress'}</span>
-            <h1 className="text-2xl font-black">Week {activeSession.week} · Day {activeSession.day}</h1>
+            <h1 className="text-2xl font-black">{activeSession.workoutKind === 'custom' ? (activeSession.customName ?? 'Custom workout') : `Week ${activeSession.week} · Day ${activeSession.day}`}</h1>
             <p className="text-xs text-muted mt-1">Autosaves after every set. Prescription and setup are snapshotted with this session.</p>
           </div>
           <div className="flex shrink-0 gap-2">
@@ -226,8 +240,8 @@ export function TodayTab({
             <button onClick={() => setShowHelp(true)} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-sunk" aria-label="Set notation help"><HelpCircle className="w-5 h-5" /></button>
           </div>
         </div>
-        <SessionProgress session={activeSession} />
       </section>
+      <SessionProgress session={activeSession} profile={profile} onToggleTimer={onToggleTimer} />
 
       {activeSession.exercises.map((exercise, exerciseIndex) => {
         const isActive = exercise.sets.some((set) => set.setId === currentSetId);
@@ -236,7 +250,7 @@ export function TodayTab({
         const finished = !exercise.isExtra && exercise.sets.length > 0 && exercise.sets.every((set) => set.completed);
         if (finished && !reopened[exercise.slotId]) {
           return (
-            <section key={exercise.slotId} className="bg-surface/60 border border-ok/40 rounded-2xl animate-pop">
+            <section key={exercise.slotId} data-date={exercise.slotId} {...bindExerciseDrag(exercise.slotId)} className="bg-surface/60 border border-ok/40 rounded-2xl animate-pop">
               <button onClick={() => setReopened((value) => ({ ...value, [exercise.slotId]: true }))} aria-expanded={false} className="w-full min-h-12 px-4 flex items-center justify-between gap-3 text-left">
                 <span className="flex items-center gap-2 min-w-0 text-sm">
                   <Check className="w-4 h-4 text-ok shrink-0" />
@@ -249,18 +263,27 @@ export function TodayTab({
           );
         }
         return (
-        <section key={exercise.slotId} style={{ '--tier-color': tierColor } as React.CSSProperties} className={`exercise-card ${isActive ? 'exercise-card-active' : ''} ${exercise.manualLoadDecisionPending ? 'exercise-card-alert' : ''}`}>
+        <section key={exercise.slotId} data-date={exercise.slotId} {...bindExerciseDrag(exercise.slotId)} style={{ '--tier-color': tierColor, transform: exerciseDrag?.key === exercise.slotId ? `translate(${exerciseDrag.dx}px, ${exerciseDrag.dy}px)` : undefined, zIndex: exerciseDrag?.key === exercise.slotId ? 45 : undefined, pointerEvents: exerciseDrag?.key === exercise.slotId ? 'none' : undefined } as React.CSSProperties} className={`exercise-card ${isActive ? 'exercise-card-active' : ''} ${exercise.manualLoadDecisionPending ? 'exercise-card-alert' : ''} ${exerciseDrag?.overDate === exercise.slotId ? 'ring-2 ring-accent' : ''}`}>
           <div className="exercise-head">
-            <p className="text-xs font-bold uppercase tracking-wider text-muted mb-1">{exercise.isExtra ? 'Added by you' : `Exercise ${exerciseIndex + 1} of ${programCount}`}</p>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-muted">{activeSession.workoutKind === 'custom' ? `Exercise ${exerciseIndex + 1} of ${programCount}` : exercise.isExtra ? 'Added by you' : `Exercise ${exerciseIndex + 1} of ${programCount}`}</p>
+              <div className="flex items-center gap-1">
+                <GripVertical className="h-4 w-4 text-muted" aria-label="Hold and drag to reorder" />
+                <button type="button" disabled={exerciseIndex === 0} onClick={() => onReorderExercise(exercise.slotId, activeSession.exercises[exerciseIndex - 1].slotId)} className="flex h-9 w-9 items-center justify-center rounded-lg bg-paper disabled:opacity-30" aria-label={`Move ${exercise.exerciseName} up`}><ArrowUp className="h-4 w-4" /></button>
+                <button type="button" disabled={exerciseIndex === activeSession.exercises.length - 1} onClick={() => onReorderExercise(activeSession.exercises[exerciseIndex + 1].slotId, exercise.slotId)} className="flex h-9 w-9 items-center justify-center rounded-lg bg-paper disabled:opacity-30" aria-label={`Move ${exercise.exerciseName} down`}><ArrowDown className="h-4 w-4" /></button>
+              </div>
+            </div>
             {finished && <button onClick={() => setReopened((value) => ({ ...value, [exercise.slotId]: false }))} className="mb-2 min-h-11 px-3 rounded-xl bg-sunk text-xs font-bold text-ink-2">Hide completed exercise</button>}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-black px-2 py-0.5 rounded bg-sunk text-accent-ink">{exercise.isExtra ? 'Extra' : exercise.tier}</span>
+              <span className="text-xs font-black px-2 py-0.5 rounded bg-sunk text-accent-ink">{activeSession.workoutKind === 'custom' ? 'Custom' : exercise.isExtra ? 'Extra' : exercise.tier}</span>
               <h2 className="font-black text-ink">{exercise.exerciseName}</h2>
               {exercise.status !== 'work' && <span className="text-xs uppercase text-muted">{exercise.status}</span>}
             </div>
             {!exercise.isExtra && <ExerciseSwap slot={exercise} profile={profile} history={history} onSetVariationTm={onSetVariationTm} onClearLoads={onClearLoads} siblings={activeSession.exercises.filter((other) => other.slotId !== exercise.slotId && (other.status === 'work' || other.status === 'test')).map((other) => other.exerciseId)} locked={activeSession.isEditingCompleted || exercise.sets.some((set) => set.completed)} lockedReason={activeSession.isEditingCompleted ? 'Swaps are disabled while editing history.' : 'Completed sets stay attached to this exercise, so it cannot be replaced now. Undo them to swap it.'} onSwap={onSwapExercise} />}
             {exercise.notes && <p className="text-xs text-muted mt-1">{exercise.notes}</p>}
           </div>
+
+          <ExerciseHowTo exerciseId={exercise.exerciseId} exerciseName={exercise.exerciseName} />
 
           {exercise.manualLoadDecisionPending && (
             <BackoffDecision unit={activeSession.settingsSnapshot.unit} increment={activeSession.settingsSnapshot.equipmentIncrement} warning={exercise.rmMismatchWarning} onSave={(load) => onBackoffDecision(exercise.slotId, load)} />
@@ -454,14 +477,30 @@ function WeekCard({ profile, streak, battery }: { profile: UserProfile; streak: 
   );
 }
 
-function SessionProgress({ session }: { session: WorkoutSession }) {
+function SessionProgress({ session, profile, onToggleTimer }: { session: WorkoutSession; profile: UserProfile; onToggleTimer: () => void }) {
   // The bar is about the program's own sets; extras the lifter adds don't move it.
-  const sets = programExercises(session).flatMap((exercise) => exercise.sets);
+  const sets = requiredExercises(session).flatMap((exercise) => exercise.sets);
   const done = sets.filter((set) => set.completed).length;
   if (!sets.length) return null;
   const pct = Math.round((done / sets.length) * 100);
+  const volume = computeTotalVolume(session);
+  const muscles = musclesForWorkout(session);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (session.timer?.runningSince === null) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [session.timer?.runningSince]);
+  const running = session.timer?.runningSince !== null;
   return (
-    <div className="mt-4" role="progressbar" aria-valuemin={0} aria-valuemax={sets.length} aria-valuenow={done} aria-label="Sets completed">
+    <>
+    <div className="sticky top-[calc(4.25rem+env(safe-area-inset-top))] z-20 rounded-2xl border border-accent/40 bg-surface/95 p-3 shadow-lg backdrop-blur">
+      <div className="grid grid-cols-3 gap-2" aria-label="Live workout statistics">
+        <div className="rounded-xl bg-sunk p-2 text-center"><span className="block text-[10px] font-bold uppercase text-muted">Volume</span><strong className="font-mono text-lg">{volume.toLocaleString()}</strong><span className="ml-1 text-xs text-muted">{session.settingsSnapshot.unit}</span></div>
+        <div className="rounded-xl bg-sunk p-2 text-center"><span className="block text-[10px] font-bold uppercase text-muted">Elapsed</span><strong className="font-mono text-lg">{formatWorkoutElapsed(workoutElapsedMs(session, now))}</strong></div>
+        <button type="button" onClick={onToggleTimer} className="rounded-xl bg-sunk p-2 text-center text-ink" aria-label={running ? 'Pause workout timer' : 'Resume workout timer'}><span className="block text-[10px] font-bold uppercase text-muted">Timer</span><span className="mt-0.5 inline-flex items-center gap-1 text-sm font-black">{running ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{running ? 'Pause' : 'Resume'}</span></button>
+      </div>
+      <div className="mt-3" role="progressbar" aria-valuemin={0} aria-valuemax={sets.length} aria-valuenow={done} aria-label="Sets completed">
       <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-muted mb-1">
         <span>{done === sets.length ? 'All sets done — nice work!' : `${done} of ${sets.length} sets`}</span>
         <span className="font-mono">{pct}%</span>
@@ -469,7 +508,10 @@ function SessionProgress({ session }: { session: WorkoutSession }) {
       <div className="h-2 rounded-full bg-sunk overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-500 ${done === sets.length ? 'bg-ok' : 'bg-accent'}`} style={{ width: `${pct}%` }} />
       </div>
+      </div>
     </div>
+    {muscles && <AnatomyMap gender={profile.gender ?? 'male'} muscles={muscles} compact />}
+    </>
   );
 }
 
@@ -494,7 +536,7 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
   onUndo: () => void;
 }) {
   const [load, setLoad] = useState<number | ''>(set.load ?? '');
-  const [reps, setReps] = useState<number | ''>(set.actualReps ?? (set.type === 'mrs' ? '' : set.prescribedReps));
+  const [reps, setReps] = useState<number | ''>(set.actualReps ?? (set.type === 'mrs' || set.customMode === 'failure' ? '' : set.prescribedReps));
   const [rir, setRir] = useState(set.rir ?? 2);
   // When logging a set makes this one the next, bring it into view so the lifter never has to hunt for it.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -509,7 +551,7 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
   useEffect(() => { onLoadChange?.(load); }, [load]);
   useEffect(() => {
     setLoad(set.load ?? '');
-    setReps(set.actualReps ?? (set.type === 'mrs' ? '' : set.prescribedReps));
+    setReps(set.actualReps ?? (set.type === 'mrs' || set.customMode === 'failure' ? '' : set.prescribedReps));
     setRir(set.rir ?? 2);
   }, [set.load, set.actualReps, set.rir, set.completed, set.type, set.prescribedReps]);
 
@@ -529,14 +571,14 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
       {isCurrent && <p className="mb-1 text-xs font-black uppercase tracking-wider text-accent-ink">Up next</p>}
       {context && <p className="mb-2 text-xs text-muted">{context}</p>}
       <div className="flex justify-between gap-2 items-center mb-2">
-        <div className="text-xs"><strong>Set {setNumber}</strong> <span className="text-muted">{extra ? 'your set' : set.type === 'mrs' ? 'MRS · reps may decline' : `target ${set.prescribedReps}${set.isAmrap ? '+' : ''}`}</span></div>
+        <div className="text-xs"><strong>Set {setNumber}</strong> <span className="text-muted">{set.customMode === 'failure' ? 'to failure' : set.customMode === 'drop' ? `drop stage ${(set.dropStage ?? 0) + 1} · target ${set.prescribedReps}` : extra ? 'your set' : set.type === 'mrs' ? 'MRS · reps may decline' : `target ${set.prescribedReps}${set.isAmrap ? '+' : ''}`}</span></div>
         {onRemove && <button type="button" onClick={onRemove} className="min-h-9 rounded-lg px-2 text-xs font-bold text-muted underline underline-offset-2" aria-label={`Remove set ${setNumber}`}>Remove set</button>}
         {set.isAmrap && <span className="text-xs px-2 py-0.5 rounded bg-bad/10 text-bad">optional rep-out</span>}
       </div>
       <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
         <Stepper large={large} label={`Load (${unit})`} value={load} step={increment} onChange={setLoad} />
         <Stepper large={large} label="Achieved reps" value={reps} step={1} onChange={setReps} />
-        <label className="text-xs uppercase font-bold text-muted">RIR<select value={rir} onChange={(event) => setRir(Number(event.target.value))} className="block mt-1 min-h-10 bg-surface border border-line rounded-xl px-2 text-xs text-accent-ink"><option value={0}>0</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3+</option></select></label>
+        <label className="text-xs uppercase font-bold text-muted">RIR<select disabled={set.customMode === 'failure'} value={set.customMode === 'failure' ? 0 : rir} onChange={(event) => setRir(Number(event.target.value))} className="block mt-1 min-h-10 bg-surface border border-line rounded-xl px-2 text-xs text-accent-ink disabled:opacity-60"><option value={0}>0</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3+</option></select></label>
       </div>
       {onPlates && load !== '' && Number(load) > 0 && (
         <button type="button" onClick={() => onPlates(Number(load))} className="mt-2 min-h-9 rounded-xl bg-sunk px-3 text-xs font-bold text-accent-ink">Plates for {Number(load)} {unit}</button>
@@ -546,7 +588,7 @@ function SetRow({ set, setNumber, unit, increment, disabled, isCurrent, context,
         <p className="mt-2 text-xs font-semibold text-accent-ink">{set.suggested === 'tm' ? 'Suggested from your training max. Adjust to what you can do today.' : 'Suggested from last time. Adjust to what you can do today.'}</p>
       )}
       <div className="flex gap-2 mt-3">
-        <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), rir)} className={`flex-1 bg-ok disabled:bg-sunk disabled:text-muted text-on-accent rounded-xl font-black uppercase active:scale-[0.98] transition ${large ? 'min-h-16 text-lg' : isCurrent ? 'min-h-12 text-sm' : 'min-h-11 text-xs'}`}>Log set</button>
+        <button disabled={!canLog} onClick={() => onLog(Number(reps), Number(load), set.customMode === 'failure' ? 0 : rir)} className={`flex-1 bg-ok disabled:bg-sunk disabled:text-muted text-on-accent rounded-xl font-black uppercase active:scale-[0.98] transition ${large ? 'min-h-16 text-lg' : isCurrent ? 'min-h-12 text-sm' : 'min-h-11 text-xs'}`}>Log set</button>
         {set.isAmrap && <button disabled={disabled || load === '' || (problem !== null && Number(load) < 0)} onClick={() => onLog(set.prescribedReps, Number(load), rir, true)} className="px-3 min-h-11 bg-sunk rounded-xl text-xs font-bold">Log prescribed reps, no AMRAP</button>}
       </div>
     </div>

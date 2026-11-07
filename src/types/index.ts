@@ -99,9 +99,17 @@ export interface UserProfile {
   exerciseCustomizations?: Record<string, string>;
   /** Remembered accessory swaps: `${slotId}::${programExerciseId}` -> alternative exercise id. */
   exerciseSwaps?: Record<string, string>;
+  /** Preferred stable slot order per program workout, keyed `W{week}D{day}`. */
+  exerciseOrder?: Record<string, string[]>;
+  customWorkoutTemplates?: CustomWorkoutTemplate[];
   /** Training max per swapped-in variation, keyed `${exerciseId}:${block}`. Never shared with the program lift's TM. */
   variationTrainingMaxes?: Record<string, number>;
   colorTheme?: ColorTheme;
+  appearanceMode?: AppearanceMode;
+  seasonalTheme?: SeasonalTheme;
+  birthdayMonth?: number;
+  birthdayDay?: number;
+  lastBirthdayCelebrationYear?: number;
   /** Where each program workout sits on the calendar. Optional; created on first load. */
   schedule?: ProfileSchedule;
   weeklyGoalSessions?: number;
@@ -150,6 +158,8 @@ export interface ProfileSchedule {
 }
 
 export type ColorTheme = 'lavender' | 'blue' | 'vermilion' | 'forest' | 'rose';
+export type AppearanceMode = 'system' | 'light' | 'dark';
+export type SeasonalTheme = 'none' | 'halloween' | 'winter' | 'valentine';
 
 export type AvatarColor = 'accent' | 'violet' | 'cobalt' | 'ok' | 'gold' | 'ink' | 'clay' | 'teal';
 
@@ -218,6 +228,10 @@ export interface LoggedSet {
   timestamp?: number;
   /** Set while `load` is an app suggestion the lifter has not yet confirmed. */
   suggested?: 'tm' | 'history';
+  /** Custom workout semantics. Drop stages sharing an id belong to one drop-set group. */
+  customMode?: 'standard' | 'failure' | 'drop';
+  dropGroupId?: string;
+  dropStage?: number;
 }
 
 export interface LoggedExercise {
@@ -249,6 +263,9 @@ export interface LoggedExercise {
 
 export interface WorkoutSession {
   sessionId: string;
+  workoutKind?: 'program' | 'custom';
+  customName?: string;
+  customTemplateId?: string;
   /** The lifter's note for the whole workout. */
   note?: string;
   /** Which cycle this workout belongs to. Missing means the first, 'c1'. */
@@ -258,6 +275,8 @@ export interface WorkoutSession {
   day: number;
   startTime: number;
   updatedTime: number;
+  /** Pauseable active-workout clock. Legacy sessions omit it and keep their original duration semantics. */
+  timer?: WorkoutTimer;
   completedTime?: number;
   status: SessionStatus;
   isPartial: boolean;
@@ -274,6 +293,36 @@ export interface WorkoutSession {
   highlights?: unknown;
   /** Reward feedback already delivered for this session, so undo/relog never replays it. */
   rewardsDelivered?: string[];
+}
+
+export interface CustomSetTemplate {
+  id: string;
+  mode: 'standard' | 'failure' | 'drop';
+  reps: number;
+  /** Drop stages including the opening set. Ignored for other modes. */
+  stages?: number;
+}
+
+export interface CustomExerciseTemplate {
+  id: string;
+  exerciseId: string;
+  name: string;
+  sets: CustomSetTemplate[];
+}
+
+export interface CustomWorkoutTemplate {
+  id: string;
+  name: string;
+  exercises: CustomExerciseTemplate[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkoutTimer {
+  /** Active milliseconds accumulated before the current running segment. */
+  accumulatedMs: number;
+  /** Start of the current running segment, or null while paused. */
+  runningSince: number | null;
 }
 
 /** A supplemental run. It never advances the lifting program or contributes lifting volume/PRs. */
@@ -297,7 +346,7 @@ export interface RunSession {
 }
 
 export interface BackupExportData {
-  version: 2 | 3 | 4;
+  version: 2 | 3 | 4 | 5 | 6;
   timestamp: number;
   profiles: UserProfile[];
   sessions: WorkoutSession[];

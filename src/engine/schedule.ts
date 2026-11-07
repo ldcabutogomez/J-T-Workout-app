@@ -64,6 +64,7 @@ export interface DoneInfo { status: DoneStatus; date: DateKey; credit: number; l
 export function doneSlots(history: WorkoutSession[]): Map<SlotKey, DoneInfo> {
   const done = new Map<SlotKey, DoneInfo>();
   for (const session of history) {
+    if (session.workoutKind === 'custom') continue;
     if (session.isDemo) continue;
     if (session.status !== 'completed' && session.status !== 'partial' && session.status !== 'skipped') continue;
     const key = slotKey(session.week, session.day);

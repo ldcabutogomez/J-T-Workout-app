@@ -20,7 +20,7 @@ export function weekStart(timestamp: number): number {
 }
 
 // Extras are the lifter's own additions: they never count toward whether a workout is finished or its weekly credit.
-const loggedSets = (session: WorkoutSession) => session.exercises.filter((exercise) => !isExtra(exercise)).flatMap((exercise) => exercise.sets);
+const loggedSets = (session: WorkoutSession) => session.exercises.filter((exercise) => session.workoutKind === 'custom' || !isExtra(exercise)).flatMap((exercise) => exercise.sets);
 
 export const completedSetCount = (session: WorkoutSession) => loggedSets(session).filter((set) => set.completed).length;
 export const plannedSetCount = (session: WorkoutSession) => loggedSets(session).length;

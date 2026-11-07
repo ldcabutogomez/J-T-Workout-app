@@ -13,6 +13,8 @@ try {
   await newContext.clock.setFixedTime(new Date('2024-05-13T09:00:00'));
   const fresh = await newContext.newPage();
   await fresh.goto(origin, { waitUntil: 'networkidle' });
+  await fresh.getByRole('heading', { name: 'Welcome to your training app' }).waitFor();
+  await fresh.getByRole('button', { name: 'Create my profile' }).click();
   await fresh.getByRole('heading', { name: 'Welcome' }).waitFor();
   await assertNoHorizontalClipping(fresh, 'setup wizard');
   assert.equal(await fresh.getByRole('button', { name: 'Next' }).isDisabled(), true, 'a name is required first');

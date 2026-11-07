@@ -5,12 +5,13 @@ import { programExercises } from './extras';
 import { completedSetCount } from './sessionValidity';
 import { formatRunDistance, formatRunDuration, formatRunPace } from './runs';
 import { musclesForWorkout, parseMuscleIntensities, type MuscleIntensityMap } from './muscles';
+import { workoutElapsedMs } from '../lib/workoutTimer';
 
 export const WRAP_MAX = 200;
 
 /** What a feed card shows. Stats and a short wrap-up only: never notes, set logs or loads. */
 export type ActivitySummary =
-  | { kind: 'workout'; title: string; week: number; day: number; sets: number; volumeLb: number; minutes: number | null; prs: string[]; partial: boolean; muscles?: MuscleIntensityMap; wrap?: string }
+  | { kind: 'workout'; title: string; week: number; day: number; sets: number; volumeLb: number; minutes: number | null; prs: string[]; partial: boolean; custom?: boolean; muscles?: MuscleIntensityMap; wrap?: string }
   | { kind: 'run'; title: string; distance: string; duration: string; pace: string; effort?: number; wrap?: string };
 
 const MAX_MINUTES = 240;
@@ -40,16 +41,17 @@ export function workoutActivity(session: WorkoutSession, history: WorkoutSession
   if (sets === 0) return null;
   const derived = deriveHighlights([...history.filter((item) => item.sessionId !== session.sessionId), session]).get(session.sessionId);
   const prs = (derived?.results ?? []).filter((result) => result.kind === 'all_time_pr').map((result) => result.exerciseName).slice(0, 3);
-  const minutes = session.completedTime && session.completedTime > session.startTime
+  const elapsed = session.timer ? workoutElapsedMs(session, session.completedTime ?? session.updatedTime) : null;
+  const minutes = elapsed !== null ? Math.round(elapsed / 60_000) : session.completedTime && session.completedTime > session.startTime
     ? Math.round((session.completedTime - session.startTime) / 60_000) : null;
   const muscles = musclesForWorkout(session);
   const summary: Extract<ActivitySummary, { kind: 'workout' }> = {
     kind: 'workout',
-    title: programExercises(session)[0]?.exerciseName ?? `Day ${session.day}`,
+    title: session.workoutKind === 'custom' ? (session.customName ?? 'Custom workout') : (programExercises(session)[0]?.exerciseName ?? `Day ${session.day}`),
     week: session.week, day: session.day, sets,
     volumeLb: Math.round(normalizeWeight(derived?.totalVolume ?? 0, session.settingsSnapshot.unit, 'lb')),
     minutes: minutes !== null && minutes <= MAX_MINUTES ? minutes : null,
-    prs, partial: session.isPartial,
+    prs, partial: session.isPartial, ...(session.workoutKind === 'custom' ? { custom: true } : {}),
     ...(muscles ? { muscles } : {}),
   };
   summary.wrap = buildWorkoutWrapUp(summary, streakWeeks);
@@ -93,7 +95,7 @@ export function parseActivitySummary(raw: unknown): ActivitySummary | null {
     if (week === null || day === null || sets === null || volumeLb === null) return null;
     const prs = Array.isArray(r.prs) ? r.prs.map(str).filter((x): x is string => x !== null).slice(0, 3) : [];
     const muscles = parseMuscleIntensities(r.muscles);
-    return { kind: 'workout', title, week, day, sets, volumeLb, minutes: num(r.minutes), prs, partial: r.partial === true, ...(muscles ? { muscles } : {}), ...wrap };
+    return { kind: 'workout', title, week, day, sets, volumeLb, minutes: num(r.minutes), prs, partial: r.partial === true, ...(r.custom === true ? { custom: true } : {}), ...(muscles ? { muscles } : {}), ...wrap };
   }
   return null;
 }

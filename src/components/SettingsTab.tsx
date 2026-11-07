@@ -103,6 +103,7 @@ export function SettingsTab({ profiles, activeProfileId, activeSession, onSwitch
           </span>
         </label>
         <ThemePicker profile={profile} onUpdateProfile={onUpdateProfile} level={level} />
+        <BirthdaySettings profile={profile} onUpdateProfile={onUpdateProfile} />
         <FlairPicker profile={profile} onUpdateProfile={onUpdateProfile} level={level} />
         <TrainingDays profile={profile} onUpdateProfile={onUpdateProfile} />
         <label className="block text-xs uppercase font-bold text-muted">Lifter name<input value={profile.name} onChange={(event) => onUpdateProfile({ ...profile, name: event.target.value })} className="block w-full mt-1 min-h-11 bg-paper border border-line rounded-xl px-3 text-sm normal-case text-ink" /></label>
@@ -269,6 +270,24 @@ function ThemePicker({ profile, onUpdateProfile, level }: { profile: UserProfile
             {!themeUnlocked(theme, level) && <span className="text-xs font-normal text-muted">Level {THEME_UNLOCK_LEVEL[theme]}</span>}
           </button>
         ))}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <label className="text-xs font-bold uppercase text-muted">Brightness<select value={profile.appearanceMode ?? 'system'} onChange={(event) => onUpdateProfile({ ...profile, appearanceMode: event.target.value as UserProfile['appearanceMode'] })} className="field mt-1 normal-case"><option value="system">Follow device</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <label className="text-xs font-bold uppercase text-muted">Seasonal pack<select value={profile.seasonalTheme ?? 'none'} onChange={(event) => onUpdateProfile({ ...profile, seasonalTheme: event.target.value as UserProfile['seasonalTheme'] })} className="field mt-1 normal-case"><option value="none">Off</option><option value="halloween">Halloween</option><option value="winter">Winter holidays</option><option value="valentine">Valentine&apos;s</option></select></label>
+      </div>
+      <p className="mt-2 text-xs text-muted">Seasonal colors are always optional and never activate themselves.</p>
+    </div>
+  );
+}
+
+function BirthdaySettings({ profile, onUpdateProfile }: { profile: UserProfile; onUpdateProfile: (profile: UserProfile) => void }) {
+  return (
+    <div>
+      <p className="eyebrow">Birthday Gains</p>
+      <p className="mt-1 text-xs text-muted">Month and day stay on this device and are never shared.</p>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <label className="text-xs font-bold uppercase text-muted">Month<select value={profile.birthdayMonth ?? ''} onChange={(event) => onUpdateProfile({ ...profile, birthdayMonth: event.target.value ? Number(event.target.value) : undefined })} className="field mt-1 normal-case"><option value="">Not set</option>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{new Date(2024, index, 1).toLocaleDateString(undefined, { month: 'long' })}</option>)}</select></label>
+        <label className="text-xs font-bold uppercase text-muted">Day<input type="number" min={1} max={31} value={profile.birthdayDay ?? ''} onChange={(event) => onUpdateProfile({ ...profile, birthdayDay: event.target.value ? Math.max(1, Math.min(31, Number(event.target.value))) : undefined })} className="field mt-1 normal-case" /></label>
       </div>
     </div>
   );

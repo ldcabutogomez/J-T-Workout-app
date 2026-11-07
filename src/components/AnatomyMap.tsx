@@ -108,7 +108,7 @@ function MuscleView({ gender, view, muscles, id }: { gender: Gender; view: View;
   );
 }
 
-export function AnatomyMap({ gender, muscles }: { gender: Gender; muscles: MuscleIntensityMap }) {
+export function AnatomyMap({ gender, muscles, compact = false }: { gender: Gender; muscles: MuscleIntensityMap; compact?: boolean }) {
   const id = `anatomy-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const worked = MUSCLE_GROUPS
     .filter((group) => muscles[group])
@@ -117,14 +117,14 @@ export function AnatomyMap({ gender, muscles }: { gender: Gender; muscles: Muscl
   if (!worked.length) return null;
   const description = worked.map((group) => `${MUSCLE_LABELS[group]} ${band(muscles[group] ?? 0)}`).join(', ');
   return (
-    <figure className="mt-3 rounded-2xl border border-line bg-sunk/60 px-3 py-2" role="img" aria-label={`Muscles worked: ${description}`}>
+    <figure className={`${compact ? 'mt-2 px-2 py-1' : 'mt-3 px-3 py-2'} rounded-2xl border border-line bg-sunk/60`} role="img" aria-label={`Muscles worked: ${description}`}>
       <div className="flex items-center justify-between gap-3">
-        <figcaption className="eyebrow">Muscles worked</figcaption>
+        <figcaption className="eyebrow">{compact ? 'Live muscle activity' : 'Muscles worked'}</figcaption>
         <div className="flex items-center gap-1 text-[10px] font-bold text-muted" aria-hidden="true">
           <span>Low</span><span className="h-2 w-16 rounded-full bg-gradient-to-r from-[#ffe14d] via-[#ff9a1f] to-[#e0301e]" /><span>High</span>
         </div>
       </div>
-      <div className="mx-auto mt-1 flex max-w-[18rem] items-end justify-center gap-2">
+      <div className={`mx-auto mt-1 flex items-end justify-center gap-2 ${compact ? 'max-w-[8rem] max-h-20 overflow-hidden' : 'max-w-[18rem]'}`}>
         <MuscleView gender={gender} view="front" muscles={muscles} id={id} />
         <MuscleView gender={gender} view="back" muscles={muscles} id={id} />
       </div>

@@ -54,12 +54,12 @@ test('sanitizing twice changes nothing more (idempotent)', () => {
   assert.deepEqual(sanitizeProfile(once), once);
 });
 
-test('backups: version 2 migrates to 5 with an empty run collection; newer and foreign files are refused', () => {
+test('backups: version 2 migrates to the current schema with an empty run collection; newer and foreign files are refused', () => {
   const v2 = { version: 2, app: BACKUP_APP, timestamp: 1, profiles: [{ ...profile(), flair: '' }], sessions: [], activeSessions: [] };
   const migrated = migrateBackup(v2);
   assert.equal(migrated.ok, true);
   if (migrated.ok) {
-    assert.equal(migrated.value.version, 5);
+    assert.equal(migrated.value.version, SCHEMA_VERSION);
     assert.deepEqual(migrated.value.runs, []);
     const profiles = migrated.value.profiles as Array<Record<string, unknown>>;
     assert.equal('flair' in profiles[0], false);

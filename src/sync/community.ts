@@ -1,6 +1,7 @@
 import { parseSnapshot, type PartnerSnapshot } from '../engine/leaderboard';
 import { parseActivitySummary, type ActivitySummary } from '../engine/activity';
-import type { Gender } from '../types';
+import type { Gender, ProfileAvatar } from '../types';
+import { AVATAR_COLORS, AVATAR_THUMB_MAX_CHARS, isJpegDataUrl } from '../lib/avatar';
 import type { CloudConfig } from './cloud';
 import type { AuthSession } from './auth';
 
@@ -9,6 +10,7 @@ export interface FeedItem {
   userId: string;
   name: string;
   gender?: Gender;
+  avatar?: Pick<ProfileAvatar, 'thumb' | 'color'>;
   summary: ActivitySummary;
   createdAt: number;
   likes: number;
@@ -22,9 +24,19 @@ export interface CommentItem {
   name: string;
   body: string;
   createdAt: number;
+  avatar?: Pick<ProfileAvatar, 'thumb' | 'color'>;
 }
 
 export const COMMENT_MAX = 280;
+
+function parsePublicAvatar(value: unknown): Pick<ProfileAvatar, 'thumb' | 'color'> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  const avatar: Pick<ProfileAvatar, 'thumb' | 'color'> = {};
+  if (isJpegDataUrl(row.thumb, AVATAR_THUMB_MAX_CHARS)) avatar.thumb = row.thumb;
+  if (typeof row.color === 'string' && (AVATAR_COLORS as readonly string[]).includes(row.color)) avatar.color = row.color as ProfileAvatar['color'];
+  return avatar.thumb || avatar.color ? avatar : undefined;
+}
 
 async function call(config: CloudConfig, session: AuthSession, path: string, init: RequestInit, fetchImpl: typeof fetch): Promise<unknown> {
   const response = await fetchImpl(`${config.url}/rest/v1/${path}`, {
@@ -85,6 +97,7 @@ export async function fetchFeed(config: CloudConfig, session: AuthSession, fetch
       id: row.id, userId: row.user_id, summary, createdAt: created,
       name: typeof row.display_name === 'string' ? row.display_name : 'Lifter',
       ...(row.gender === 'male' || row.gender === 'female' ? { gender: row.gender } : {}),
+      ...(parsePublicAvatar(row.avatar) ? { avatar: parsePublicAvatar(row.avatar) } : {}),
       likes: Number(row.like_count) || 0, likedByMe: row.liked_by_me === true, commentCount: Number(row.comment_count) || 0,
     });
   }
@@ -124,7 +137,7 @@ export async function fetchComments(config: CloudConfig, session: AuthSession, a
   for (const row of rows as Array<Record<string, unknown>>) {
     const created = typeof row.created_at === 'string' ? Date.parse(row.created_at) : NaN;
     if (typeof row.id !== 'string' || typeof row.user_id !== 'string' || typeof row.body !== 'string' || !Number.isFinite(created)) continue;
-    out.push({ id: row.id, userId: row.user_id, name: typeof row.display_name === 'string' ? row.display_name : 'Lifter', body: row.body.slice(0, COMMENT_MAX), createdAt: created });
+    out.push({ id: row.id, userId: row.user_id, name: typeof row.display_name === 'string' ? row.display_name : 'Lifter', body: row.body.slice(0, COMMENT_MAX), createdAt: created, ...(parsePublicAvatar(row.avatar) ? { avatar: parsePublicAvatar(row.avatar) } : {}) });
   }
   return out;
 }

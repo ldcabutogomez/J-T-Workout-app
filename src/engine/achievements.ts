@@ -4,6 +4,7 @@ import { countsTowardStats, meetsGoal, validCompleted, weekStart, weeklyCounts }
 
 export { weekStart };
 import { normalizeWeight } from './jnt2Engine';
+import { workoutElapsedMs } from '../lib/workoutTimer';
 
 export type BadgeIconKey =
   | 'rocket' | 'flame' | 'dumbbell' | 'medal' | 'trophy' | 'star' | 'party' | 'calendar' | 'calendar-check' | 'zap' | 'crown'
@@ -61,6 +62,7 @@ export const BADGES: BadgeDefinition[] = [
   { id: 'streak_4', name: 'Month of Consistency', description: 'Hit your weekly goal 4 weeks in a row', icon: 'calendar-check' },
   { id: 'streak_8', name: 'Unstoppable', description: 'Hit your weekly goal 8 weeks in a row', icon: 'zap' },
   { id: 'cycle_complete', name: 'Cycle Complete', description: 'Finish all 48 sessions', icon: 'crown' },
+  { id: 'birthday_gains', name: 'Birthday Gains', description: 'Celebrate your birthday with the training crew', icon: 'party' },
   // Lifting milestones
   { id: 'volume_50k', name: 'Fifty Thousand', description: 'Lift 50,000 lb in total', icon: 'weight' },
   { id: 'volume_100k', name: 'Six Figures', description: 'Lift 100,000 lb in total', icon: 'weight' },
@@ -113,6 +115,12 @@ export function countCompletedSets(session: WorkoutSession): number {
 
 /** First to last logged set. Draft age is ignored, so a draft left overnight does not inflate it. */
 export function loggedDurationMs(session: WorkoutSession): number {
+  // Completed workouts normally have their timer stopped during finalization. If an
+  // older/imported/test fixture still has a running timer, use its logged-set span
+  // instead of inventing a potentially enormous duration from stale timestamps.
+  if (session.timer?.runningSince === null && session.timer.accumulatedMs > 0) {
+    return workoutElapsedMs(session, session.completedTime ?? session.updatedTime);
+  }
   const stamps = session.exercises
     .flatMap((exercise) => exercise.sets)
     .filter((set) => set.completed && typeof set.timestamp === 'number')

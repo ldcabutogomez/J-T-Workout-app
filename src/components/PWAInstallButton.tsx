@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDialog } from '../lib/useDialog';
 import { CheckCircle2, Download } from 'lucide-react';
+import { isAppleMobile, isStandaloneApp } from '../lib/installMode';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -14,10 +15,10 @@ export function PWAInstallButton({ activeWorkout }: { activeWorkout: boolean }) 
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
   const [showIos, setShowIos] = useState(false);
   const [serviceWorkerError, setServiceWorkerError] = useState('');
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const ios = isAppleMobile();
 
   useEffect(() => {
-    setInstalled(window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
+    setInstalled(isStandaloneApp());
     const beforeInstall = (event: Event) => { event.preventDefault(); setPrompt(event as BeforeInstallPromptEvent); };
     const appInstalled = () => { setInstalled(true); setPrompt(null); };
     window.addEventListener('beforeinstallprompt', beforeInstall);

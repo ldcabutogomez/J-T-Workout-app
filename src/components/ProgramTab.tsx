@@ -4,6 +4,7 @@ import { getDayPrescription, REQUIRED_TRAINING_MAXES } from '../engine/jnt2Engin
 import { WORKBOOK_AMBIGUITIES } from '../program/prescriptions';
 import { exerciseNameFor, isSwapSupported } from '../program/swapOptions';
 import { AlertCircle, Check, Sliders } from 'lucide-react';
+import { ExerciseHowTo } from './ExerciseHowTo';
 
 interface ProgramTabProps {
   profile: UserProfile | null;
@@ -104,6 +105,7 @@ export function ProgramTab({ profile, onUpdateProfile }: ProgramTabProps) {
                 {slot.ambiguity && <p className="text-xs text-accent-ink mt-2"><AlertCircle className="inline w-4 h-4 mr-1" />{slot.ambiguity}</p>}
               </div></div>
               <p className="text-xs font-mono text-muted mt-2 break-all">{formatSources(slot.sourceRefs)}</p>
+              <div className="mt-2"><ExerciseHowTo exerciseId={slot.exerciseId} exerciseName={slot.exerciseName} /></div>
             </article>;
           })}
         </div>

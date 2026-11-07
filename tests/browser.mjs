@@ -470,21 +470,19 @@ try {
   assert.equal(await ooo.locator('[data-day="2024-05-13"] [data-workout-dot][data-state="planned"]').count(), 1, 'Day 1 is still planned');
   await oooContext.close();
 
-  // iPhone install instructions must be fully on screen (the header's backdrop-blur once clipped them).
+  // Mobile browsers are gated before setup so browser storage cannot be mistaken for Home Screen storage.
   const iosContext = await lockedContext(browser, 'partner-1', {
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
   });
   const iosPage = await iosContext.newPage();
   await iosPage.goto(origin, { waitUntil: 'networkidle' });
-  await iosPage.getByRole('button', { name: 'Install' }).click();
-  const iosDialog = iosPage.getByRole('dialog', { name: 'Install on iPhone or iPad' });
-  await iosDialog.waitFor();
-  for (const text of ['Open this page in', 'Tap the', 'Scroll down and choose', 'Open the app from your Home Screen']) {
-    const box = await iosDialog.getByText(text).boundingBox();
+  await iosPage.getByRole('heading', { name: 'Keep your workout data with the app' }).waitFor();
+  await iosPage.getByRole('button', { name: 'Export browser backup' }).waitFor();
+  for (const text of ['Open this page in Safari', 'Choose Add to Home Screen', 'Close this browser tab']) {
+    const box = await iosPage.getByText(text, { exact: false }).boundingBox();
     assert.ok(box && box.y >= 0 && box.y + box.height <= 844, `iOS install step "${text}" is cut off: ${JSON.stringify(box)}`);
   }
-  await iosPage.keyboard.press('Escape');
-  await iosDialog.waitFor({ state: 'detached' });
+  await assertNoHorizontalClipping(iosPage, 'mobile install gate');
   await iosContext.close();
 
   assert.deepEqual(browserErrors, [], `browser console/page errors: ${browserErrors.join('\n')}`);

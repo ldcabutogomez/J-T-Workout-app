@@ -131,9 +131,30 @@
   --color-accent-ink: #96194b;
 }
 
+:root[data-mode='dark'] {
+  --color-paper: #111316;
+  --color-surface: #191c20;
+  --color-sunk: #24282e;
+  --color-line: #3b414a;
+  --color-ink: #f3f5f7;
+  --color-ink-2: #d3d8de;
+  --color-muted: #aab2bc;
+  --color-accent-ink: var(--color-accent);
+}
+
+:root[data-mode='dark'][data-theme='lavender'] { --color-accent: #b894f2; }
+:root[data-mode='dark'][data-theme='blue'] { --color-accent: #74a9f5; }
+:root[data-mode='dark'][data-theme='vermilion'] { --color-accent: #ff7655; }
+:root[data-mode='dark'][data-theme='forest'] { --color-accent: #66c895; }
+:root[data-mode='dark'][data-theme='rose'] { --color-accent: #ed78a7; }
+
+:root[data-seasonal='halloween'] { --color-accent: #e66a13; --color-gold: #f0a525; }
+:root[data-seasonal='winter'] { --color-accent: #397dcc; --color-gold: #a9d9ef; }
+:root[data-seasonal='valentine'] { --color-accent: #cc2f68; --color-gold: #e690ad; }
+
 @layer base {
   html {
-    color-scheme: light;
+    color-scheme: light dark;
   }
 
   body {
@@ -143,6 +164,14 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  :where(button, a, input, select, textarea, summary, [role='button']) {
+    touch-action: manipulation;
+  }
+
+  @media (max-width: 767px) {
+    :where(input, select, textarea) { font-size: 16px !important; }
   }
 
   h1, h2, h3, .font-display {

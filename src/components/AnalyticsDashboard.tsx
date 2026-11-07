@@ -18,6 +18,9 @@ import {
 } from '../engine/trends';
 import { EmptyChart, LineChart, Sparkline } from './charts/Charts';
 import { TrendsCard } from './TrendsCard';
+import { MuscleRadarChart } from './MuscleRadarChart';
+import { muscleVolumeDistribution } from '../engine/muscleDistribution';
+import { analyticsSessions } from '../engine/trends';
 
 const RANGE_OPTIONS: Array<{ value: AnalyticsRange; label: string; long: string }> = [
   { value: '4w', label: '4W', long: '4 weeks' },
@@ -178,6 +181,7 @@ export function AnalyticsDashboard({ profile, history }: { profile: UserProfile;
   const volume = useMemo(() => analyticsVolumeByWeek(history, profile.unit, range, now), [history, profile.unit, range, now]);
   const prs = useMemo(() => prsByWeek(history, range, now), [history, range, now]);
   const duration = useMemo(() => workoutDurationSeries(history, range, now), [history, range, now]);
+  const muscleDistribution = useMemo(() => muscleVolumeDistribution(analyticsSessions(history, range, now), profile.unit), [history, range, now, profile.unit]);
   const workouts = useMemo<TrendPoint[]>(() => groupWeeks(days).map((week) => ({ at: week.at, value: week.count })), [days]);
   const { current, previous } = summary;
   const latestStrength = strength[strength.length - 1];
@@ -212,12 +216,18 @@ export function AnalyticsDashboard({ profile, history }: { profile: UserProfile;
         </div>
       </section>
 
-      <section aria-label="Training summary" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <MetricTile icon={CalendarCheck2} label="Workouts" value={fullNumber.format(current.workouts)} detail={<Comparison current={current.workouts} previous={previous?.workouts} />} points={workouts} bars tone="ok" />
-        <MetricTile icon={Dumbbell} label="Volume" value={compactNumber.format(current.volume)} title={`${fullNumber.format(current.volume)} ${profile.unit}`} detail={<Comparison current={current.volume} previous={previous?.volume} unit={profile.unit} />} points={volume} bars />
-        <MetricTile icon={Trophy} label="All-time PRs" value={fullNumber.format(current.prs)} detail={<Comparison current={current.prs} previous={previous?.prs} />} points={prs} bars tone="gold" />
-        <MetricTile icon={Clock3} label="Avg active" value={current.averageDurationMinutes === null ? '—' : `${current.averageDurationMinutes}m`} detail={<span className="text-xs text-muted">{current.durationCoverage} of {current.workouts} timed</span>} points={duration} />
+      <section aria-label="Training summary" className="grid gap-2 lg:grid-cols-2">
+        <div className="card grid grid-cols-2 gap-2 p-2" aria-label="Workout and volume summary">
+          <MetricTile icon={CalendarCheck2} label="Workouts" value={fullNumber.format(current.workouts)} detail={<Comparison current={current.workouts} previous={previous?.workouts} />} points={workouts} bars tone="ok" />
+          <MetricTile icon={Dumbbell} label="Volume" value={compactNumber.format(current.volume)} title={`${fullNumber.format(current.volume)} ${profile.unit}`} detail={<Comparison current={current.volume} previous={previous?.volume} unit={profile.unit} />} points={volume} bars />
+        </div>
+        <div className="card grid grid-cols-2 gap-2 p-2" aria-label="Personal records and workout time summary">
+          <MetricTile icon={Trophy} label="All-time PRs" value={fullNumber.format(current.prs)} detail={<Comparison current={current.prs} previous={previous?.prs} />} points={prs} bars tone="gold" />
+          <MetricTile icon={Clock3} label="Avg active" value={current.averageDurationMinutes === null ? '—' : `${current.averageDurationMinutes}m`} detail={<span className="text-xs text-muted">{current.durationCoverage} of {current.workouts} timed</span>} points={duration} />
+        </div>
       </section>
+
+      <MuscleRadarChart values={muscleDistribution} unit={profile.unit} />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <ActivityHeatmap key={range} days={days} range={range} goal={profile.weeklyGoalSessions ?? 4} />

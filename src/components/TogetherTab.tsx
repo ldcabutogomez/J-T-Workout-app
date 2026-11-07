@@ -37,7 +37,6 @@ export interface PairingUi {
   /** Returns an error message, or null on success. */
   onJoin: (code: string) => string | null;
   onUnlink: () => void;
-  onSyncNow: () => void;
   diagnostics?: SyncDiagnostics;
   onTestConnection: () => void;
 }
@@ -94,10 +93,7 @@ function PairingPanel({ pairing }: { pairing: PairingUi }) {
             <p className="text-xs text-muted">Partner code</p>
             <p className="font-mono font-black text-lg text-accent-ink tracking-wider">{display}</p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={share} className={`${button} bg-accent text-on-accent`}>{copied ? 'Copied' : 'Share'}</button>
-            <button onClick={pairing.onSyncNow} className={`${button} bg-sunk text-ink`} disabled={status.state === 'syncing'}>{status.state === 'syncing' ? 'Syncing…' : 'Sync now'}</button>
-          </div>
+          <button onClick={share} className={`${button} bg-accent text-on-accent`}>{copied ? 'Copied' : 'Share'}</button>
         </div>
         <p className={`text-xs mt-2 ${status.state === 'error' ? 'text-bad' : 'text-muted'}`}>
           {status.state === 'error' ? `${status.error ?? 'Sync failed'}${status.at ? ` · last synced ${ago(status.at)}` : ''}` : status.at ? `Synced ${ago(status.at)}` : 'Waiting for first sync…'}
@@ -151,7 +147,6 @@ function SyncDetails({ pairing }: { pairing: PairingUi }) {
       {status.state === 'error' && <p role="alert" className="alert-bad mb-2 text-xs">{status.error}</p>}
       <div className="flex flex-wrap gap-2 pb-3">
         <button onClick={pairing.onTestConnection} disabled={d.connection.state === 'testing'} className="btn-secondary min-h-11 text-xs">{d.connection.state === 'testing' ? 'Testing…' : 'Test connection'}</button>
-        {pairing.code && <button onClick={pairing.onSyncNow} disabled={status.state === 'syncing'} className="btn-secondary min-h-11 text-xs">{status.state === 'syncing' ? 'Syncing…' : 'Sync now'}</button>}
       </div>
       {d.connection.message && <p role="status" className={`pb-3 text-xs ${d.connection.state === 'error' ? 'text-bad' : 'text-ok'}`}>{d.connection.message}</p>}
     </details>

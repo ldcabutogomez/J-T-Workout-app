@@ -6,9 +6,10 @@ import type { BackupExportData, UserProfile } from '../types';
  *   3: every optional profile field is checked at runtime; records carry `schemaVersion`.
  *   4: supplemental run records are included in backups.
  *   5: profiles can store the gender used by activity muscle maps.
+ *   6: profiles can store appearance, birthday, exercise order, and custom workout templates.
  * Add a step to `migrateBackup` / `sanitizeProfile` whenever the shape changes, never edit an old one.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 export const BACKUP_APP = 'GZCL_Jacked_And_Tan_2_Partner_Engine';
 /** Oldest backup version this build can still read. */
 export const OLDEST_BACKUP_VERSION = 2;
@@ -38,8 +39,24 @@ const OPTIONAL_PROFILE_FIELDS: Record<string, Clean> = {
   keepScreenOn: bool,
   largeGymMode: bool,
   shareLive: bool,
+  appearanceMode: (value) => (value === 'system' || value === 'light' || value === 'dark' ? value : undefined),
+  seasonalTheme: (value) => (value === 'none' || value === 'halloween' || value === 'winter' || value === 'valentine' ? value : undefined),
+  birthdayMonth: (value) => (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 12 ? value : undefined),
+  birthdayDay: (value) => (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 31 ? value : undefined),
+  lastBirthdayCelebrationYear: (value) => (Number.isInteger(value) && Number(value) >= 2000 && Number(value) <= 3000 ? value : undefined),
   block2ConfirmedAt: (value) => (finite(value) && value >= 0 ? value : undefined),
   exerciseCustomizations: (value) => (isStringRecord(value) ? value : undefined),
+  exerciseOrder: (value) => {
+    if (!isObject(value)) return undefined;
+    const kept = Object.entries(value).filter(([key, order]) => /^W(?:[1-9]|1[0-2])D[1-4]$/.test(key)
+      && Array.isArray(order) && order.length <= 40 && order.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 100));
+    return Object.fromEntries(kept);
+  },
+  customWorkoutTemplates: (value) => {
+    if (!Array.isArray(value)) return undefined;
+    return value.filter((template) => isObject(template) && typeof template.id === 'string' && typeof template.name === 'string'
+      && template.name.trim().length > 0 && Array.isArray(template.exercises) && finite(template.createdAt) && finite(template.updatedAt));
+  },
   weeklyGoalSessions: (value) => (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 14 ? value : undefined),
   variationTrainingMaxes: (value) => {
     if (!isObject(value)) return undefined;
@@ -119,6 +136,10 @@ export function migrateBackup(raw: unknown): BackupMigration {
   // 4 -> 5: gender remains absent on legacy profiles until the one-time in-app choice is made.
   if (value.version === 4) {
     value = { ...value, version: 5 };
+  }
+  // 5 -> 6: all new profile fields are optional and are normalized below.
+  if (value.version === 5) {
+    value = { ...value, version: 6 };
   }
   if (Array.isArray(value.profiles)) {
     value = { ...value, profiles: value.profiles.map((p) => sanitizeProfile(p)) };

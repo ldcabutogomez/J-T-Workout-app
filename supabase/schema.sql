@@ -183,13 +183,13 @@ create policy activities_write on public.activities for insert to authenticated 
 
 drop function if exists public.community_feed(int);
 create function public.community_feed(p_limit int default 50)
-returns table (id uuid, user_id uuid, display_name text, gender text, kind text, summary jsonb, created_at timestamptz, like_count bigint, liked_by_me boolean, comment_count bigint)
+returns table (id uuid, user_id uuid, display_name text, gender text, avatar jsonb, kind text, summary jsonb, created_at timestamptz, like_count bigint, liked_by_me boolean, comment_count bigint)
 language sql
 stable
 security invoker
 set search_path = public
 as $$
-  select a.id, a.user_id, m.display_name, m.gender, a.kind, a.summary, a.created_at,
+  select a.id, a.user_id, m.display_name, m.gender, m.snapshot -> 'avatar', a.kind, a.summary, a.created_at,
          (select count(*) from activity_likes l where l.activity_id = a.id),
          exists (select 1 from activity_likes l where l.activity_id = a.id and l.user_id = auth.uid()),
          (select count(*) from activity_comments c where c.activity_id = a.id)
@@ -201,14 +201,15 @@ revoke all on function public.community_feed(int) from public, anon;
 grant execute on function public.community_feed(int) to authenticated;
 
 -- Comments with their authors' names, for one activity.
-create or replace function public.activity_comment_list(p_activity uuid)
-returns table (id uuid, user_id uuid, display_name text, body text, created_at timestamptz)
+drop function if exists public.activity_comment_list(uuid);
+create function public.activity_comment_list(p_activity uuid)
+returns table (id uuid, user_id uuid, display_name text, avatar jsonb, body text, created_at timestamptz)
 language sql
 stable
 security invoker
 set search_path = public
 as $$
-  select c.id, c.user_id, coalesce(m.display_name, 'Lifter'), c.body, c.created_at
+  select c.id, c.user_id, coalesce(m.display_name, 'Lifter'), m.snapshot -> 'avatar', c.body, c.created_at
   from activity_comments c left join community_members m on m.user_id = c.user_id
   where c.activity_id = p_activity
   order by c.created_at
@@ -273,3 +274,139 @@ create policy cpush_write on public.community_push for insert to authenticated w
 create policy cpush_update on public.community_push for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy cpush_delete on public.community_push for delete to authenticated using (user_id = auth.uid());
 grant select, insert, update, delete on public.community_push to authenticated;
+
+-- ---------------------------------------------------------------------------------------------
+-- Direct messages. Text-only, one-to-one conversations for authenticated community members.
+-- Participants can read only their conversations. Writes go through checked RPCs so blocking,
+-- membership, length and throttling rules cannot be bypassed by the public client.
+-- ---------------------------------------------------------------------------------------------
+create table if not exists public.dm_conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_low uuid not null references auth.users on delete cascade,
+  user_high uuid not null references auth.users on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint dm_distinct_users check (user_low <> user_high),
+  unique (user_low, user_high)
+);
+create table if not exists public.dm_messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.dm_conversations on delete cascade,
+  sender_id uuid not null references auth.users on delete cascade,
+  body text not null check (length(body) between 1 and 1000),
+  created_at timestamptz not null default now()
+);
+create index if not exists dm_messages_conversation_idx on public.dm_messages (conversation_id, created_at desc);
+create table if not exists public.dm_reads (
+  conversation_id uuid not null references public.dm_conversations on delete cascade,
+  user_id uuid not null references auth.users on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key (conversation_id, user_id)
+);
+create table if not exists public.dm_blocks (
+  blocker_id uuid not null references auth.users on delete cascade default auth.uid(),
+  blocked_id uuid not null references auth.users on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (blocker_id, blocked_id),
+  check (blocker_id <> blocked_id)
+);
+create table if not exists public.dm_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid not null references auth.users on delete cascade default auth.uid(),
+  message_id uuid not null references public.dm_messages on delete cascade,
+  reason text not null check (length(reason) between 1 and 280),
+  created_at timestamptz not null default now(),
+  unique (reporter_id, message_id)
+);
+
+alter table public.dm_conversations enable row level security;
+alter table public.dm_messages enable row level security;
+alter table public.dm_reads enable row level security;
+alter table public.dm_blocks enable row level security;
+alter table public.dm_reports enable row level security;
+revoke all on public.dm_conversations, public.dm_messages, public.dm_reads, public.dm_blocks, public.dm_reports from anon, authenticated;
+
+drop policy if exists dm_conversations_read on public.dm_conversations;
+create policy dm_conversations_read on public.dm_conversations for select to authenticated using (auth.uid() in (user_low, user_high));
+drop policy if exists dm_messages_read on public.dm_messages;
+create policy dm_messages_read on public.dm_messages for select to authenticated using (exists (select 1 from public.dm_conversations c where c.id = conversation_id and auth.uid() in (c.user_low, c.user_high)));
+drop policy if exists dm_reads_own on public.dm_reads;
+create policy dm_reads_own on public.dm_reads for select to authenticated using (user_id = auth.uid());
+drop policy if exists dm_blocks_own on public.dm_blocks;
+create policy dm_blocks_own on public.dm_blocks for select to authenticated using (blocker_id = auth.uid());
+drop policy if exists dm_reports_own on public.dm_reports;
+create policy dm_reports_own on public.dm_reports for select to authenticated using (reporter_id = auth.uid());
+grant select on public.dm_conversations, public.dm_messages, public.dm_reads, public.dm_blocks, public.dm_reports to authenticated;
+
+create or replace function public.start_dm(p_other uuid) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid(); low_id uuid; high_id uuid; result uuid;
+begin
+  if me is null or p_other is null or me = p_other then raise exception 'Choose another community member.'; end if;
+  if not exists (select 1 from community_members where user_id = p_other) then raise exception 'That community member is unavailable.'; end if;
+  if exists (select 1 from dm_blocks where (blocker_id = me and blocked_id = p_other) or (blocker_id = p_other and blocked_id = me)) then raise exception 'This conversation is blocked.'; end if;
+  if me::text < p_other::text then low_id := me; high_id := p_other; else low_id := p_other; high_id := me; end if;
+  insert into dm_conversations(user_low, user_high) values (low_id, high_id)
+    on conflict (user_low, user_high) do update set updated_at = dm_conversations.updated_at returning id into result;
+  insert into dm_reads(conversation_id, user_id) values (result, me) on conflict do nothing;
+  return result;
+end $$;
+
+create or replace function public.send_dm(p_conversation uuid, p_body text) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid(); other_id uuid; result uuid; clean text := btrim(p_body);
+begin
+  select case when user_low = me then user_high when user_high = me then user_low end into other_id from dm_conversations where id = p_conversation;
+  if other_id is null then raise exception 'Conversation not found.'; end if;
+  if length(clean) < 1 or length(clean) > 1000 then raise exception 'Messages must be 1 to 1000 characters.'; end if;
+  if exists (select 1 from dm_blocks where (blocker_id = me and blocked_id = other_id) or (blocker_id = other_id and blocked_id = me)) then raise exception 'This conversation is blocked.'; end if;
+  if (select count(*) from dm_messages where sender_id = me and created_at > now() - interval '1 minute') >= 30 then raise exception 'Too many messages. Wait a minute and try again.'; end if;
+  insert into dm_messages(conversation_id, sender_id, body) values (p_conversation, me, clean) returning id into result;
+  update dm_conversations set updated_at = now() where id = p_conversation;
+  insert into dm_reads(conversation_id, user_id, last_read_at) values (p_conversation, me, now()) on conflict (conversation_id, user_id) do update set last_read_at = excluded.last_read_at;
+  return result;
+end $$;
+
+create or replace function public.dm_message_list(p_conversation uuid, p_limit int default 100)
+returns table (id uuid, sender_id uuid, body text, created_at timestamptz)
+language sql stable security invoker set search_path = public as $$
+  select m.id, m.sender_id, m.body, m.created_at from dm_messages m
+  where m.conversation_id = p_conversation order by m.created_at asc limit least(greatest(p_limit, 1), 200)
+$$;
+
+create or replace function public.dm_conversation_list()
+returns table (id uuid, other_id uuid, other_name text, avatar jsonb, last_body text, last_at timestamptz, unread_count bigint)
+language sql stable security invoker set search_path = public as $$
+  select c.id, case when c.user_low = auth.uid() then c.user_high else c.user_low end,
+    coalesce(cm.display_name, 'Lifter'), cm.snapshot -> 'avatar', coalesce(last_m.body, ''), coalesce(last_m.created_at, c.created_at),
+    (select count(*) from dm_messages unread where unread.conversation_id = c.id and unread.sender_id <> auth.uid()
+      and unread.created_at > coalesce((select r.last_read_at from dm_reads r where r.conversation_id = c.id and r.user_id = auth.uid()), 'epoch'::timestamptz))
+  from dm_conversations c
+  join community_members cm on cm.user_id = case when c.user_low = auth.uid() then c.user_high else c.user_low end
+  left join lateral (select m.body, m.created_at from dm_messages m where m.conversation_id = c.id order by m.created_at desc limit 1) last_m on true
+  where auth.uid() in (c.user_low, c.user_high)
+    and not exists (select 1 from dm_blocks b where (b.blocker_id = auth.uid() and b.blocked_id = cm.user_id) or (b.blocker_id = cm.user_id and b.blocked_id = auth.uid()))
+  order by coalesce(last_m.created_at, c.created_at) desc
+$$;
+
+create or replace function public.mark_dm_read(p_conversation uuid) returns void
+language plpgsql security definer set search_path = public as $$ begin
+  if not exists (select 1 from dm_conversations where id = p_conversation and auth.uid() in (user_low, user_high)) then raise exception 'Conversation not found.'; end if;
+  insert into dm_reads(conversation_id, user_id, last_read_at) values (p_conversation, auth.uid(), now()) on conflict (conversation_id, user_id) do update set last_read_at = excluded.last_read_at;
+end $$;
+
+create or replace function public.block_community_user(p_user uuid) returns void
+language plpgsql security definer set search_path = public as $$ begin
+  if p_user is null or p_user = auth.uid() then raise exception 'Choose another community member.'; end if;
+  insert into dm_blocks(blocker_id, blocked_id) values (auth.uid(), p_user) on conflict do nothing;
+end $$;
+
+create or replace function public.report_dm(p_message uuid, p_reason text) returns void
+language plpgsql security definer set search_path = public as $$ begin
+  if length(btrim(p_reason)) < 1 then raise exception 'Add a reason for the report.'; end if;
+  if not exists (select 1 from dm_messages m join dm_conversations c on c.id = m.conversation_id where m.id = p_message and auth.uid() in (c.user_low, c.user_high)) then raise exception 'Message not found.'; end if;
+  insert into dm_reports(reporter_id, message_id, reason) values (auth.uid(), p_message, left(btrim(p_reason), 280)) on conflict (reporter_id, message_id) do update set reason = excluded.reason, created_at = now();
+end $$;
+
+revoke all on function public.start_dm(uuid), public.send_dm(uuid, text), public.dm_message_list(uuid, int), public.dm_conversation_list(), public.mark_dm_read(uuid), public.block_community_user(uuid), public.report_dm(uuid, text) from public, anon;
+grant execute on function public.start_dm(uuid), public.send_dm(uuid, text), public.dm_message_list(uuid, int), public.dm_conversation_list(), public.mark_dm_read(uuid), public.block_community_user(uuid), public.report_dm(uuid, text) to authenticated;

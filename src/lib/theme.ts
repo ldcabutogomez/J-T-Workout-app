@@ -1,4 +1,4 @@
-import type { ColorTheme } from '../types';
+import type { AppearanceMode, ColorTheme, SeasonalTheme } from '../types';
 
 export const COLOR_THEMES: readonly ColorTheme[] = ['lavender', 'blue', 'vermilion', 'forest', 'rose'];
 export const THEME_STORAGE_KEY = 'jnt2_color_theme';
@@ -38,4 +38,16 @@ export function applyTheme(theme: ColorTheme): void {
   } catch {
     // The saved theme only prevents a flash on the next load; the app works without it.
   }
+}
+
+export function applyAppearance(profile: { id: string; colorTheme?: ColorTheme; appearanceMode?: AppearanceMode; seasonalTheme?: SeasonalTheme }): void {
+  const theme = themeForProfile(profile);
+  applyTheme(theme);
+  const requested = profile.appearanceMode ?? 'system';
+  const dark = requested === 'dark' || (requested === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.mode = dark ? 'dark' : 'light';
+  const seasonal = profile.seasonalTheme ?? 'none';
+  if (seasonal === 'none') delete document.documentElement.dataset.seasonal;
+  else document.documentElement.dataset.seasonal = seasonal;
+  document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', dark ? 'dark' : 'light');
 }

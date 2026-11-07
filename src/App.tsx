@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { RunSession, UserProfile, WorkoutSession } from './types';
+import type { CustomWorkoutTemplate, RunSession, UserProfile, WorkoutSession } from './types';
 import { dbService } from './storage/db';
 import { getDayPrescription } from './engine/jnt2Engine';
 import {
@@ -25,7 +25,7 @@ import { levelBadges, levelFor } from './engine/xp';
 import { batteryDebuff } from './engine/debuff';
 import { useWakeLock } from './lib/wakeLock';
 import { AppPrompts } from './components/AppPrompts';
-import { findTopSet, programExercises } from './engine/extras';
+import { findTopSet, programExercises, requiredExercises } from './engine/extras';
 import { NewCycleFlow } from './components/NewCycleFlow';
 import { historyForCycle, profileCycleId } from './engine/cycles';
 import { Onboarding } from './components/Onboarding';
@@ -62,6 +62,9 @@ import { RestTimer, type RestRequest } from './components/RestTimer';
 import { ToastStack, type ToastItem } from './components/Toast';
 import { WorkoutSummary, type WorkoutSummaryData } from './components/WorkoutSummary';
 import { PWAInstallButton } from './components/PWAInstallButton';
+import { MobileInstallGate } from './components/MobileInstallGate';
+import { FirstRun } from './components/FirstRun';
+import { isMobileBrowser } from './lib/installMode';
 import { RunLogSheet, type ManualRunInput } from './components/RunLogSheet';
 import { newRunId, preferredRunUnit } from './engine/runs';
 import { Avatar } from './components/Avatar';
@@ -71,8 +74,11 @@ import { makeAvatarThumb } from './lib/avatar';
 import { clearLock, readLock, resolveLock, writeLock } from './lib/lock';
 import { nudgeMessage, postWorkoutMessage, todayCandidates, type NudgeKind } from './engine/coach';
 import { loadSeen, markSeen } from './lib/coachSeen';
-import { applyTheme, defaultThemeForId, themeForProfile } from './lib/theme';
+import { applyAppearance, defaultThemeForId, themeForProfile } from './lib/theme';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { stopWorkoutTimer, toggleWorkoutTimer } from './lib/workoutTimer';
+import { createCustomWorkoutSession } from './engine/customWorkouts';
+import { CustomWorkouts } from './components/CustomWorkouts';
 import { Activity as ActivityIcon, CalendarDays, Dumbbell, Settings, ShieldCheck, TrendingUp, Users } from 'lucide-react';
 
 /** Coach messages are remembered per cycle, so a phase milestone can be celebrated again in the next run. */
@@ -101,6 +107,7 @@ export default function App() {
   // A phone with no profiles shows the setup wizard; `profilesLoaded` tells "none yet" apart from "still loading".
   const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [addingProfile, setAddingProfile] = useState(false);
+  const [onboardingStarted, setOnboardingStarted] = useState(false);
   const [newCycleOpen, setNewCycleOpen] = useState(false);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [backupAt, setBackupAt] = useState<number | null>(() => lastBackupAt());
@@ -108,6 +115,7 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: 'idle' });
   const syncing = useRef(false);
   const syncPending = useRef(false);
+  const syncFailures = useRef(0);
   const [coachTick, setCoachTick] = useState(0);
   const [today, setToday] = useState(() => todayKey());
   const [moveSlot, setMoveSlot] = useState<Slot | null>(null);
@@ -145,8 +153,31 @@ export default function App() {
   }, [profile?.id, profiles.length]);
 
   useEffect(() => {
-    if (profile) applyTheme(themeForProfile(profile));
-  }, [profile?.id, profile?.colorTheme]);
+    if (!profile) return;
+    const apply = () => applyAppearance(profile);
+    apply();
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    media?.addEventListener('change', apply);
+    return () => media?.removeEventListener('change', apply);
+  }, [profile?.id, profile?.colorTheme, profile?.appearanceMode, profile?.seasonalTheme]);
+
+  useEffect(() => {
+    if (!profile?.birthdayMonth || !profile.birthdayDay) return;
+    const date = new Date();
+    const year = date.getFullYear();
+    if (date.getMonth() + 1 !== profile.birthdayMonth || date.getDate() !== profile.birthdayDay || profile.lastBirthdayCelebrationYear === year) return;
+    const hasBadge = profile.unlockedBadges?.some((badge) => badge.id === 'birthday_gains');
+    const updated: UserProfile = {
+      ...profile,
+      lastBirthdayCelebrationYear: year,
+      unlockedBadges: hasBadge ? profile.unlockedBadges : [...(profile.unlockedBadges ?? []), { id: 'birthday_gains', unlockedAt: Date.now() }],
+    };
+    void dbService.saveProfile(updated).then(() => {
+      setProfiles((items) => items.map((item) => item.id === updated.id ? updated : item));
+      feedback('badge');
+      showToast(`Happy birthday, ${updated.name}! Birthday Gains unlocked.`, 'pr');
+    });
+  }, [profile?.id, profile?.birthdayMonth, profile?.birthdayDay, profile?.lastBirthdayCelebrationYear]);
 
   useEffect(() => installTapHaptics(), []);
 
@@ -272,8 +303,10 @@ export default function App() {
       const all = await pullSnapshots(cloudConfig, code);
       const others = all.filter((item) => item.deviceId !== deviceId);
       setRemote(others);
+      syncFailures.current = 0;
       setSyncStatus({ state: 'ok', at: Date.now(), lastPushAt: now, lastPullAt: Date.now(), remoteCount: others.length, lastPushed });
     } catch (error) {
+      syncFailures.current += 1;
       const message = typeof navigator !== 'undefined' && navigator.onLine === false ? 'Offline. Will retry when you are back online.' : (error as Error).message;
       setSyncStatus((prev) => ({ ...prev, state: 'error', error: message, at: prev.at }));
     } finally {
@@ -321,6 +354,14 @@ export default function App() {
       if (timer !== undefined) window.clearInterval(timer);
     };
   }, [paired, tab]);
+
+  // Failed syncs recover without a manual button. Back off from 15 seconds to at most five minutes.
+  useEffect(() => {
+    if (!paired || syncStatus.state !== 'error' || navigator.onLine === false) return;
+    const delay = Math.min(300_000, 15_000 * (2 ** Math.min(syncFailures.current - 1, 5)));
+    const timer = window.setTimeout(() => void syncNow(), delay);
+    return () => window.clearTimeout(timer);
+  }, [paired, syncStatus.state, syncStatus.error]);
 
   const realCommunity = useCommunity(cloudConfig, profile ?? null, history, async () => (profile ? dbService.getSessionHistory(profile.id, false) : []), deviceId);
   const mockCommunity = useMockCommunity();
@@ -448,7 +489,6 @@ export default function App() {
       setRemote([]);
       setSyncStatus({ state: 'idle' });
     },
-    onSyncNow: () => void syncNow(),
     diagnostics: cloudConfig ? {
       host: (() => { try { return new URL(cloudConfig.url).host; } catch { return cloudConfig.url; } })(),
       keyType: describeKey(cloudConfig.anonKey),
@@ -554,6 +594,16 @@ export default function App() {
     }
   };
 
+  const startCustomWorkout = async (template: CustomWorkoutTemplate) => {
+    if (!profile) return;
+    if (activeSessionRef.current) { showBanner('Finish or discard your current workout before starting another.', true); return; }
+    try {
+      await persistActive(createCustomWorkoutSession(profile, template));
+      setTab('today');
+      showBanner(`Started ${template.name}.`);
+    } catch (error) { showBanner((error as Error).message, true); }
+  };
+
   const handleLogSet = async (
     slotId: string,
     setId: string,
@@ -588,7 +638,7 @@ export default function App() {
       let nudge: string | null = null;
       if (!freshPr && !updated.isEditingCompleted && profile) {
         // Halfway / last-set nudges are about the program's own sets; an extra set never moves them.
-        const allSets = programExercises(updated).flatMap((item) => item.sets);
+        const allSets = requiredExercises(updated).flatMap((item) => item.sets);
         const doneCount = allSets.filter((item) => item.completed).length;
         const due: Array<[NudgeKind, boolean]> = [
           ['last_set', !exercise?.isExtra && allSets.length - doneCount === 1],
@@ -618,7 +668,7 @@ export default function App() {
         haptic('setLogged');
       }
 
-      const allDone = programExercises(updated).every((item) => item.sets.every((set) => set.completed));
+      const allDone = requiredExercises(updated).every((item) => item.sets.every((set) => set.completed));
       // Rest still helps between sets of an extra, even once the program's own sets are all done.
       if (profile?.autoStartRest && exercise && (!allDone || exercise.isExtra) && !updated.isEditingCompleted) {
         const seconds = exercise.tier === 'T1' ? 240 : exercise.tier.startsWith('T2') ? 150 : 90;
@@ -729,6 +779,30 @@ export default function App() {
     }
   };
 
+  const handleToggleWorkoutTimer = async () => {
+    const current = activeSessionRef.current;
+    if (!current) return;
+    try { await persistActive(toggleWorkoutTimer(current)); } catch { /* persistActive reports the failure */ }
+  };
+
+  const handleReorderExercise = async (slotId: string, targetSlotId: string) => {
+    const current = activeSessionRef.current;
+    if (!current || !profile || slotId === targetSlotId) return;
+    const from = current.exercises.findIndex((exercise) => exercise.slotId === slotId);
+    const to = current.exercises.findIndex((exercise) => exercise.slotId === targetSlotId);
+    if (from < 0 || to < 0) return;
+    const exercises = [...current.exercises];
+    const [moved] = exercises.splice(from, 1);
+    exercises.splice(to, 0, moved);
+    const programOrder = exercises.filter((exercise) => !exercise.isExtra).map((exercise) => exercise.slotId);
+    const updatedProfile = { ...profile, exerciseOrder: { ...(profile.exerciseOrder ?? {}), [`W${current.week}D${current.day}`]: programOrder } };
+    try {
+      await persistActive({ ...current, exercises, updatedTime: Date.now() });
+      await updateProfile(updatedProfile);
+      haptic('select');
+    } catch (error) { showBanner((error as Error).message, true); }
+  };
+
   const handleBackoffDecision = async (slotId: string, load: number) => {
     const current = activeSessionRef.current;
     if (!current) return;
@@ -742,7 +816,7 @@ export default function App() {
 
   const finishWorkout = async () => {
     if (!profile || !activeSessionRef.current) return;
-    let completed = finalizeSession(activeSessionRef.current);
+    let completed = finalizeSession(stopWorkoutTimer(activeSessionRef.current));
     if (completed.isPartial && !window.confirm('Some prescribed sets are unfinished or a back-off decision is pending. Save this as a partial session and advance once?')) return;
     const wasEditing = Boolean(activeSessionRef.current.isEditingCompleted);
     completed.isEditingCompleted = false;
@@ -808,7 +882,7 @@ export default function App() {
         const posted = community.signedIn ? workoutActivity(completed, history, streak.streakWeeks) : null;
         setSummary({
           post: posted ?? undefined,
-          title: `Week ${completed.week} · Day ${completed.day}`,
+          title: completed.workoutKind === 'custom' ? (completed.customName ?? 'Custom workout') : `Week ${completed.week} · Day ${completed.day}`,
           message: completed.encouragementMessage ?? '',
           highlights,
           streak,
@@ -1025,8 +1099,23 @@ export default function App() {
     );
   }
 
+  if (profilesLoaded && isMobileBrowser()) {
+    return <MobileInstallGate hasData={profiles.length > 0} onExport={async () => {
+      const outcome = await exportTextFile(`jnt2-browser-transfer-${new Date().toISOString().slice(0, 10)}.json`, await dbService.exportBackup());
+      if (outcome !== 'cancelled') recordBackup();
+    }} />;
+  }
+
+  if (profilesLoaded && profiles.length === 0 && !onboardingStarted) {
+    return <FirstRun onCreate={() => setOnboardingStarted(true)} onImport={async (json) => {
+      const result = await dbService.importBackup(json, 'reject-duplicates');
+      if (result.success) await refreshAfterImport();
+      return result;
+    }} />;
+  }
+
   // First run, or adding another lifter: the setup wizard saves the profile only when it is finished.
-  if ((profilesLoaded && profiles.length === 0) || addingProfile) {
+  if ((profilesLoaded && profiles.length === 0 && onboardingStarted) || addingProfile) {
     return (
       <Onboarding
         onCancel={addingProfile ? () => setAddingProfile(false) : undefined}
@@ -1083,10 +1172,11 @@ export default function App() {
       {banner && <div role={banner.error ? 'alert' : 'status'} className={`sticky top-[calc(57px+env(safe-area-inset-top))] z-20 px-4 py-2 text-xs font-bold text-center ${banner.error ? 'bg-bad text-on-accent' : 'bg-ink text-paper'}`}>{banner.text}</div>}
 
       <main key={tab} className={`flex-1 p-3 sm:p-4 pb-[calc(7rem+env(safe-area-inset-bottom))] mx-auto w-full animate-fade-in ${tab === 'progress' ? 'max-w-5xl' : 'max-w-xl'}`}>
-        {tab === 'today' && <TodayTab extras={{ onAdd: handleAddExtra, onAddSet: handleAddExtraSet, onRemoveSet: handleRemoveExtraSet, onRemove: handleRemoveExtra }} onExerciseNote={handleExerciseNote} onSessionNote={handleSessionNote} onStartNewCycle={() => setNewCycleOpen(true)} profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onSetVariationTm={handleSetVariationTm} onClearLoads={handleClearLoads} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} runs={runs} onLogRun={() => setRunLogOpen(true)} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
+        {tab === 'today' && <TodayTab extras={{ onAdd: handleAddExtra, onAddSet: handleAddExtraSet, onRemoveSet: handleRemoveExtraSet, onRemove: handleRemoveExtra }} onExerciseNote={handleExerciseNote} onSessionNote={handleSessionNote} onStartNewCycle={() => setNewCycleOpen(true)} profile={profile} activeSession={activeSession} onStartWorkout={startWorkout} onLogSet={handleLogSet} onUndoSet={handleUndoSet} onBackoffDecision={handleBackoffDecision} onCompleteWorkout={finishWorkout} onDiscardActiveWorkout={discardActive} onToggleTimer={handleToggleWorkoutTimer} onReorderExercise={handleReorderExercise} onSkipSession={skipSession} onSwapExercise={handleSwapExercise} onSetVariationTm={handleSetVariationTm} onClearLoads={handleClearLoads} onToggleWarmup={handleToggleWarmup} next={nextSlot} missed={missed} onMoveNext={nextSlot ? () => setMoveSlot({ week: nextSlot.week, day: nextSlot.day }) : undefined} weekStrip={schedule ? <WeekStrip schedule={schedule} profile={profile ?? undefined} history={cycleHistory} today={today} onOpen={() => setTab('program')} /> : null} coach={coachMessage} onDismissCoach={dismissCoach} history={history} runs={runs} onLogRun={() => setRunLogOpen(true)} battery={battery?.active && battery.until !== null ? { until: battery.until, missedCount: battery.missedCount } : null} streak={profile ? computeStreak(history, profile.weeklyGoalSessions ?? 4) : undefined} />}
         {tab === 'program' && (
           <div className="space-y-4">
             {schedule && <TrainingCalendar schedule={schedule} profile={profile ?? undefined} history={cycleHistory} runs={runs} today={today} onMove={handleMoveWorkout} onOpenMove={setMoveSlot} onCatchUp={handleCatchUp} />}
+            {profile && <CustomWorkouts profile={profile} activeWorkout={Boolean(activeSession)} onSave={(updated) => void updateProfile(updated)} onStart={(template) => void startCustomWorkout(template)} />}
             <ProgramTab profile={profile} onUpdateProfile={updateProfile} />
           </div>
         )}
@@ -1099,7 +1189,7 @@ export default function App() {
             showBanner('Session deleted.');
           } catch (error) { showBanner((error as Error).message, true); }
         }} />}
-        {tab === 'activity' && <ActivityTab community={community} memberName={profile?.name ?? ''} me={profile ?? undefined} focus={activityFocus} onShareHistory={shareHistory} />}
+        {tab === 'activity' && <ActivityTab community={community} config={cloudConfig} memberName={profile?.name ?? ''} me={profile ?? undefined} focus={activityFocus} onShareHistory={shareHistory} />}
         {tab === 'together' && <TogetherTab board={leaderboard} youId={paired ? (meId ?? '') : (profile?.id ?? '')} pairing={pairingUi} profiles={profiles} youLevel={myLevel} onTaunt={sendTaunt} />}
         {tab === 'settings' && <SettingsTab level={myLevel} extra={<>{profile && <NotificationsPanel profile={profile} config={cloudConfig} code={pairing.code} deviceId={deviceId} />}<UpdateCard updateReady={appUpdate.updateReady} checking={appUpdate.checking} onCheck={appUpdate.check} onUpdate={appUpdate.apply} activeWorkout={Boolean(activeSession)} /></>} profiles={profiles} activeProfileId={profile?.id ?? ''} activeSession={activeSession} onSwitchUser={switchUser} onAddProfile={() => setAddingProfile(true)} onStartNewCycle={activeSession ? undefined : () => setNewCycleOpen(true)} onUpdateProfile={updateProfile} onExportBackup={async () => {
           try {

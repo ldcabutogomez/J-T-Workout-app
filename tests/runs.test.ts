@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { currentWeekRunSummary, distanceFromMeters, distanceToMeters, formatRunDuration, formatRunPace, runDistanceByWeek } from '../src/engine/runs';
 import { StorageService } from '../src/storage/db';
+import { SCHEMA_VERSION } from '../src/storage/schema';
 import type { RunSession } from '../src/types';
 import { profile } from './helpers';
 
@@ -62,7 +63,7 @@ test('run records save, sort, back up, restore, and delete independently of lift
   assert.equal((await source.getSessionHistory(p.id)).length, 0);
 
   const backup = JSON.parse(await source.exportBackup());
-  assert.equal(backup.version, 5);
+  assert.equal(backup.version, SCHEMA_VERSION);
   assert.equal(backup.runs.length, 2);
 
   const target = new StorageService('runs-target', 'test_runs_target');

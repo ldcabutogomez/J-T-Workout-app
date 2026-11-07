@@ -14,6 +14,10 @@ export const isExtra = (exercise: Pick<LoggedExercise, 'isExtra'>): boolean => e
 export const programExercises = (session: Pick<WorkoutSession, 'exercises'>): LoggedExercise[] =>
   session.exercises.filter((exercise) => !isExtra(exercise));
 
+/** Exercises that decide completion/progress. Custom workouts intentionally use their full exercise list. */
+export const requiredExercises = (session: Pick<WorkoutSession, 'exercises'> & { workoutKind?: string }): LoggedExercise[] =>
+  session.workoutKind === 'custom' ? session.exercises : programExercises(session);
+
 /**
  * The set that stands for an exercise in PRs, "last time" and records. A program lift uses its first logged
  * RM or test set, as always. An extra has only straight sets, so its heaviest logged set stands for it (ties go

@@ -1,4 +1,4 @@
-import type { BackupExportData, LoggedExercise, LoggedSet, RunSession, UserProfile, WorkoutSession } from '../types';
+import type { BackupExportData, CustomWorkoutTemplate, LoggedExercise, LoggedSet, RunSession, UserProfile, WorkoutSession } from '../types';
 import { isValidAvatar } from '../lib/avatar';
 import { isColorTheme } from '../lib/theme';
 import { isValidSchedule } from '../engine/schedule';
@@ -47,7 +47,10 @@ function validateSet(value: unknown): value is LoggedSet {
     && (value.load === null || finiteNonNegative(value.load))
     && (value.unit === 'lb' || value.unit === 'kg')
     && typeof value.completed === 'boolean'
-    && completedValues;
+    && completedValues
+    && (value.customMode === undefined || ['standard', 'failure', 'drop'].includes(String(value.customMode)))
+    && (value.dropGroupId === undefined || (typeof value.dropGroupId === 'string' && value.dropGroupId.length <= 100))
+    && (value.dropStage === undefined || (Number.isInteger(value.dropStage) && Number(value.dropStage) >= 0 && Number(value.dropStage) <= 10));
 }
 
 function validateExercise(value: unknown): value is LoggedExercise {
@@ -134,6 +137,9 @@ function validatePrescriptionSnapshot(value: unknown, week: number, day: number)
 function validateSession(value: unknown, profileIds: Set<string>): value is WorkoutSession {
   if (!isObject(value)) return false;
   return typeof value.sessionId === 'string'
+    && (value.workoutKind === undefined || value.workoutKind === 'program' || value.workoutKind === 'custom')
+    && (value.customName === undefined || (typeof value.customName === 'string' && value.customName.trim().length > 0 && value.customName.length <= 60))
+    && (value.customTemplateId === undefined || (typeof value.customTemplateId === 'string' && value.customTemplateId.length <= 100))
     && typeof value.profileId === 'string'
     && (value.note === undefined || (typeof value.note === 'string' && value.note.length <= 500))
     && (value.cycleId === undefined || (typeof value.cycleId === 'string' && /^c[1-9][0-9]{0,2}$/.test(value.cycleId)))
@@ -142,6 +148,9 @@ function validateSession(value: unknown, profileIds: Set<string>): value is Work
     && Number.isInteger(value.day) && Number(value.day) >= 1 && Number(value.day) <= 4
     && finiteNonNegative(value.startTime)
     && finiteNonNegative(value.updatedTime)
+    && (value.timer === undefined || (isObject(value.timer)
+      && finiteNonNegative(value.timer.accumulatedMs)
+      && (value.timer.runningSince === null || finiteNonNegative(value.timer.runningSince))))
     && ['active', 'partial', 'completed', 'skipped'].includes(String(value.status))
     && typeof value.isPartial === 'boolean'
     && typeof value.isSkipped === 'boolean'
@@ -163,6 +172,34 @@ function validateStringRecord(value: unknown): boolean {
   return isObject(value) && Object.values(value).every((item) => typeof item === 'string' && item.length > 0);
 }
 
+function validateExerciseOrder(value: unknown): boolean {
+  return isObject(value) && Object.entries(value).every(([key, order]) => /^W(?:[1-9]|1[0-2])D[1-4]$/.test(key)
+    && Array.isArray(order) && order.length <= 40 && order.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 100)
+    && new Set(order).size === order.length);
+}
+
+function validateCustomTemplates(value: unknown): value is CustomWorkoutTemplate[] {
+  if (!Array.isArray(value) || value.length > 50) return false;
+  const ids = new Set<string>();
+  return value.every((template) => {
+    if (!isObject(template) || typeof template.id !== 'string' || ids.has(template.id) || typeof template.name !== 'string'
+      || template.name.trim().length < 1 || template.name.length > 60 || !finiteNonNegative(template.createdAt)
+      || !finiteNonNegative(template.updatedAt) || !Array.isArray(template.exercises) || template.exercises.length > 40) return false;
+    ids.add(template.id);
+    const exerciseIds = new Set<string>();
+    return template.exercises.every((exercise) => {
+      if (!isObject(exercise) || typeof exercise.id !== 'string' || exerciseIds.has(exercise.id)
+        || typeof exercise.exerciseId !== 'string' || typeof exercise.name !== 'string' || !exercise.name.trim()
+        || !Array.isArray(exercise.sets) || exercise.sets.length < 1 || exercise.sets.length > 30) return false;
+      exerciseIds.add(exercise.id);
+      return exercise.sets.every((set) => isObject(set) && typeof set.id === 'string'
+        && ['standard', 'failure', 'drop'].includes(String(set.mode))
+        && Number.isInteger(set.reps) && Number(set.reps) >= 0 && Number(set.reps) <= 200
+        && (set.stages === undefined || (Number.isInteger(set.stages) && Number(set.stages) >= 2 && Number(set.stages) <= 5)));
+    });
+  });
+}
+
 function validateProfile(value: unknown): value is UserProfile {
   if (!isObject(value)) return false;
   return typeof value.id === 'string' && value.id.length > 0
@@ -177,9 +214,16 @@ function validateProfile(value: unknown): value is UserProfile {
     && validateTmRecord(value.trainingMaxes)
     && (value.block2ConfirmedTMs === undefined || validateTmRecord(value.block2ConfirmedTMs))
     && (value.exerciseSwaps === undefined || validateStringRecord(value.exerciseSwaps))
+    && (value.exerciseOrder === undefined || validateExerciseOrder(value.exerciseOrder))
+    && (value.customWorkoutTemplates === undefined || validateCustomTemplates(value.customWorkoutTemplates))
     && (value.variationTrainingMaxes === undefined || (isObject(value.variationTrainingMaxes) && Object.values(value.variationTrainingMaxes).every((tm) => typeof tm === 'number' && Number.isFinite(tm) && tm > 0)))
     && (value.avatar === undefined || isValidAvatar(value.avatar))
     && (value.colorTheme === undefined || isColorTheme(value.colorTheme))
+    && (value.appearanceMode === undefined || ['system', 'light', 'dark'].includes(String(value.appearanceMode)))
+    && (value.seasonalTheme === undefined || ['none', 'halloween', 'winter', 'valentine'].includes(String(value.seasonalTheme)))
+    && (value.birthdayMonth === undefined || (Number.isInteger(value.birthdayMonth) && Number(value.birthdayMonth) >= 1 && Number(value.birthdayMonth) <= 12))
+    && (value.birthdayDay === undefined || (Number.isInteger(value.birthdayDay) && Number(value.birthdayDay) >= 1 && Number(value.birthdayDay) <= 31))
+    && (value.lastBirthdayCelebrationYear === undefined || (Number.isInteger(value.lastBirthdayCelebrationYear) && Number(value.lastBirthdayCelebrationYear) >= 2000 && Number(value.lastBirthdayCelebrationYear) <= 3000))
     && (value.schedule === undefined || isValidSchedule(value.schedule));
 }
 
@@ -479,7 +523,7 @@ export class StorageService {
         const profiles = this.fallbackRead<UserProfile[]>('profiles', []);
         const profileIndex = profiles.findIndex((item) => item.id === inputProfile.id);
         if (profileIndex < 0) throw new Error('The session profile no longer exists.');
-        const shouldAdvance = !existing?.advancedAt && !inputSession.advancedAt && !inputSession.isEditingCompleted;
+        const shouldAdvance = inputSession.workoutKind !== 'custom' && !existing?.advancedAt && !inputSession.advancedAt && !inputSession.isEditingCompleted;
         const session = { ...inputSession, advancedAt: shouldAdvance ? now : (existing?.advancedAt ?? inputSession.advancedAt) };
         const profile = shouldAdvance ? { ...profiles[profileIndex], ...(position ?? nextProgramPosition(profiles[profileIndex])) } : profiles[profileIndex];
         const sessionIndex = completed.findIndex((item) => item.sessionId === session.sessionId);
@@ -521,7 +565,7 @@ export class StorageService {
             transaction.abort();
             return;
           }
-          const shouldAdvance = !existing?.advancedAt && !inputSession.advancedAt && !inputSession.isEditingCompleted;
+          const shouldAdvance = inputSession.workoutKind !== 'custom' && !existing?.advancedAt && !inputSession.advancedAt && !inputSession.isEditingCompleted;
           const session = { ...inputSession, advancedAt: shouldAdvance ? now : (existing?.advancedAt ?? inputSession.advancedAt) };
           const profile = shouldAdvance ? { ...storedProfile, ...(position ?? nextProgramPosition(storedProfile)) } : storedProfile;
           sessions.put(session);
@@ -665,7 +709,7 @@ export class StorageService {
       this.getAll<RunSession>('runs'),
     ]);
     const payload: BackupExportData = {
-      version: SCHEMA_VERSION as 4,
+      version: SCHEMA_VERSION,
       timestamp: Date.now(),
       app: BACKUP_APP,
       profiles,

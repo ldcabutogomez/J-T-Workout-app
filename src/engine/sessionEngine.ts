@@ -7,7 +7,7 @@ import type {
   WorkoutSession,
 } from '../types';
 import { calculateSetLoad, getDayPrescription, normalizeWeight, resolveTrainingMax, roundLoad } from './jnt2Engine';
-import { EXTRA_SLOT_PREFIX, EXTRA_TIER, isExtra, programExercises } from './extras';
+import { EXTRA_SLOT_PREFIX, EXTRA_TIER, isExtra, programExercises, requiredExercises } from './extras';
 import { slug } from '../lib/slug';
 import { countsTowardStats } from './sessionValidity';
 import { suggestFromHistory, suggestRmLoadFor } from './suggestions';
@@ -98,6 +98,9 @@ export function createWorkoutSession(
       };
     }),
   }));
+  const preferred = profile.exerciseOrder?.[`W${prescription.week}D${prescription.dayNumber}`] ?? [];
+  const rank = new Map(preferred.map((id, index) => [id, index]));
+  exercises.sort((a, b) => (rank.get(a.slotId) ?? 10_000) - (rank.get(b.slotId) ?? 10_000));
 
   return {
     sessionId: `session-${profile.id}-w${prescription.week}-d${prescription.dayNumber}-${now}`,
@@ -107,6 +110,7 @@ export function createWorkoutSession(
     day: prescription.dayNumber,
     startTime: now,
     updatedTime: now,
+    timer: { accumulatedMs: 0, runningSince: now },
     status: 'active',
     isPartial: false,
     isSkipped: false,
@@ -302,7 +306,7 @@ export function undoSet(
 
 export function allRequiredSetsLogged(session: WorkoutSession): boolean {
   // Extras are optional by definition: an unlogged extra set never makes a finished workout partial.
-  return programExercises(session).every((exercise) =>
+  return requiredExercises(session).every((exercise) =>
     !exercise.manualLoadDecisionPending && exercise.sets.every((set) => set.completed),
   );
 }
@@ -311,9 +315,11 @@ export function finalizeSession(session: WorkoutSession, now = Date.now()): Work
   const next = copy(session);
   const complete = allRequiredSetsLogged(next);
   // Nothing half-empty is saved: unlogged extra sets go, and so does an extra with no logged set.
-  next.exercises = next.exercises
-    .map((exercise) => (isExtra(exercise) ? { ...exercise, sets: exercise.sets.filter((set) => set.completed) } : exercise))
-    .filter((exercise) => !isExtra(exercise) || exercise.sets.length > 0);
+  if (session.workoutKind !== 'custom') {
+    next.exercises = next.exercises
+      .map((exercise) => (isExtra(exercise) ? { ...exercise, sets: exercise.sets.filter((set) => set.completed) } : exercise))
+      .filter((exercise) => !isExtra(exercise) || exercise.sets.length > 0);
+  }
   // Editing history must not move the session into the present (week goal, PR chronology).
   next.completedTime = session.isEditingCompleted && session.completedTime ? session.completedTime : now;
   next.updatedTime = now;

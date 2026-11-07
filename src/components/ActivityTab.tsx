@@ -5,6 +5,8 @@ import type { CommunityState } from '../sync/useCommunity';
 import { COMMENT_MAX, type FeedItem, type NotificationItem } from '../sync/community';
 import { Avatar } from './Avatar';
 import { AnatomyMap } from './AnatomyMap';
+import type { CloudConfig } from '../sync/cloud';
+import { DirectMessages } from './DirectMessages';
 
 function ago(ms: number, now = Date.now()): string {
   const mins = Math.max(0, Math.round((now - ms) / 60_000));
@@ -39,7 +41,7 @@ function Thread({ community, item, me }: { community: CommunityState; item: Feed
         const mineComment = c.userId === community.userId;
         return (
           <div key={c.id} className="flex items-start gap-2.5">
-            <Avatar profile={mineComment && me ? me : { id: c.userId, name: c.name }} size={28} decorative />
+            <Avatar profile={mineComment && me ? me : { id: c.userId, name: c.name, avatar: c.avatar ? { photo: c.avatar.thumb, color: c.avatar.color } : undefined }} size={28} decorative />
             <div className="min-w-0 flex-1">
               <div className={`rounded-2xl rounded-tl-md px-3 py-2 ${mineComment ? 'bg-accent/10' : 'bg-sunk'}`}>
                 <p className="flex items-baseline justify-between gap-2">
@@ -85,7 +87,7 @@ function Card({ item, community, me, focusSignal }: { item: FeedItem; community:
   return (
     <article ref={ref} id={`post-${item.id}`} className={`card p-4 transition-shadow duration-500 ${flash ? 'ring-2 ring-accent shadow-lg' : ''}`}>
       <div className="flex items-center gap-2.5">
-        <Avatar profile={mine && me ? me : { id: item.userId, name: item.name }} size={36} decorative />
+        <Avatar profile={mine && me ? me : { id: item.userId, name: item.name, avatar: item.avatar ? { photo: item.avatar.thumb, color: item.avatar.color } : undefined }} size={36} decorative />
         <div className="min-w-0 flex-1">
           <p className="font-black text-ink text-sm truncate">{item.name}</p>
           <p className="text-xs text-muted">{ago(item.createdAt)}</p>
@@ -102,7 +104,7 @@ function Card({ item, community, me, focusSignal }: { item: FeedItem; community:
         </>
       ) : (
         <>
-          <p className="eyebrow mt-3">{s.partial ? 'Partial workout' : 'Workout'} · Week {s.week}, Day {s.day}</p>
+          <p className="eyebrow mt-3">{s.partial ? 'Partial workout' : 'Workout'}{s.custom ? ' · Custom' : ` · Week ${s.week}, Day ${s.day}`}</p>
           <p className="font-black text-ink text-xl mt-0.5">{s.title}</p>
           <div className="mt-1 flex gap-4 text-xs text-muted">
             <span><b className="text-ink">{s.sets}</b> sets</span>
@@ -203,6 +205,7 @@ function NotificationRow({ item, onOpen }: { item: NotificationItem; onOpen: () 
 
 interface ActivityTabProps {
   community: CommunityState;
+  config: CloudConfig | null;
   memberName: string;
   /** Your own profile, so your posts show your picture and colours. */
   me?: UserProfile;
@@ -212,10 +215,11 @@ interface ActivityTabProps {
   onShareHistory: () => Promise<number>;
 }
 
-export function ActivityTab({ community, memberName, me, focus, onShareHistory }: ActivityTabProps) {
+export function ActivityTab({ community, config, memberName, me, focus, onShareHistory }: ActivityTabProps) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [filter, setFilter] = useState<'all' | 'mine'>('all');
+  const [section, setSection] = useState<'feed' | 'messages'>('feed');
   const [sharing, setSharing] = useState(false);
   const [local, setLocal] = useState<{ id: string; n: number } | null>(null);
   const target = local && (!focus || local.n >= focus.n) ? local : focus ?? null;
@@ -273,8 +277,11 @@ export function ActivityTab({ community, memberName, me, focus, onShareHistory }
     try { await onShareHistory(); } finally { setSharing(false); }
   };
 
+  if (section === 'messages' && config) return <section className="space-y-3"><div className="grid grid-cols-2 gap-1 rounded-xl bg-sunk p-1" role="tablist" aria-label="Community sections"><button role="tab" aria-selected={false} onClick={() => setSection('feed')} className="min-h-11 rounded-lg text-sm font-bold text-muted">Feed</button><button role="tab" aria-selected className="min-h-11 rounded-lg bg-surface text-sm font-black text-ink">Messages</button></div><DirectMessages config={config} community={community} /></section>;
+
   return (
     <section className="space-y-3">
+      <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunk p-1" role="tablist" aria-label="Community sections"><button role="tab" aria-selected className="min-h-11 rounded-lg bg-surface text-sm font-black text-ink">Feed</button><button role="tab" aria-selected={false} onClick={() => setSection('messages')} className="min-h-11 rounded-lg text-sm font-bold text-muted">Messages</button></div>
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-1" role="group" aria-label="Filter activity">
           {(['all', 'mine'] as const).map((value) => (
